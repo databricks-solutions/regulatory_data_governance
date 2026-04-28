@@ -1,0 +1,116 @@
+# SCR Doc 3050 synthetic XML generator — 5-step sequential job
+# Consome as tabelas f_3040_* produzidas pelo job `scr3040_generator` e
+# agrega-as conforme a Equivalência BACEN (3040 ↔ 3050).
+resources:
+  jobs:
+    scr3050_generator:
+      name: "rc18-scr3050-generator"
+      description: "Gera amostra sintética do Doc 3050 (TXB V11) a partir do 3040 e valida com o Validador TXB do BACEN."
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: dt_base
+          default: "2026-03"
+        - name: cnpj_if
+          default: "99999999"
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: "reference"
+        - name: volume_out
+          default: "/Volumes/${var.catalog}/reference/scr3050_out"
+        - name: src_prefix_3040
+          default: "${var.catalog}.reference.f_3040_"
+        - name: leiaute_versao
+          default: "V11"
+        - name: validador_zip
+          default: "/Volumes/rc18_demo/ferramentas/validador/SCR3050_Validador.zip"
+        - name: validador_main_class
+          default: "br.gov.bcb.mdr.validador.entrada.linhacomando.ValidadorLinhaComando"
+        - name: xsd_path
+          default: "/Volumes/rc18_demo/ferramentas/validador/xsd/Schema_TXB_V11.xsd"
+        - name: fail_on_error
+          default: "true"
+
+      # Clusters clássicos exclusivamente para a task de validação Java
+      # (serverless não expõe JVM do lado do driver).
+      job_clusters:
+        - job_cluster_key: validator_classic
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "m5d.large"
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+              Purpose: "scr3050-validator"
+
+      tasks:
+        # Tasks 00-03 rodam em serverless (sem job_cluster_key) para compartilhar
+        # o contexto do `%run ./00_Setup_e_Equivalencia` nos notebooks 01/02/03.
+        - task_key: setup_e_equivalencia
+          notebook_task:
+            notebook_path: ../notebooks/scr3050_generator/00_Setup_e_Equivalencia.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
+              src_prefix_3040: "{{job.parameters.src_prefix_3040}}"
+              leiaute_versao: "{{job.parameters.leiaute_versao}}"
+
+        - task_key: ingestao_dados_3040
+          depends_on:
+            - task_key: setup_e_equivalencia
+          notebook_task:
+            notebook_path: ../notebooks/scr3050_generator/01_Ingestao_Dados_3040.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              src_prefix_3040: "{{job.parameters.src_prefix_3040}}"
+
+        - task_key: motor_de_agregacao_3050
+          depends_on:
+            - task_key: ingestao_dados_3040
+          notebook_task:
+            notebook_path: ../notebooks/scr3050_generator/02_Motor_de_Agregacao_3050.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              leiaute_versao: "{{job.parameters.leiaute_versao}}"
+
+        - task_key: geracao_e_exportacao_xml
+          depends_on:
+            - task_key: motor_de_agregacao_3050
+          notebook_task:
+            notebook_path: ../notebooks/scr3050_generator/03_Geracao_e_Exportacao_XML.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
+              leiaute_versao: "{{job.parameters.leiaute_versao}}"
+
+        # Task 04 precisa de JVM no driver → cluster clássico single-node.
+        - task_key: validacao_bacen_automatizada
+          depends_on:
+            - task_key: geracao_e_exportacao_xml
+          job_cluster_key: validator_classic
+          notebook_task:
+            notebook_path: ../notebooks/scr3050_generator/04_Validacao_BACEN_Automatizada.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              volume_out: "{{job.parameters.volume_out}}"
+              validador_zip: "{{job.parameters.validador_zip}}"
+              validador_main_class: "{{job.parameters.validador_main_class}}"
+              xsd_path: "{{job.parameters.xsd_path}}"
+              fail_on_error: "{{job.parameters.fail_on_error}}"

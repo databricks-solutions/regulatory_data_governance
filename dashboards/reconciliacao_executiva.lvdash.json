@@ -1,0 +1,421 @@
+{
+  "datasets": [
+    {
+      "name": "ds_recon_summary",
+      "displayName": "Resumo Reconciliacao Mensal",
+      "queryLines": [
+        "SELECT dt_base, ",
+        "  COUNT(*) AS total_modalidades, ",
+        "  SUM(CASE WHEN diferenca_percentual > 0.5 THEN 1 ELSE 0 END) AS modalidades_fora_tolerancia, ",
+        "  ROUND(AVG(diferenca_percentual), 4) AS divergencia_media, ",
+        "  CASE ",
+        "    WHEN MAX(diferenca_percentual) <= 0.1 THEN 'APROVADO' ",
+        "    WHEN MAX(diferenca_percentual) <= 0.5 THEN 'ALERTA' ",
+        "    ELSE 'BLOQUEIO' END AS status_reconciliacao ",
+        "FROM rc18_catalog.gold.reconciliacao_3040_3050 ",
+        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
+        "GROUP BY dt_base"
+      ]
+    },
+    {
+      "name": "ds_recon_by_modality",
+      "displayName": "Divergencia por Modalidade",
+      "queryLines": [
+        "SELECT modalidade_3050, dt_base, ",
+        "  saldo_3040 AS vlr_3040, ",
+        "  saldo_3050_reais AS vlr_3050, ",
+        "  diferenca_absoluta AS vlr_divergencia, ",
+        "  diferenca_percentual AS pct_divergencia, ",
+        "  status ",
+        "FROM rc18_catalog.gold.reconciliacao_3040_3050 ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.reconciliacao_3040_3050)"
+      ]
+    },
+    {
+      "name": "ds_cosif_recon",
+      "displayName": "Batimento COSIF",
+      "queryLines": [
+        "SELECT codigo_regra, descricao_regra, ",
+        "  vlr_scr, vlr_cosif, vlr_diferenca, pct_diferenca, status ",
+        "FROM rc18_catalog.gold.reconciliacao_cosif ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.reconciliacao_cosif) ",
+        "ORDER BY pct_diferenca DESC"
+      ]
+    },
+    {
+      "name": "ds_recon_trend",
+      "displayName": "Tendencia Reconciliacao",
+      "queryLines": [
+        "SELECT dt_base, ",
+        "  ROUND(AVG(diferenca_percentual), 4) AS divergencia_media, ",
+        "  ROUND(MAX(diferenca_percentual), 4) AS divergencia_maxima ",
+        "FROM rc18_catalog.gold.reconciliacao_3040_3050 ",
+        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
+        "GROUP BY dt_base ",
+        "ORDER BY dt_base"
+      ]
+    },
+    {
+      "name": "ds_kpi_status_geral",
+      "displayName": "KPI Status Geral",
+      "queryLines": [
+        "SELECT ",
+        "  CASE ",
+        "    WHEN MAX(diferenca_percentual) <= 0.1 THEN 'APROVADO' ",
+        "    WHEN MAX(diferenca_percentual) <= 0.5 THEN 'ALERTA' ",
+        "    ELSE 'BLOQUEIO' END AS status_geral, ",
+        "  ROUND(AVG(diferenca_percentual), 4) AS divergencia_media, ",
+        "  SUM(CASE WHEN diferenca_percentual > 0.5 THEN 1 ELSE 0 END) AS mods_fora_tolerancia ",
+        "FROM rc18_catalog.gold.reconciliacao_3040_3050 ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.reconciliacao_3040_3050)"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "reconciliacao-executiva",
+      "displayName": "Reconciliacao Executiva",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": ["## Reconciliacao Executiva — 3040 vs 3050 vs COSIF"]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": ["Comparativo mensal por modalidade · Tolerancia: 0,5%"]
+            }
+          },
+          "position": {"x": 0, "y": 1, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "kpi-status-geral",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_status_geral",
+                "fields": [{"name": "status_geral", "expression": "`status_geral`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "status_geral", "displayName": "Status Geral"}
+              },
+              "frame": {"showTitle": true, "title": "Status Geral"}
+            }
+          },
+          "position": {"x": 0, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-divergencia-media",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_status_geral",
+                "fields": [{"name": "divergencia_media", "expression": "`divergencia_media`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "divergencia_media", "displayName": "Divergencia Media (%)"}
+              },
+              "frame": {"showTitle": true, "title": "Divergencia Media"}
+            }
+          },
+          "position": {"x": 2, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-mods-fora",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_status_geral",
+                "fields": [{"name": "mods_fora_tolerancia", "expression": "`mods_fora_tolerancia`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "mods_fora_tolerancia", "displayName": "Mods Fora Tolerancia"}
+              },
+              "frame": {"showTitle": true, "title": "Modalidades Fora da Tolerancia"}
+            }
+          },
+          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "section-por-modalidade",
+            "multilineTextboxSpec": {
+              "lines": ["### Divergencia por Modalidade (Ultima Data-Base)"]
+            }
+          },
+          "position": {"x": 0, "y": 5, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-divergencia",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_recon_by_modality",
+                "fields": [
+                  {"name": "modalidade_3050", "expression": "`modalidade_3050`"},
+                  {"name": "pct_divergencia", "expression": "`pct_divergencia`"},
+                  {"name": "status", "expression": "`status`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "modalidade_3050", "scale": {"type": "categorical"}, "displayName": "Modalidade 3050"},
+                "y": {"fieldName": "pct_divergencia", "scale": {"type": "quantitative"}, "displayName": "Divergencia (%)"},
+                "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
+              },
+              "frame": {"showTitle": true, "title": "Divergencia por Modalidade"}
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "section-cosif",
+            "multilineTextboxSpec": {
+              "lines": ["### Batimento COSIF — Regras T02-T10 e M01-M18"]
+            }
+          },
+          "position": {"x": 0, "y": 12, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-cosif",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_cosif_recon",
+                "fields": [
+                  {"name": "codigo_regra", "expression": "`codigo_regra`"},
+                  {"name": "descricao_regra", "expression": "`descricao_regra`"},
+                  {"name": "vlr_scr", "expression": "`vlr_scr`"},
+                  {"name": "vlr_cosif", "expression": "`vlr_cosif`"},
+                  {"name": "pct_diferenca", "expression": "`pct_diferenca`"},
+                  {"name": "status", "expression": "`status`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "codigo_regra", "displayName": "Codigo Regra"},
+                  {"fieldName": "descricao_regra", "displayName": "Descricao"},
+                  {"fieldName": "vlr_scr", "displayName": "Valor SCR (R$)"},
+                  {"fieldName": "vlr_cosif", "displayName": "Valor COSIF (R$)"},
+                  {"fieldName": "pct_diferenca", "displayName": "Diferenca (%)"},
+                  {"fieldName": "status", "displayName": "Status"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Regras de Batimento COSIF"}
+            }
+          },
+          "position": {"x": 0, "y": 13, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "section-tendencia",
+            "multilineTextboxSpec": {
+              "lines": ["### Evolucao da Divergencia Media (Ultimos 6 Meses)"]
+            }
+          },
+          "position": {"x": 0, "y": 19, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "line-recon-trend",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_recon_trend",
+                "fields": [
+                  {"name": "dt_base", "expression": "`dt_base`"},
+                  {"name": "divergencia_media", "expression": "`divergencia_media`"},
+                  {"name": "divergencia_maxima", "expression": "`divergencia_maxima`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "dt_base", "scale": {"type": "categorical"}, "displayName": "Data-Base"},
+                "y": {
+                  "scale": {"type": "quantitative"},
+                  "fields": [
+                    {"fieldName": "divergencia_media", "displayName": "Divergencia Media (%)"},
+                    {"fieldName": "divergencia_maxima", "displayName": "Divergencia Maxima (%)"}
+                  ]
+                }
+              },
+              "frame": {"showTitle": true, "title": "Tendencia de Divergencia"}
+            }
+          },
+          "position": {"x": 0, "y": 20, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-detalhe",
+            "multilineTextboxSpec": {
+              "lines": ["### Detalhe por Modalidade e Periodo"]
+            }
+          },
+          "position": {"x": 0, "y": 25, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-detalhe",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_recon_by_modality",
+                "fields": [
+                  {"name": "modalidade_3050", "expression": "`modalidade_3050`"},
+                  {"name": "vlr_3040", "expression": "`vlr_3040`"},
+                  {"name": "vlr_3050", "expression": "`vlr_3050`"},
+                  {"name": "vlr_divergencia", "expression": "`vlr_divergencia`"},
+                  {"name": "pct_divergencia", "expression": "`pct_divergencia`"},
+                  {"name": "status", "expression": "`status`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "modalidade_3050", "displayName": "Modalidade 3050"},
+                  {"fieldName": "vlr_3040", "displayName": "Saldo 3040 (R$)"},
+                  {"fieldName": "vlr_3050", "displayName": "Saldo 3050 (R$)"},
+                  {"fieldName": "vlr_divergencia", "displayName": "Divergencia (R$)"},
+                  {"fieldName": "pct_divergencia", "displayName": "Divergencia (%)"},
+                  {"fieldName": "status", "displayName": "Status"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Detalhe por Modalidade"}
+            }
+          },
+          "position": {"x": 0, "y": 26, "width": 6, "height": 8}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filtros",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-dt-base",
+            "queries": [{
+              "name": "ds_recon_summary_dt_base",
+              "query": {
+                "datasetName": "ds_recon_summary",
+                "fields": [{"name": "dt_base", "expression": "`dt_base`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "dt_base",
+                  "displayName": "Data-Base",
+                  "queryName": "ds_recon_summary_dt_base"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Data-Base"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-status",
+            "queries": [{
+              "name": "ds_recon_by_modality_status",
+              "query": {
+                "datasetName": "ds_recon_by_modality",
+                "fields": [{"name": "status", "expression": "`status`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "status",
+                  "displayName": "Status",
+                  "queryName": "ds_recon_by_modality_status"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Status"}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-modalidade",
+            "queries": [{
+              "name": "ds_recon_by_modality_modalidade",
+              "query": {
+                "datasetName": "ds_recon_by_modality",
+                "fields": [{"name": "modalidade_3050", "expression": "`modalidade_3050`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "modalidade_3050",
+                  "displayName": "Modalidade",
+                  "queryName": "ds_recon_by_modality_modalidade"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Modalidade"}
+            }
+          },
+          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
+        }
+      ]
+    }
+  ]
+}

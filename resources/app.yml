@@ -1,0 +1,14 @@
+resources:
+  apps:
+    r18_compliance_app:
+      name: ${var.app_name}
+      description: "RC18 StarterKit — BACEN Resolucao Conjunta N.18 Compliance Accelerator"
+      source_code_path: ../app/backend
+
+      permissions:
+        - level: CAN_USE
+          group_name: "compliance-team"
+        - level: CAN_USE
+          group_name: "executives"
+        - level: CAN_MANAGE
+          group_name: "platform-engineers"

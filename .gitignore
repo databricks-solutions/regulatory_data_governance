@@ -1,5 +1,43 @@
-*conf*.json
-.DS_Store
-__pycache__
-.idea/
+docs/
+meta_prompt.md
+.ai-dev-kit/
+.claude/
+.mcp.json
+
+# Local secrets / environment overrides — never commit
 .env
+.env.local
+.env.*.local
+app/frontend/.env
+app/frontend/.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+app/frontend/build/
+app/frontend/.svelte-kit/
+dist/
+
+# NOTE: app/backend/frontend_dist/ IS tracked in git so the Databricks Apps
+# deploy doesn't depend on a local build step. Rebuild before commit:
+#   cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
+
+# Databricks
+.databricks/
+.databricks-resources.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Playwright/screenshots
+.playwright-mcp/
+screenshot_*.png
+.DS_Store

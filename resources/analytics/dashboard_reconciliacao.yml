@@ -1,0 +1,7 @@
+# Reconciliação Executiva — placeholder
+resources:
+  dashboards:
+    reconciliacao_executiva:
+      display_name: "Reconciliação Executiva"
+      file_path: ../../dashboards/reconciliacao_executiva.lvdash.json
+      warehouse_id: ${var.warehouse_id}

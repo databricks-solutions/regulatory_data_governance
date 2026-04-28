@@ -1,0 +1,56 @@
+# Bundle do ACELERADOR RC18
+#
+# Contém APENAS o acelerador: app, pipelines (esqueletos 3040/3050),
+# dashboards Lakeview e Genie Room. Nenhum dado sintético, nenhum gerador.
+#
+# Para demos (com dados fictícios), ver demo/databricks.yml.
+
+bundle:
+  name: rc18-starter-kit
+
+include:
+  - resources/*.yml
+  - resources/**/*.yml
+
+sync:
+  # Inclui apenas o que o bundle precisa (evita subir docs/, demo/, .venv/, etc.)
+  paths:
+    - app
+    - notebooks
+    - pipelines
+    - dashboards
+    - resources
+  exclude:
+    - "**/node_modules/"
+    - "**/__pycache__/"
+    - "**/*.pyc"
+    - "**/.DS_Store"
+
+variables:
+  catalog:
+    default: "rc18_catalog"
+    description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
+
+  warehouse_id:
+    description: "SQL Warehouse ID — set per-target or via DATABRICKS_BUNDLE_VAR_warehouse_id"
+
+  app_name:
+    default: "rc18-starter-kit"
+
+  schema_bronze:
+    default: "bronze"
+  schema_silver:
+    default: "silver"
+  schema_gold:
+    default: "gold"
+  schema_quality:
+    default: "quality"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      # Profile comes from `databricks bundle deploy -p <name>` (deploy.sh passes it from $DATABRICKS_PROFILE)
+      # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

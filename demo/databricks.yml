@@ -1,0 +1,63 @@
+# Bundle do DEMO — para experimentar o acelerador fim-a-fim com dados sintéticos.
+#
+# Inclui todo o acelerador (app + pipelines + dashboards + genie) MAIS
+# os geradores sintéticos de Doc 3040/3050 e o loader de dados fictícios.
+#
+# Para implantar apenas o acelerador (sem dados sintéticos), rodar
+# `databricks bundle deploy` a partir da raiz do repositório (bundle rc18-starter-kit).
+
+bundle:
+  name: rc18-demo
+
+include:
+  # Recursos do acelerador (reutilizados do bundle do core)
+  - ../resources/*.yml
+  - ../resources/**/*.yml
+  # Recursos exclusivos do demo (geradores + loaders sintéticos)
+  - resources/*.yml
+
+sync:
+  # Inclui apenas o que o bundle precisa (evita subir docs/, .venv/, etc.)
+  paths:
+    - ../app
+    - ../notebooks
+    - ../pipelines
+    - ../dashboards
+    - ../resources
+    - notebooks
+    - resources
+    - prompts
+  exclude:
+    - "**/node_modules/"
+    - "**/__pycache__/"
+    - "**/*.pyc"
+    - "**/.DS_Store"
+
+variables:
+  catalog:
+    default: "rc18_demo_catalog"
+    description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
+
+  warehouse_id:
+    description: "SQL Warehouse ID — set per-target or via DATABRICKS_BUNDLE_VAR_warehouse_id"
+
+  app_name:
+    default: "rc18-demo"
+
+  schema_bronze:
+    default: "bronze"
+  schema_silver:
+    default: "silver"
+  schema_gold:
+    default: "gold"
+  schema_quality:
+    default: "quality"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      # Profile comes from `databricks bundle deploy -p <name>` (deploy.sh passes it from $DATABRICKS_PROFILE)
+      # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

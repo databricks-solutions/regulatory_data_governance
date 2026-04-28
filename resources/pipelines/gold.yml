@@ -1,0 +1,16 @@
+# Gold reconciliation pipeline — placeholder
+resources:
+  pipelines:
+    gold_reconciliation:
+      name: "r18-gold-reconciliation"
+      target: "${var.catalog}.${var.schema_gold}"
+      development: true
+      libraries:
+        - notebook:
+            path: ../../pipelines/gold/transformations/criticas_summary.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/posicao_mensal.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/quality_scorecard.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/reconciliacao_3040_3050.py

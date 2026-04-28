@@ -1,0 +1,41 @@
+command:
+  - "uvicorn"
+  - "main:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+  - "--workers"
+  - "2"
+
+# All values below must be overridden per-environment.
+# In Databricks Apps, set them via `databricks apps update --env KEY=VALUE`
+# or by referencing a secret scope (`valueFrom: <scope>/<key>`).
+# For local dev, define them in the repo-root `.env` file (see `.env.example`).
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: ""
+
+  - name: GENIE_SPACE_ID
+    value: ""
+
+  - name: USE_MOCK_BACKEND
+    value: "true"
+
+  - name: DATABRICKS_CATALOG
+    value: ""
+  - name: SCHEMA_GOLD
+    value: "gold"
+  - name: SCHEMA_SILVER
+    value: "silver"
+  - name: SCHEMA_QUALITY
+    value: "quality"
+  - name: SCHEMA_REFERENCE
+    value: "reference"
+
+  - name: DASHBOARD_ID_CONFORMIDADE
+    value: ""
+  - name: DASHBOARD_ID_CRITICAS
+    value: ""
+  - name: DASHBOARD_ID_RECONCILIACAO
+    value: ""

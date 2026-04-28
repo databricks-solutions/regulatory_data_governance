@@ -1,0 +1,76 @@
+# SCR Doc 3040 synthetic XML generator — 4-step sequential job
+resources:
+  jobs:
+    scr3040_generator:
+      name: "rc18-scr3040-generator"
+      description: "Gera amostra sintética do Doc 3040 (BACEN) e exporta XML validador-ready."
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: dt_base
+          default: "2026-03"
+        - name: cnpj_if
+          default: "99999999"
+        - name: n_clientes
+          default: "500"
+        - name: n_ops_por_cli
+          default: "3"
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: "reference"
+        - name: volume_out
+          default: "/Volumes/${var.catalog}/reference/scr3040_out"
+
+      tasks:
+        - task_key: setup_e_dominios
+          notebook_task:
+            notebook_path: ../notebooks/scr3040_generator/00_Setup_e_Dominios.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              n_clientes: "{{job.parameters.n_clientes}}"
+              n_ops_por_cli: "{{job.parameters.n_ops_por_cli}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
+
+        - task_key: geracao_dados_sinteticos
+          depends_on:
+            - task_key: setup_e_dominios
+          notebook_task:
+            notebook_path: ../notebooks/scr3040_generator/01_Geracao_Dados_Sinteticos.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              n_clientes: "{{job.parameters.n_clientes}}"
+              n_ops_por_cli: "{{job.parameters.n_ops_por_cli}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
+
+        - task_key: transformacao_e_regras
+          depends_on:
+            - task_key: geracao_dados_sinteticos
+          notebook_task:
+            notebook_path: ../notebooks/scr3040_generator/02_Transformacao_e_Regras.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+
+        - task_key: geracao_e_exportacao_xml
+          depends_on:
+            - task_key: transformacao_e_regras
+          notebook_task:
+            notebook_path: ../notebooks/scr3040_generator/03_Geracao_e_Exportacao_XML.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
+
+      # Todas as tasks rodam no mesmo cluster serverless (sem job_cluster_key)
+      # para compartilhar o contexto do %run ./00_Setup_e_Dominios nos NB 01/02/03.

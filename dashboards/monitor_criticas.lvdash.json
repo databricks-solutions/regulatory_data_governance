@@ -1,0 +1,406 @@
+{
+  "datasets": [
+    {
+      "name": "ds_criticas_summary",
+      "displayName": "Resumo Criticas por Documento",
+      "queryLines": [
+        "SELECT documento, dt_base, status, ",
+        "  COUNT(*) AS qtd_criticas ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -3), 'yyyy-MM') ",
+        "GROUP BY documento, dt_base, status"
+      ]
+    },
+    {
+      "name": "ds_criticas_by_category",
+      "displayName": "Criticas por Categoria e Severidade",
+      "queryLines": [
+        "SELECT severidade, ",
+        "  COUNT(*) AS total, ",
+        "  SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS reprovadas ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results) ",
+        "GROUP BY severidade"
+      ]
+    },
+    {
+      "name": "ds_criticas_top_failures",
+      "displayName": "Top 20 Criticas com Maior Reprovacao",
+      "queryLines": [
+        "SELECT critica_id AS codigo_critica, ",
+        "  MAX(descricao) AS descricao, ",
+        "  documento, ",
+        "  MAX(severidade) AS severidade, ",
+        "  COUNT(*) AS ocorrencias ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE status = 'FAIL' ",
+        "  AND dt_base >= DATE_FORMAT(add_months(current_date(), -1), 'yyyy-MM') ",
+        "GROUP BY critica_id, documento ",
+        "ORDER BY ocorrencias DESC ",
+        "LIMIT 20"
+      ]
+    },
+    {
+      "name": "ds_taxa_aprovacao",
+      "displayName": "Tendencia da Taxa de Aprovacao",
+      "queryLines": [
+        "SELECT documento, dt_base AS mes, ",
+        "  ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
+        "GROUP BY documento, dt_base"
+      ]
+    },
+    {
+      "name": "ds_kpi_taxa_3040",
+      "displayName": "KPI Taxa Aprovacao 3040",
+      "queryLines": [
+        "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE documento = '3040' ",
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3040')"
+      ]
+    },
+    {
+      "name": "ds_kpi_taxa_3050",
+      "displayName": "KPI Taxa Aprovacao 3050",
+      "queryLines": [
+        "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE documento = '3050' ",
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3050')"
+      ]
+    },
+    {
+      "name": "ds_kpi_criticas_abertas",
+      "displayName": "KPI Criticas Bloqueantes Abertas",
+      "queryLines": [
+        "SELECT COUNT(*) AS criticas_bloqueantes ",
+        "FROM rc18_catalog.quality.criticas_results ",
+        "WHERE severidade = 'BLOQUEANTE' AND status = 'FAIL' ",
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results)"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "visao-executiva",
+      "displayName": "Visao Executiva",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": ["## Monitor de Criticas SCR — 3040 e 3050"]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": ["Resultados de validacao por regra regulatoria"]
+            }
+          },
+          "position": {"x": 0, "y": 1, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "kpi-taxa-3040",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_taxa_3040",
+                "fields": [{"name": "taxa_aprovacao_3040", "expression": "`taxa_aprovacao_3040`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "taxa_aprovacao_3040", "displayName": "Taxa Aprovacao 3040 (%)"}
+              },
+              "frame": {"showTitle": true, "title": "Taxa Aprovacao 3040"}
+            }
+          },
+          "position": {"x": 0, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-taxa-3050",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_taxa_3050",
+                "fields": [{"name": "taxa_aprovacao_3050", "expression": "`taxa_aprovacao_3050`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "taxa_aprovacao_3050", "displayName": "Taxa Aprovacao 3050 (%)"}
+              },
+              "frame": {"showTitle": true, "title": "Taxa Aprovacao 3050"}
+            }
+          },
+          "position": {"x": 2, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-criticas-bloqueantes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_criticas_abertas",
+                "fields": [{"name": "criticas_bloqueantes", "expression": "`criticas_bloqueantes`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "criticas_bloqueantes", "displayName": "Criticas Bloqueantes"}
+              },
+              "frame": {"showTitle": true, "title": "Criticas Bloqueantes Abertas"}
+            }
+          },
+          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "section-por-documento",
+            "multilineTextboxSpec": {
+              "lines": ["### Taxa de Aprovacao por Documento"]
+            }
+          },
+          "position": {"x": 0, "y": 5, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-pass-rate",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_criticas_summary",
+                "fields": [
+                  {"name": "documento", "expression": "`documento`"},
+                  {"name": "qtd_criticas", "expression": "`qtd_criticas`"},
+                  {"name": "status", "expression": "`status`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"},
+                "y": {"fieldName": "qtd_criticas", "scale": {"type": "quantitative"}, "displayName": "Qtd Criticas"},
+                "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
+              },
+              "frame": {"showTitle": true, "title": "Criticas por Documento e Status"}
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 3, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "pie-severidade",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_criticas_by_category",
+                "fields": [
+                  {"name": "severidade", "expression": "`severidade`"},
+                  {"name": "sum(total)", "expression": "SUM(`total`)"}
+                ],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {"fieldName": "sum(total)", "scale": {"type": "quantitative"}, "displayName": "Total"},
+                "color": {"fieldName": "severidade", "scale": {"type": "categorical"}, "displayName": "Severidade"}
+              },
+              "frame": {"showTitle": true, "title": "Distribuicao por Severidade"}
+            }
+          },
+          "position": {"x": 3, "y": 6, "width": 3, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-tendencia",
+            "multilineTextboxSpec": {
+              "lines": ["### Evolucao da Taxa de Aprovacao (Ultimos 6 Meses)"]
+            }
+          },
+          "position": {"x": 0, "y": 11, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "line-approval-trend",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_taxa_aprovacao",
+                "fields": [
+                  {"name": "mes", "expression": "`mes`"},
+                  {"name": "taxa_aprovacao", "expression": "`taxa_aprovacao`"},
+                  {"name": "documento", "expression": "`documento`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "mes", "scale": {"type": "categorical"}, "displayName": "Mes"},
+                "y": {"fieldName": "taxa_aprovacao", "scale": {"type": "quantitative"}, "displayName": "Taxa Aprovacao (%)"},
+                "color": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"}
+              },
+              "frame": {"showTitle": true, "title": "Tendencia de Aprovacao por Documento"}
+            }
+          },
+          "position": {"x": 0, "y": 12, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-top-falhas",
+            "multilineTextboxSpec": {
+              "lines": ["### Top 20 Criticas com Maior Taxa de Reprovacao"]
+            }
+          },
+          "position": {"x": 0, "y": 17, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-top-failures",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_criticas_top_failures",
+                "fields": [
+                  {"name": "codigo_critica", "expression": "`codigo_critica`"},
+                  {"name": "descricao", "expression": "`descricao`"},
+                  {"name": "documento", "expression": "`documento`"},
+                  {"name": "severidade", "expression": "`severidade`"},
+                  {"name": "ocorrencias", "expression": "`ocorrencias`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "codigo_critica", "displayName": "Codigo"},
+                  {"fieldName": "descricao", "displayName": "Descricao"},
+                  {"fieldName": "documento", "displayName": "Documento"},
+                  {"fieldName": "severidade", "displayName": "Severidade"},
+                  {"fieldName": "ocorrencias", "displayName": "Ocorrencias"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Top 20 Criticas Reprovadas"}
+            }
+          },
+          "position": {"x": 0, "y": 18, "width": 6, "height": 8}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filtros",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-documento",
+            "queries": [{
+              "name": "ds_criticas_summary_documento",
+              "query": {
+                "datasetName": "ds_criticas_summary",
+                "fields": [{"name": "documento", "expression": "`documento`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "documento",
+                  "displayName": "Documento",
+                  "queryName": "ds_criticas_summary_documento"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Documento"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-severidade",
+            "queries": [{
+              "name": "ds_criticas_by_category_severidade",
+              "query": {
+                "datasetName": "ds_criticas_by_category",
+                "fields": [{"name": "severidade", "expression": "`severidade`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "severidade",
+                  "displayName": "Severidade",
+                  "queryName": "ds_criticas_by_category_severidade"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Severidade"}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-dt-base",
+            "queries": [{
+              "name": "ds_criticas_summary_dt_base",
+              "query": {
+                "datasetName": "ds_criticas_summary",
+                "fields": [{"name": "dt_base", "expression": "`dt_base`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "dt_base",
+                  "displayName": "Data-Base",
+                  "queryName": "ds_criticas_summary_dt_base"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Data-Base"}
+            }
+          },
+          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
+        }
+      ]
+    }
+  ]
+}

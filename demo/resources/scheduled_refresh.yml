@@ -1,0 +1,12 @@
+# Scheduled pipeline orchestration job — placeholder
+resources:
+  jobs:
+    scheduled_refresh:
+      name: "r18-scheduled-refresh"
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "America/Sao_Paulo"
+      tasks:
+        - task_key: "refresh_pipelines"
+          notebook_task:
+            notebook_path: ../notebooks/synthetic_data_loader.py

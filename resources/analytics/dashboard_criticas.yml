@@ -1,0 +1,7 @@
+# Monitor de Críticas — placeholder
+resources:
+  dashboards:
+    monitor_criticas:
+      display_name: "Monitor de Críticas"
+      file_path: ../../dashboards/monitor_criticas.lvdash.json
+      warehouse_id: ${var.warehouse_id}

@@ -1,0 +1,347 @@
+{
+  "datasets": [
+    {
+      "name": "ds_scorecard_latest",
+      "displayName": "Scores por Dimensao (Atual)",
+      "queryLines": [
+        "SELECT dimensao_id, ",
+        "  MAX(dimensao_nome) AS dimensao, ",
+        "  AVG(score_pct) AS score, ",
+        "  AVG(meta_pct) AS meta, ",
+        "  MAX(dt_base) AS dt_base, ",
+        "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
+        "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
+        "       ELSE 'CRITICO' END AS status ",
+        "FROM rc18_catalog.quality.quality_scorecard ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "GROUP BY dimensao_id"
+      ]
+    },
+    {
+      "name": "ds_scorecard_trend",
+      "displayName": "Tendencia de Scores",
+      "queryLines": [
+        "SELECT dt_base, ",
+        "  MAX(dimensao_nome) AS dimensao, ",
+        "  AVG(score_pct) AS score ",
+        "FROM rc18_catalog.quality.quality_scorecard ",
+        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
+        "GROUP BY dt_base, dimensao_id ",
+        "ORDER BY dt_base, dimensao_id"
+      ]
+    },
+    {
+      "name": "ds_kpi_summary",
+      "displayName": "KPIs Resumo",
+      "queryLines": [
+        "SELECT ",
+        "  ROUND(AVG(score_pct), 2) AS score_medio, ",
+        "  SUM(CASE WHEN score_pct >= meta_pct THEN 1 ELSE 0 END) AS dims_conformes, ",
+        "  COUNT(*) AS total_dims ",
+        "FROM ( ",
+        "  SELECT dimensao_id, AVG(score_pct) AS score_pct, AVG(meta_pct) AS meta_pct ",
+        "  FROM rc18_catalog.quality.quality_scorecard ",
+        "  WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "  GROUP BY dimensao_id ",
+        ")"
+      ]
+    },
+    {
+      "name": "ds_deadline",
+      "displayName": "Dias para o Prazo",
+      "queryLines": [
+        "SELECT datediff(DATE '2026-12-31', current_date()) AS dias_restantes, ",
+        "  current_date() AS hoje"
+      ]
+    },
+    {
+      "name": "ds_scorecard_detail",
+      "displayName": "Detalhe por Dimensao",
+      "queryLines": [
+        "SELECT dimensao_id, ",
+        "  MAX(dimensao_nome) AS dimensao, ",
+        "  ROUND(AVG(score_pct), 2) AS score, ",
+        "  ROUND(AVG(meta_pct), 2) AS meta, ",
+        "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
+        "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
+        "       ELSE 'CRITICO' END AS status, ",
+        "  MAX(dt_base) AS dt_base ",
+        "FROM rc18_catalog.quality.quality_scorecard ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "GROUP BY dimensao_id ",
+        "ORDER BY dimensao_id"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "visao-geral",
+      "displayName": "Visao Geral",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": ["## Painel de Conformidade R.18"]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": ["Monitoramento das 12 dimensoes de qualidade · Resolucao Conjunta N.18"]
+            }
+          },
+          "position": {"x": 0, "y": 1, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "kpi-score-medio",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_summary",
+                "fields": [{"name": "score_medio", "expression": "`score_medio`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "score_medio", "displayName": "Score Medio (%)"}
+              },
+              "frame": {"showTitle": true, "title": "Score Medio"}
+            }
+          },
+          "position": {"x": 0, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-dims-conformes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_summary",
+                "fields": [{"name": "dims_conformes", "expression": "`dims_conformes`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "dims_conformes", "displayName": "Dimensoes Conformes"}
+              },
+              "frame": {"showTitle": true, "title": "Dimensoes Conformes (de 12)"}
+            }
+          },
+          "position": {"x": 2, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-dias-restantes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_deadline",
+                "fields": [{"name": "dias_restantes", "expression": "`dias_restantes`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "dias_restantes", "displayName": "Dias Restantes"}
+              },
+              "frame": {"showTitle": true, "title": "Dias para 31/12/2026"}
+            }
+          },
+          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "section-dimensoes",
+            "multilineTextboxSpec": {
+              "lines": ["### Scores por Dimensao (Data-Base Atual)"]
+            }
+          },
+          "position": {"x": 0, "y": 5, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-dimensoes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_scorecard_latest",
+                "fields": [
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "score", "expression": "`score`"},
+                  {"name": "status", "expression": "`status`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "y": {"fieldName": "score", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
+                "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
+              },
+              "frame": {"showTitle": true, "title": "Scores por Dimensao R.18"}
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "section-tendencia",
+            "multilineTextboxSpec": {
+              "lines": ["### Evolucao das Dimensoes (Ultimos 6 Meses)"]
+            }
+          },
+          "position": {"x": 0, "y": 12, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "line-trend",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_scorecard_trend",
+                "fields": [
+                  {"name": "dt_base", "expression": "`dt_base`"},
+                  {"name": "score", "expression": "`score`"},
+                  {"name": "dimensao", "expression": "`dimensao`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "dt_base", "scale": {"type": "categorical"}, "displayName": "Data-Base"},
+                "y": {"fieldName": "score", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
+                "color": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"}
+              },
+              "frame": {"showTitle": true, "title": "Tendencia de Scores por Dimensao"}
+            }
+          },
+          "position": {"x": 0, "y": 13, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "section-detalhe",
+            "multilineTextboxSpec": {
+              "lines": ["### Score Detalhado por Dimensao"]
+            }
+          },
+          "position": {"x": 0, "y": 19, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-dimensoes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_scorecard_detail",
+                "fields": [
+                  {"name": "dimensao_id", "expression": "`dimensao_id`"},
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "score", "expression": "`score`"},
+                  {"name": "meta", "expression": "`meta`"},
+                  {"name": "status", "expression": "`status`"},
+                  {"name": "dt_base", "expression": "`dt_base`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "dimensao_id", "displayName": "ID"},
+                  {"fieldName": "dimensao", "displayName": "Dimensao"},
+                  {"fieldName": "score", "displayName": "Score (%)"},
+                  {"fieldName": "meta", "displayName": "Meta (%)"},
+                  {"fieldName": "status", "displayName": "Status"},
+                  {"fieldName": "dt_base", "displayName": "Data-Base"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Detalhe das 12 Dimensoes R.18"}
+            }
+          },
+          "position": {"x": 0, "y": 20, "width": 6, "height": 8}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filtros",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-dt-base",
+            "queries": [{
+              "name": "ds_scorecard_latest_dt_base",
+              "query": {
+                "datasetName": "ds_scorecard_latest",
+                "fields": [{"name": "dt_base", "expression": "`dt_base`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "dt_base",
+                  "displayName": "Data-Base",
+                  "queryName": "ds_scorecard_latest_dt_base"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Data-Base"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-dimensao",
+            "queries": [{
+              "name": "ds_scorecard_latest_dimensao",
+              "query": {
+                "datasetName": "ds_scorecard_latest",
+                "fields": [{"name": "dimensao", "expression": "`dimensao`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "dimensao",
+                  "displayName": "Dimensao",
+                  "queryName": "ds_scorecard_latest_dimensao"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Dimensao"}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+        }
+      ]
+    }
+  ]
+}

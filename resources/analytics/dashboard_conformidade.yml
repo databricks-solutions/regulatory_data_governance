@@ -1,0 +1,7 @@
+# Painel de Conformidade R.18 — placeholder
+resources:
+  dashboards:
+    conformidade_r18:
+      display_name: "Painel de Conformidade R.18"
+      file_path: ../../dashboards/conformidade_r18.lvdash.json
+      warehouse_id: ${var.warehouse_id}

@@ -1,0 +1,16 @@
+# Silver validation pipeline — placeholder
+resources:
+  pipelines:
+    silver_validation:
+      name: "r18-silver-validation"
+      target: "${var.catalog}.${var.schema_silver}"
+      development: true
+      libraries:
+        - notebook:
+            path: ../../pipelines/silver/transformations/expectations.py
+        - notebook:
+            path: ../../pipelines/silver/transformations/quality_metrics.py
+        - notebook:
+            path: ../../pipelines/silver/transformations/scr3040_validated.py
+        - notebook:
+            path: ../../pipelines/silver/transformations/scr3050_validated.py

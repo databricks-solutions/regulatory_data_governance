@@ -1,0 +1,9 @@
+# Synthetic data loader job — placeholder
+resources:
+  jobs:
+    synthetic_data_loader:
+      name: "r18-synthetic-data-loader"
+      tasks:
+        - task_key: "load_synthetic_data"
+          notebook_task:
+            notebook_path: ../notebooks/synthetic_data_loader.py

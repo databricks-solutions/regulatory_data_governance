@@ -1,0 +1,15 @@
+# Bronze ingestion pipeline — placeholder
+# Will be populated when pipeline code is implemented
+resources:
+  pipelines:
+    bronze_ingestion:
+      name: "r18-bronze-ingestion"
+      target: "${var.catalog}.${var.schema_bronze}"
+      development: true
+      libraries:
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_3040.py
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_3050.py
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_cosif.py
