@@ -21,13 +21,13 @@ Este bundle existe só para demonstrar o acelerador rodando fim-a-fim com dados 
 
 ```bash
 cd demo
-databricks bundle validate -t dev --profile ssa-latam
-databricks bundle deploy   -t dev --profile ssa-latam
+databricks bundle validate -t dev --profile <your-databricks-profile>
+databricks bundle deploy   -t dev --profile <your-databricks-profile>
 
 # Executa os geradores
-databricks bundle run scr3040_generator    -t dev --profile ssa-latam
-databricks bundle run scr3050_generator    -t dev --profile ssa-latam
-databricks bundle run synthetic_data_loader -t dev --profile ssa-latam
+databricks bundle run scr3040_generator    -t dev --profile <your-databricks-profile>
+databricks bundle run scr3050_generator    -t dev --profile <your-databricks-profile>
+databricks bundle run synthetic_data_loader -t dev --profile <your-databricks-profile>
 ```
 
 O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines, dashboards, genie) MAIS os geradores sintéticos. Para o cliente usar só o acelerador, rodar a partir da **raiz do repositório** (bundle `rc18-starter-kit`).
@@ -80,7 +80,7 @@ Para limpar o workspace após a demo:
 
 ```bash
 cd demo
-databricks bundle destroy -t dev --profile ssa-latam
+databricks bundle destroy -t dev --profile <your-databricks-profile>
 ```
 
 Isso remove **todos** os recursos deployados por este bundle (acelerador + demo). Se quer limpar só o demo e manter o acelerador, destrua os jobs individualmente via UI ou CLI.
