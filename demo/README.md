@@ -13,11 +13,16 @@ Este bundle existe só para demonstrar o acelerador rodando fim-a-fim com dados 
 | `scr3050_generator` | Job (5 etapas) | Gera XML sintético do Doc 3050 (TXB V11) a partir do 3040 via equivalência; valida com o Validador TXB |
 | `synthetic_data_loader` | Job | Carrega dados fictícios nas tabelas `bronze/silver/gold` do catálogo |
 | `scheduled_refresh` | Job agendado | Cron diário que re-executa o `synthetic_data_loader` |
+| `rc18_demo_warehouse` | SQL Warehouse | Serverless 2X-Small (auto-stop 10 min) que alimenta dashboards, Genie e jobs do demo |
 | `notebooks/scr3040_generator/` | Notebooks | Lógica de geração do Doc 3040 (setup, dados, regras, XML) |
 | `notebooks/scr3050_generator/` | Notebooks | Lógica de agregação 3040→3050 + validação automatizada |
 | `prompts/` | Markdown | Meta-prompts que orientaram a construção dos geradores (docs, não runtime) |
 
 ## Como rodar
+
+O bundle do demo é **autocontido**: o próprio deploy provisiona um SQL Warehouse serverless 2X-Small (`rc18-demo-warehouse`) e usa ele para dashboards, Genie e jobs. Não é preciso passar `--var warehouse_id`.
+
+Se você prefere reutilizar um warehouse existente, sobreponha o variable: `--var warehouse_id=<id>` ou `BUNDLE_VAR_warehouse_id=<id>`.
 
 ```bash
 cd demo
@@ -30,7 +35,7 @@ databricks bundle run scr3050_generator    -t dev --profile <your-databricks-pro
 databricks bundle run synthetic_data_loader -t dev --profile <your-databricks-profile>
 ```
 
-O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines, dashboards, genie) MAIS os geradores sintéticos. Para o cliente usar só o acelerador, rodar a partir da **raiz do repositório** (bundle `rc18-starter-kit`).
+O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines, dashboards, genie) MAIS os geradores sintéticos e o warehouse serverless. Para o cliente usar só o acelerador, rodar a partir da **raiz do repositório** (bundle `rc18-starter-kit`) — esse bundle não cria warehouse, o cliente aponta para o seu próprio via `--var warehouse_id=<id>`.
 
 ## Estrutura
 
@@ -49,7 +54,8 @@ demo/
     ├── scr3040_generator.yml
     ├── scr3050_generator.yml
     ├── synthetic_data.yml
-    └── scheduled_refresh.yml
+    ├── scheduled_refresh.yml
+    └── warehouse.yml                   # SQL Warehouse serverless 2X-Small
 ```
 
 ## Parâmetros principais (jobs)

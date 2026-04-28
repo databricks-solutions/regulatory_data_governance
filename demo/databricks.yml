@@ -27,11 +27,7 @@ sync:
     - notebooks
     - resources
     - prompts
-  exclude:
-    - "**/node_modules/"
-    - "**/__pycache__/"
-    - "**/*.pyc"
-    - "**/.DS_Store"
+
 
 variables:
   catalog:
@@ -39,7 +35,8 @@ variables:
     description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
 
   warehouse_id:
-    description: "SQL Warehouse ID — set per-target or via DATABRICKS_BUNDLE_VAR_warehouse_id"
+    description: "SQL Warehouse ID — defaults to the demo-provisioned 2X-Small serverless warehouse. Override with --var warehouse_id=<id> or BUNDLE_VAR_warehouse_id to reuse an existing warehouse."
+    default: ${resources.sql_warehouses.rc18_demo_warehouse.id}
 
   app_name:
     default: "rc18-demo"
