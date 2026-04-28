@@ -8,6 +8,18 @@ FRONTEND_DIR="$PROJECT_ROOT/app/frontend"
 BACKEND_PORT=8000
 FRONTEND_PORT=5173
 
+# Load .env from project root if present, exporting every var to the child processes.
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  echo "==> Loading environment from .env"
+  set -a
+  # shellcheck disable=SC1090
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
+
+# Default to mock mode only when nothing else has set it.
+export USE_MOCK_BACKEND="${USE_MOCK_BACKEND:-true}"
+
 cleanup() {
   echo ""
   echo "Shutting down..."
@@ -34,8 +46,8 @@ else
   echo "    Dependencies already installed, skipping pip install."
 fi
 
-echo "==> Starting backend on port $BACKEND_PORT..."
-USE_MOCK_BACKEND=true uvicorn main:app --reload --port "$BACKEND_PORT" --app-dir "$BACKEND_DIR" &
+echo "==> Starting backend on port $BACKEND_PORT (USE_MOCK_BACKEND=$USE_MOCK_BACKEND)..."
+uvicorn main:app --reload --port "$BACKEND_PORT" --app-dir "$BACKEND_DIR" &
 BACKEND_PID=$!
 
 # --- Frontend setup ---
