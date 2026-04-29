@@ -1,11 +1,15 @@
 # SCR Doc 3050 synthetic XML generator — 5-step sequential job
 # Consome as tabelas f_3040_* produzidas pelo job `scr3040_generator` e
 # agrega-as conforme a Equivalência BACEN (3040 ↔ 3050).
+#
+# Tasks 00-03 rodam serverless (compartilham contexto via %run ./00_Setup_e_Equivalencia)
+# Task 04 valida o XML com o ValidadorMDR do BACEN (Java) — exige JVM no driver,
+# portanto cluster clássico single-node SINGLE_USER (necessário para ler UC Volumes).
 resources:
   jobs:
     scr3050_generator:
       name: "rc18-scr3050-generator"
-      description: "Gera amostra sintética do Doc 3050 (TXB V11) a partir do 3040 e valida com o Validador TXB do BACEN."
+      description: "Gera amostra sintética do Doc 3050 (TXB V11) a partir do 3040 e valida com o ValidadorMDR do BCB."
       max_concurrent_runs: 1
 
       parameters:
@@ -24,22 +28,36 @@ resources:
         - name: leiaute_versao
           default: "V11"
         - name: validador_zip
-          default: "/Volumes/rc18_demo/ferramentas/validador/SCR3050_Validador.zip"
+          # ZIP versionado em demo/assets/validators/SCR3050_Validador.bin
+          # Extensão .bin evita auto-extract pelo Workspace Files API.
+          default: "${workspace.file_path}/demo/assets/validators/SCR3050_Validador.bin"
         - name: validador_main_class
           default: "br.gov.bcb.mdr.validador.entrada.linhacomando.ValidadorLinhaComando"
         - name: xsd_path
-          default: "/Volumes/rc18_demo/ferramentas/validador/xsd/Schema_TXB_V11.xsd"
+          # XSD versionado em demo/assets/validators/Schema_TXB_V11.xsd
+          default: "${workspace.file_path}/demo/assets/validators/Schema_TXB_V11.xsd"
         - name: fail_on_error
           default: "true"
 
-      # Clusters clássicos exclusivamente para a task de validação Java
-      # (serverless não expõe JVM do lado do driver).
+      # Ambiente serverless compartilhado pelos notebooks 00-03.
+      # lxml é importado pelo notebook 03 — sem isso falha com ModuleNotFoundError.
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+            dependencies:
+              - lxml
+
+      # Cluster clássico exclusivo para a task 04 (Java/ValidadorMDR).
+      # SINGLE_USER é necessário para acessar UC Volumes via FUSE no driver.
       job_clusters:
         - job_cluster_key: validator_classic
           new_cluster:
             spark_version: "15.4.x-scala2.12"
             node_type_id: ${var.validator_node_type}
             num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: "local[*]"
@@ -48,9 +66,8 @@ resources:
               Purpose: "scr3050-validator"
 
       tasks:
-        # Tasks 00-03 rodam em serverless (sem job_cluster_key) para compartilhar
-        # o contexto do `%run ./00_Setup_e_Equivalencia` nos notebooks 01/02/03.
         - task_key: setup_e_equivalencia
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3050_generator/00_Setup_e_Equivalencia.py
             base_parameters:
@@ -65,6 +82,7 @@ resources:
         - task_key: ingestao_dados_3040
           depends_on:
             - task_key: setup_e_equivalencia
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3050_generator/01_Ingestao_Dados_3040.py
             base_parameters:
@@ -77,6 +95,7 @@ resources:
         - task_key: motor_de_agregacao_3050
           depends_on:
             - task_key: ingestao_dados_3040
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3050_generator/02_Motor_de_Agregacao_3050.py
             base_parameters:
@@ -89,6 +108,7 @@ resources:
         - task_key: geracao_e_exportacao_xml
           depends_on:
             - task_key: motor_de_agregacao_3050
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3050_generator/03_Geracao_e_Exportacao_XML.py
             base_parameters:

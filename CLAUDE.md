@@ -66,8 +66,10 @@ regulatory-data-governance/
     ├── README.md                  # Demo runbook
     ├── databricks.yml             # Bundle rc18-demo (includes core + demo resources)
     ├── assets/
-    │   └── validators/
-    │       └── SCR3040_Validador.bin  # BCB official validator (a ZIP renamed to .bin to skip Workspace Files auto-extract — synced by bundle)
+    │   └── validators/                # BCB official binaries (ZIPs renamed .bin to skip Workspace Files auto-extract — synced by bundle)
+    │       ├── SCR3040_Validador.bin  # Validador3040 (SCR Doc 3040)
+    │       ├── SCR3050_Validador.bin  # ValidadorMDR (SCR Doc 3050 / TXB V11)
+    │       └── Schema_TXB_V11.xsd     # XSD passed to the ValidadorMDR CLI
     ├── notebooks/
     │   ├── scr3040_generator/     # 5-step synthetic Doc 3040 + BACEN validator run
     │   ├── scr3050_generator/     # 5-step synthetic Doc 3050 (validates with BACEN tool)

@@ -14,12 +14,15 @@
 # MAGIC | Fornece XSD?   | Sim (embutido em `classes/`)                     | **Não** (XSD precisa ser passado como arg)    |
 # MAGIC
 # MAGIC ## Estratégia (mesmo princípio do 3040)
-# MAGIC 1. **Compute classic (não serverless):** serverless não expõe JVM no driver
-# MAGIC    — esta task roda num `job_cluster` classic.
-# MAGIC 2. **Binário em Volume UC:** ZIP em
-# MAGIC    `/Volumes/rc18_demo/ferramentas/validador/SCR3050_Validador.zip`.
+# MAGIC 1. **Compute classic SINGLE_USER (não serverless):** serverless não expõe
+# MAGIC    JVM no driver, e classic precisa de SINGLE_USER access mode para ler UC
+# MAGIC    Volumes via FUSE.
+# MAGIC 2. **Binário versionado no repo:** o ZIP oficial e o XSD ficam em
+# MAGIC    `demo/assets/validators/` (.bin + .xsd). O bundle sincroniza para
+# MAGIC    workspace files; ambos estão acessíveis via `${workspace.file_path}/...`.
+# MAGIC    Extensão `.bin` evita auto-extract pelo Workspace Files API.
 # MAGIC 3. **Extração efêmera em `/tmp/validador_mdr`** (cleaned per run).
-# MAGIC 4. **CLI:** `java -cp "ValidadorMDR/lib/*" <main-class> <xml> <xsd>`.
+# MAGIC 4. **CLI:** `java -cp "ValidadorMDR/lib/*" <main-class> <xml> <xsd> <out_dir>`.
 # MAGIC 5. **Relatórios:** stdout/stderr copiados para `<volume_out>/validacao/<timestamp>/`.
 
 # COMMAND ----------
@@ -29,14 +32,14 @@ dbutils.widgets.text("cnpj_if",       "99999999", "CNPJ-base da IF")
 dbutils.widgets.text("volume_out",    "/Volumes/rc18_catalog/reference/scr3050_out",
                      "Dir. do XML gerado em 03")
 dbutils.widgets.text("validador_zip",
-                     "/Volumes/rc18_demo/ferramentas/validador/SCR3050_Validador.zip",
-                     "Caminho do ZIP do validador MDR")
+                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/SCR3050_Validador.bin",
+                     "Caminho do ZIP do validador MDR (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("validador_main_class",
                      "br.gov.bcb.mdr.validador.entrada.linhacomando.ValidadorLinhaComando",
                      "Entry point Java CLI do ValidadorMDR")
 dbutils.widgets.text("xsd_path",
-                     "/Volumes/rc18_demo/ferramentas/validador/xsd/Schema_TXB_V11.xsd",
-                     "XSD do Doc 3050/TXB V11 (pré-carregado separadamente — não vem no ZIP do validador)")
+                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/Schema_TXB_V11.xsd",
+                     "XSD do Doc 3050/TXB V11 (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("fail_on_error", "true", "Falhar task se validador reportar erro")
 
 DT_BASE       = dbutils.widgets.get("dt_base")
@@ -79,7 +82,7 @@ if os.path.exists(VAL_DIR):
     shutil.rmtree(VAL_DIR)
 os.makedirs(VAL_DIR, exist_ok=True)
 
-local_zip = "/tmp/SCR3050_Validador.zip"
+local_zip = "/tmp/SCR3050_Validador.bin"
 shutil.copyfile(VALIDADOR_ZIP, local_zip)
 print(f"ZIP copiado: {os.path.getsize(local_zip)/1024/1024:.1f} MB")
 

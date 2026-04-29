@@ -289,8 +289,18 @@ print(f"XML gerado: {len(xml_bytes)/1024:.1f} KB | "
 
 # MAGIC %md
 # MAGIC ## Escrita no Volume (UC)
+# MAGIC
+# MAGIC `os.makedirs` não consegue criar o volume raiz em UC (Errno 95). Por isso
+# MAGIC garantimos via SQL antes — schema + volume managed em `{catalog}.{schema}`.
 
 # COMMAND ----------
+
+# VOLUME_OUT segue o padrão /Volumes/<catalog>/<schema>/<volume>[/sub...]
+_parts = VOLUME_OUT.strip("/").split("/")
+if len(_parts) >= 4 and _parts[0] == "Volumes":
+    _vol_cat, _vol_sch, _vol_name = _parts[1], _parts[2], _parts[3]
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{_vol_cat}`.`{_vol_sch}`")
+    spark.sql(f"CREATE VOLUME IF NOT EXISTS `{_vol_cat}`.`{_vol_sch}`.`{_vol_name}`")
 
 os.makedirs(VOLUME_OUT, exist_ok=True)
 remessa, parte = 1, 1

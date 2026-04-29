@@ -65,8 +65,10 @@ demo/
 ├── README.md                          # este arquivo
 ├── databricks.yml                     # bundle rc18-demo (inclui core + demo)
 ├── assets/
-│   └── validators/
-│       └── SCR3040_Validador.bin      # binário oficial do BCB (na verdade é um ZIP — extensão .bin evita auto-extract no Workspace Files; sincronizado pelo bundle)
+│   └── validators/                    # binários oficiais do BCB (sincronizados pelo bundle)
+│       ├── SCR3040_Validador.bin      # ZIP do Validador3040 (extensão .bin evita auto-extract no Workspace Files)
+│       ├── SCR3050_Validador.bin      # ZIP do ValidadorMDR (idem)
+│       └── Schema_TXB_V11.xsd         # XSD do Doc 3050 / TXB V11 (referenciado pelo ValidadorMDR)
 ├── notebooks/
 │   ├── scr3040_generator/             # 5 etapas: setup, dados, regras, XML, validação BACEN
 │   ├── scr3050_generator/             # 5 etapas: setup, ingestão, agregação, XML, validação
@@ -94,9 +96,10 @@ demo/
 - Última etapa (`validacao_bacen`) roda em cluster clássico single-node SINGLE_USER (JVM no driver)
 
 ### `scr3050_generator`
-- Consome tabelas `f_3040_*` produzidas pelo `scr3040_generator`
-- Valida o XML gerado via `Validador TXB BACEN` (requer JVM no driver — usa cluster clássico single-node)
-- `validador_zip`, `xsd_path` — artefatos BACEN pré-carregados em volume UC
+- Consome tabelas `f_3040_*` produzidas pelo `scr3040_generator` — rode o 3040 antes
+- Valida o XML gerado via ValidadorMDR (Doc 3050/TXB V11) do BCB — requer JVM no driver, usa cluster clássico single-node SINGLE_USER
+- `validador_zip`, `xsd_path` — defaults apontam para artefatos versionados em `demo/assets/validators/` e sincronizados pelo bundle (não exigem upload manual)
+- `volume_out` — volume UC destino do XML (criado em runtime se não existir)
 
 ## Dados sintéticos — características
 
