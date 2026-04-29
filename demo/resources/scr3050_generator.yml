@@ -38,7 +38,7 @@ resources:
         - job_cluster_key: validator_classic
           new_cluster:
             spark_version: "15.4.x-scala2.12"
-            node_type_id: "m5d.large"
+            node_type_id: ${var.validator_node_type}
             num_workers: 0
             spark_conf:
               spark.databricks.cluster.profile: singleNode

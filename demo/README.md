@@ -24,15 +24,36 @@ O bundle do demo é **autocontido**: o próprio deploy provisiona um SQL Warehou
 
 Se você prefere reutilizar um warehouse existente, sobreponha o variable: `--var warehouse_id=<id>` ou `BUNDLE_VAR_warehouse_id=<id>`.
 
+### Escolha do target
+
+O alvo (`-t`) combina `<env>-<cloud>` — define o `mode` (development/production) e o node type do cluster clássico do validador BACEN (3050):
+
+| Target | Env | Cloud | `validator_node_type` |
+|--------|-----|-------|------------------------|
+| `dev-azure` (default) | development | Azure | `Standard_DS3_v2` |
+| `dev-aws` | development | AWS | `m5d.large` |
+| `dev-gcp` | development | GCP | `n2-highmem-4` |
+| `prod-azure` | production | Azure | `Standard_DS3_v2` |
+| `prod-aws` | production | AWS | `m5d.large` |
+| `prod-gcp` | production | GCP | `n2-highmem-4` |
+
+`dev-*` deploya em `/Workspace/Users/<user>/.bundle/...` (escopo pessoal, prefixa recursos com `[dev <user>]`). `prod-*` deploya em `/Workspace/Shared/.bundle/...` (compartilhado, sem prefixo, com permissão CAN_MANAGE para o grupo `users`).
+
 ```bash
 cd demo
-databricks bundle validate -t dev --profile <your-databricks-profile>
-databricks bundle deploy   -t dev --profile <your-databricks-profile>
 
-# Executa os geradores
-databricks bundle run scr3040_generator    -t dev --profile <your-databricks-profile>
-databricks bundle run scr3050_generator    -t dev --profile <your-databricks-profile>
-databricks bundle run synthetic_data_loader -t dev --profile <your-databricks-profile>
+# Dev (default)
+databricks bundle validate -t dev-azure --profile <your-databricks-profile>
+databricks bundle deploy   -t dev-azure --profile <your-databricks-profile>
+
+# Outras combinações
+databricks bundle deploy   -t dev-aws    --profile <your-databricks-profile>
+databricks bundle deploy   -t prod-azure --profile <your-databricks-profile>
+
+# Executa os geradores (use o mesmo target do deploy)
+databricks bundle run scr3040_generator    -t dev-azure --profile <your-databricks-profile>
+databricks bundle run scr3050_generator    -t dev-azure --profile <your-databricks-profile>
+databricks bundle run synthetic_data_loader -t dev-azure --profile <your-databricks-profile>
 ```
 
 O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines, dashboards, genie) MAIS os geradores sintéticos e o warehouse serverless. Para o cliente usar só o acelerador, rodar a partir da **raiz do repositório** (bundle `rc18-starter-kit`) — esse bundle não cria warehouse, o cliente aponta para o seu próprio via `--var warehouse_id=<id>`.
@@ -86,7 +107,8 @@ Para limpar o workspace após a demo:
 
 ```bash
 cd demo
-databricks bundle destroy -t dev --profile <your-databricks-profile>
+databricks bundle destroy -t <env>-<cloud> --profile <your-databricks-profile>
+# ex: -t dev-azure, -t prod-aws, etc.
 ```
 
 Isso remove **todos** os recursos deployados por este bundle (acelerador + demo). Se quer limpar só o demo e manter o acelerador, destrua os jobs individualmente via UI ou CLI.

@@ -3,9 +3,9 @@
 resources:
   pipelines:
     bronze_ingestion:
-      name: "r18-bronze-ingestion"
-      target: "${var.catalog}.${var.schema_bronze}"
-      development: true
+      name: "r18-bronze-ingestion-${bundle.target}"
+      catalog: "${var.catalog}"
+      schema: "${var.schema_bronze}"
       libraries:
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_3040.py

@@ -2,9 +2,9 @@
 resources:
   pipelines:
     silver_validation:
-      name: "r18-silver-validation"
-      target: "${var.catalog}.${var.schema_silver}"
-      development: true
+      name: "r18-silver-validation-${bundle.target}"
+      catalog: "${var.catalog}"
+      schema: "${var.schema_silver}"
       libraries:
         - notebook:
             path: ../../pipelines/silver/transformations/expectations.py

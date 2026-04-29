@@ -1,7 +1,7 @@
 resources:
   apps:
     r18_compliance_app:
-      name: ${var.app_name}
+      name: ${var.app_name}-${bundle.target}
       description: "RC18 StarterKit — BACEN Resolucao Conjunta N.18 Compliance Accelerator"
       source_code_path: ../app/backend
 

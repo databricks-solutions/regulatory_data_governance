@@ -2,9 +2,9 @@
 resources:
   pipelines:
     gold_reconciliation:
-      name: "r18-gold-reconciliation"
-      target: "${var.catalog}.${var.schema_gold}"
-      development: true
+      name: "r18-gold-reconciliation-${bundle.target}"
+      catalog: "${var.catalog}"
+      schema: "${var.schema_gold}"
       libraries:
         - notebook:
             path: ../../pipelines/gold/transformations/criticas_summary.py

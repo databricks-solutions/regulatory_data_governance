@@ -41,6 +41,14 @@ variables:
   app_name:
     default: "rc18-demo"
 
+  cloud:
+    description: "Target cloud: azure | aws | gcp. Set automatically by the target you pick (-t azure / -t aws / -t gcp)."
+    default: "azure"
+
+  validator_node_type:
+    description: "Cluster node type for the BACEN TXB validator (classic single-node, JVM required). Set automatically per target based on `cloud`."
+    default: "Standard_DS3_v2"
+
   schema_bronze:
     default: "bronze"
   schema_silver:
@@ -51,10 +59,68 @@ variables:
     default: "quality"
 
 targets:
-  dev:
+  # Cross product of env (dev | prod) × cloud (azure | aws | gcp) = 6 targets.
+  # Pick with `databricks bundle deploy -t <env>-<cloud>`. dev-azure is the default.
+  #
+  # dev-* → mode: development (per-user root path, [dev <user>] prefixing).
+  # prod-* → mode: production (shared workspace path, no prefixing).
+  # Each target picks the smallest Databricks-supported node on its cloud for
+  # the BACEN TXB validator (classic single-node, JVM required).
+
+  dev-azure:
     default: true
     mode: development
     workspace:
-      # Profile comes from `databricks bundle deploy -p <name>` (deploy.sh passes it from $DATABRICKS_PROFILE)
-      # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      cloud: azure
+      validator_node_type: Standard_DS3_v2
+
+  dev-aws:
+    mode: development
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      cloud: aws
+      validator_node_type: m5d.large
+
+  dev-gcp:
+    mode: development
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      cloud: gcp
+      validator_node_type: n2-highmem-4
+
+  prod-azure:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: users
+        level: CAN_MANAGE
+    variables:
+      cloud: azure
+      validator_node_type: Standard_DS3_v2
+
+  prod-aws:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: users
+        level: CAN_MANAGE
+    variables:
+      cloud: aws
+      validator_node_type: m5d.large
+
+  prod-gcp:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: users
+        level: CAN_MANAGE
+    variables:
+      cloud: gcp
+      validator_node_type: n2-highmem-4

@@ -1,0 +1,9 @@
+# Unity Catalog provisioned by the demo bundle so a fresh workspace works out of the box.
+# Customer (core) bundle does NOT create a catalog — customers point to their own
+# via the `catalog` variable (default `rc18_catalog`).
+
+resources:
+  catalogs:
+    rc18_demo_catalog:
+      name: ${var.catalog}
+      comment: "RC18 demo accelerator — synthetic credit data (Doc 3040/3050) for end-to-end demos."
