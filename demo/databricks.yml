@@ -24,6 +24,7 @@ sync:
     - ../pipelines
     - ../dashboards
     - ../resources
+    - assets
     - notebooks
     - resources
     - prompts

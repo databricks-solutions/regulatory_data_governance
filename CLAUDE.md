@@ -65,8 +65,11 @@ regulatory-data-governance/
 └── demo/                          # ⚠️  INTERNAL DATABRICKS USE — synthetic data overlay
     ├── README.md                  # Demo runbook
     ├── databricks.yml             # Bundle rc18-demo (includes core + demo resources)
+    ├── assets/
+    │   └── validators/
+    │       └── SCR3040_Validador.bin  # BCB official validator (a ZIP renamed to .bin to skip Workspace Files auto-extract — synced by bundle)
     ├── notebooks/
-    │   ├── scr3040_generator/     # 4-step synthetic Doc 3040 XML generator
+    │   ├── scr3040_generator/     # 5-step synthetic Doc 3040 + BACEN validator run
     │   ├── scr3050_generator/     # 5-step synthetic Doc 3050 (validates with BACEN tool)
     │   └── synthetic_data_loader.py
     ├── prompts/                   # Meta-prompts that guided generator authoring

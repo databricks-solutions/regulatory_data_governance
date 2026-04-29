@@ -1,9 +1,12 @@
-# SCR Doc 3040 synthetic XML generator — 4-step sequential job
+# SCR Doc 3040 synthetic XML generator — 5-step sequential job
+# Tasks 00-03 rodam serverless (compartilham contexto via %run ./00_Setup_e_Dominios)
+# Task 04 valida o XML com o aplicativo Validador3040 do BACEN (Java) — exige
+# JVM no driver, portanto cluster clássico single-node.
 resources:
   jobs:
     scr3040_generator:
       name: "rc18-scr3040-generator"
-      description: "Gera amostra sintética do Doc 3040 (BACEN) e exporta XML validador-ready."
+      description: "Gera amostra sintética do Doc 3040 (BACEN) e valida com o Validador3040 oficial do BCB."
       max_concurrent_runs: 1
 
       parameters:
@@ -21,9 +24,48 @@ resources:
           default: "reference"
         - name: volume_out
           default: "/Volumes/${var.catalog}/reference/scr3040_out"
+        - name: validador_zip
+          # ZIP é versionado no repo (demo/assets/validators/SCR3040_Validador.bin)
+          # e deployado pelo bundle em workspace files. A extensão `.bin` evita
+          # que o Workspace Files API auto-extraia o conteúdo no upload.
+          # zipfile.ZipFile não depende da extensão para abrir o arquivo.
+          default: "${workspace.file_path}/demo/assets/validators/SCR3040_Validador.bin"
+        - name: fail_on_error
+          default: "true"
+
+      # Ambiente serverless compartilhado pelos notebooks 00-03.
+      # As deps Python (faker, lxml) ficam disponíveis no PYTHONPATH do driver
+      # serverless — sem isso, o NB 01 falha com ModuleNotFoundError: faker.
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+            dependencies:
+              - faker
+              - lxml
+
+      # Cluster clássico exclusivo para a task 04 (Java/Validador3040).
+      # Serverless não expõe JVM no driver; daí o cluster classic single-node.
+      job_clusters:
+        - job_cluster_key: validator_classic
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: ${var.validator_node_type}
+            num_workers: 0
+            # data_security_mode SINGLE_USER é obrigatório para ler UC Volumes
+            # (sem isso o driver não monta /Volumes/* via FUSE).
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+              Purpose: "scr3040-validator"
 
       tasks:
         - task_key: setup_e_dominios
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3040_generator/00_Setup_e_Dominios.py
             base_parameters:
@@ -38,6 +80,7 @@ resources:
         - task_key: geracao_dados_sinteticos
           depends_on:
             - task_key: setup_e_dominios
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3040_generator/01_Geracao_Dados_Sinteticos.py
             base_parameters:
@@ -52,6 +95,7 @@ resources:
         - task_key: transformacao_e_regras
           depends_on:
             - task_key: geracao_dados_sinteticos
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3040_generator/02_Transformacao_e_Regras.py
             base_parameters:
@@ -63,6 +107,7 @@ resources:
         - task_key: geracao_e_exportacao_xml
           depends_on:
             - task_key: transformacao_e_regras
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/scr3040_generator/03_Geracao_e_Exportacao_XML.py
             base_parameters:
@@ -72,5 +117,16 @@ resources:
               schema: "{{job.parameters.schema}}"
               volume_out: "{{job.parameters.volume_out}}"
 
-      # Todas as tasks rodam no mesmo cluster serverless (sem job_cluster_key)
-      # para compartilhar o contexto do %run ./00_Setup_e_Dominios nos NB 01/02/03.
+        # Task 04 precisa de JVM no driver → cluster clássico single-node.
+        - task_key: validacao_bacen
+          depends_on:
+            - task_key: geracao_e_exportacao_xml
+          job_cluster_key: validator_classic
+          notebook_task:
+            notebook_path: ../notebooks/scr3040_generator/04_Validacao_BACEN.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              volume_out: "{{job.parameters.volume_out}}"
+              validador_zip: "{{job.parameters.validador_zip}}"
+              fail_on_error: "{{job.parameters.fail_on_error}}"

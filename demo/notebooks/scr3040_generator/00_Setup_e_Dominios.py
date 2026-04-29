@@ -45,7 +45,7 @@ print(f"DtBase={DT_BASE} CNPJ_IF={CNPJ_IF} Clientes={N_CLIENTES} Ops/Cli~{N_OPS_
 print(f"Destino XML: {VOLUME_OUT}")
 
 # NOTA: faker e lxml são instalados pelo ambiente serverless do job
-# (ver resources/jobs_scr3040_generator.yml → environments.dependencies).
+# (ver demo/resources/scr3040_generator.yml → environments.serverless_env.dependencies).
 # Se rodar manualmente em outro cluster, instalar com:
 #   %pip install faker lxml -q
 #   dbutils.library.restartPython()

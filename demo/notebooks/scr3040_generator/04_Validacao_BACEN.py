@@ -8,9 +8,12 @@
 # MAGIC 1. **Compute classic (não serverless):** o validador é uma aplicação Java
 # MAGIC    e exige `java` no PATH do driver. Serverless (Python Connect) não expõe
 # MAGIC    a JVM do lado do cliente — por isso esta task roda em `job_cluster`.
-# MAGIC 2. **Binário em Volume UC:** o ZIP oficial (`SCR3040_Validador.zip`) está
-# MAGIC    hospedado em `/Volumes/rc18_demo/ferramentas/validador/` (pré-carregado)
-# MAGIC    por exceder o limite de 10 MB de Workspace Files.
+# MAGIC 2. **Binário versionado no repo:** o ZIP oficial do BCB
+# MAGIC    fica em `demo/assets/validators/SCR3040_Validador.bin` —
+# MAGIC    extensão `.bin` é proposital (Workspace Files API auto-extrai
+# MAGIC    arquivos `.zip` no upload). O bundle sincroniza para workspace
+# MAGIC    files e o validador acessa via FUSE no driver classic.
+# MAGIC    `zipfile.ZipFile` abre normalmente — não depende da extensão.
 # MAGIC 3. **Extração em `/tmp`:** o conteúdo do ZIP é extraído em `/tmp/validador`
 # MAGIC    (não-persistente, efêmero por run).
 # MAGIC 4. **Modo CLI:** invocamos `br.gov.bcb.scr2.validador.linhacomando.ValidadorIfLinhaComando`
@@ -23,11 +26,11 @@
 
 dbutils.widgets.text("dt_base",     "2026-03", "Data-base (YYYY-MM)")
 dbutils.widgets.text("cnpj_if",     "99999999", "CNPJ-base da IF")
-dbutils.widgets.text("volume_out",  "/Workspace/Users/<user>@databricks.com/SCR_Doc3040_Generator/output",
-                     "Dir. do XML gerado em 03 (substitua <user>)")
+dbutils.widgets.text("volume_out",  "/Volumes/rc18_demo_catalog/reference/scr3040_out",
+                     "Dir. do XML gerado em 03 (mesmo volume_out do job)")
 dbutils.widgets.text("validador_zip",
-                     "/Volumes/rc18_demo/ferramentas/validador/SCR3040_Validador.zip",
-                     "Caminho do ZIP do validador")
+                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/SCR3040_Validador.bin",
+                     "Caminho do ZIP do validador (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("fail_on_error", "true", "Falhar task se validador reportar erro")
 
 DT_BASE        = dbutils.widgets.get("dt_base")
@@ -62,7 +65,7 @@ if os.path.exists(VAL_DIR):
 os.makedirs(VAL_DIR, exist_ok=True)
 
 # Copia ZIP do Volume UC (leitura via FUSE) para /tmp
-local_zip = "/tmp/SCR3040_Validador.zip"
+local_zip = "/tmp/SCR3040_Validador.bin"
 shutil.copyfile(VALIDADOR_ZIP, local_zip)
 print(f"ZIP copiado: {os.path.getsize(local_zip)/1024/1024:.1f} MB")
 

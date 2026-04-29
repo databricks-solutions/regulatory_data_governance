@@ -64,8 +64,11 @@ O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines,
 demo/
 ├── README.md                          # este arquivo
 ├── databricks.yml                     # bundle rc18-demo (inclui core + demo)
+├── assets/
+│   └── validators/
+│       └── SCR3040_Validador.bin      # binário oficial do BCB (na verdade é um ZIP — extensão .bin evita auto-extract no Workspace Files; sincronizado pelo bundle)
 ├── notebooks/
-│   ├── scr3040_generator/             # 4 etapas: setup, dados, regras, XML
+│   ├── scr3040_generator/             # 5 etapas: setup, dados, regras, XML, validação BACEN
 │   ├── scr3050_generator/             # 5 etapas: setup, ingestão, agregação, XML, validação
 │   └── synthetic_data_loader.py       # carrega dados fictícios nas tabelas
 ├── prompts/                           # meta-prompts dos geradores (docs)
@@ -85,7 +88,10 @@ demo/
 - `dt_base` (ex: `2026-03`) — período de referência
 - `cnpj_if` (ex: `99999999`) — CNPJ da IF emissora
 - `n_clientes` (ex: `500`), `n_ops_por_cli` (ex: `3`) — tamanho da amostra
-- `volume_out` — volume UC destino do XML
+- `volume_out` — volume UC destino do XML (criado em runtime se não existir)
+- `validador_zip` — caminho do `Validador3040` BACEN; default aponta para o binário versionado em `demo/assets/validators/` e sincronizado pelo bundle (não exige upload manual)
+- `fail_on_error` — `true` faz a task falhar se o validador BACEN reportar erro
+- Última etapa (`validacao_bacen`) roda em cluster clássico single-node SINGLE_USER (JVM no driver)
 
 ### `scr3050_generator`
 - Consome tabelas `f_3040_*` produzidas pelo `scr3040_generator`
