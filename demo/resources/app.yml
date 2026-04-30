@@ -1,12 +1,18 @@
 # Databricks App for the RC18 demo bundle.
 # Mock-mode showcase: backend serves fixtures, no warehouse/UC reads.
 # Source code is shared with the implementation bundle (../../app/backend).
+#
+# `lifecycle.started: true` makes `databricks bundle deploy` also push the
+# code into the running container — without it the app resource is created
+# but stays in "Unavailable" until you run a separate `bundle run`.
 resources:
   apps:
     r18_compliance_app:
       name: ${var.app_name}-${bundle.target}
       description: "RC18 Demo — mock-mode showcase of the BACEN R.18 compliance accelerator"
       source_code_path: ../../app/backend
+      lifecycle:
+        started: true
 
       config:
         env:

@@ -45,21 +45,19 @@ O alvo (`-t`) combina `<env>-<cloud>` — define o `mode` (development/productio
 ```bash
 cd demo
 
-# 1. Validate + deploy: cria o catálogo, schemas, app shell e jobs.
+# 1. Validate + deploy: cria o catálogo, schemas, jobs e o app
 databricks bundle validate -t dev-azure --profile <your-databricks-profile>
 databricks bundle deploy   -t dev-azure --profile <your-databricks-profile>
 
-# 2. Push do código para dentro do app (sem este passo o app fica em "App Not Available").
-#    Roda `databricks apps deploy` por baixo dos panos e aguarda o terminal state.
-databricks bundle run r18_compliance_app -t dev-azure --profile <your-databricks-profile>
-
-# 3. Executa os geradores e o loader sintético (use o mesmo target do deploy)
+# 2. Executa os geradores e o loader sintético (use o mesmo target do deploy)
 databricks bundle run scr3040_generator     -t dev-azure --profile <your-databricks-profile>
 databricks bundle run scr3050_generator     -t dev-azure --profile <your-databricks-profile>
 databricks bundle run synthetic_data_loader -t dev-azure --profile <your-databricks-profile>
 ```
 
-> **Por que dois passos?** No DABs, `bundle deploy` apenas faz upload do source e cria o recurso de App. O container só passa a servir o código novo depois que `bundle run <app_key>` (ou `databricks apps deploy`) é chamado. Re-rode o passo 2 sempre que alterar o código do app.
+> Re-rodar `bundle deploy` sempre que alterar o código do app — ele detecta a mudança no source e re-publica o container automaticamente.
+>
+> ⚠️ **Após `bundle destroy`**, o primeiro `bundle deploy` apenas inicia o compute do app sem publicar o código (conhecido bug do `lifecycle.started: true` no DABs em criação fresca). Sintoma: app fica em `UNAVAILABLE` apesar do compute `ACTIVE`. Para recuperar, rode `bundle deploy` uma segunda vez **ou** execute `databricks bundle run r18_compliance_app -t <target>`.
 
 ## Estrutura
 

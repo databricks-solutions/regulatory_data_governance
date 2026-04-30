@@ -1,12 +1,21 @@
 # Databricks App for the RC18 accelerator (implementation/customer bundle).
 # Runs against real Unity Catalog data — USE_MOCK_BACKEND is false.
 # Customers point the warehouse and dashboard IDs at their own assets via bundle vars.
+#
+# `lifecycle.started: true` makes `databricks bundle deploy` also push the
+# code into the running container and start the app — without it, the app
+# resource gets created but stays in "Unavailable" until you run a separate
+# `databricks bundle run r18_compliance_app`. Only supported in direct
+# deployment mode (DATABRICKS_BUNDLE_ENGINE=direct), which the bundle already
+# requires because of the `catalogs:` resource.
 resources:
   apps:
     r18_compliance_app:
       name: ${var.app_name}-${bundle.target}
       description: "RC18 StarterKit — BACEN Resolucao Conjunta N.18 Compliance Accelerator"
       source_code_path: ../app/backend
+      lifecycle:
+        started: true
 
       config:
         env:

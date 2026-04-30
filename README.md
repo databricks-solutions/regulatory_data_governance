@@ -17,13 +17,19 @@ Você usa o repositório como **atalho** para construir sua própria solução d
 ```bash
 git clone <repo>
 cd regulatory-data-governance
-cp .env.example .env             # preencha com IDs do seu workspace
-./scripts/deploy.sh              # sobe app + pipelines + dashboards + genie
+export DATABRICKS_BUNDLE_ENGINE=direct                       # obrigatório (bundle declara `catalogs:`)
+databricks bundle deploy -t dev --profile <seu-profile>      # cria catálogo, warehouse, schemas, app, pipelines, dashboards
+databricks bundle run setup_reference_tables -t dev --profile <seu-profile>   # seeds reference + carrega XMLs de exemplo
+databricks bundle run bronze -t dev --profile <seu-profile>  # ingere XMLs do landing volume
+databricks bundle run silver -t dev --profile <seu-profile>
+databricks bundle run gold   -t dev --profile <seu-profile>
 ```
 
-- **Nenhum dado sintético é envolvido.** O bundle na raiz (`databricks.yml`, nome `rc18-starter-kit`) entrega só o framework — nenhum gerador, nenhum loader fictício.
+- **Nenhum dado sintético é envolvido.** O bundle na raiz (`databricks.yml`, nome `rc18-starter-kit`) entrega só o framework — nenhum gerador, nenhum loader fictício. Os XMLs de `sample/` são apenas duas amostras canônicas (uma 3040, uma 3050) que o `setup_reference_tables` copia para `landing.scr_xml` para o `bundle deploy` ser auto-suficiente fim-a-fim.
 - **Pode deletar `demo/`** sem medo: nada do bundle do acelerador depende daquela pasta.
-- Próximos passos: conectar as pipelines às suas fontes (Oracle/DB2/VSAM/etc.), carregar as tabelas de referência BACEN via `notebooks/setup/setup_reference_tables.py`, e adaptar o app à identidade visual/domínio da sua IF.
+- O bundle provisiona um catálogo (`rc18_catalog`) e um SQL warehouse serverless (`rc18-warehouse-<target>`) por padrão. Para reutilizar assets existentes, sobreponha `--var catalog=<nome>` e `--var warehouse_id=<id>` E comente `resources/catalog.yml` / `resources/warehouse.yml` para o bundle não tentar gerenciar o ciclo de vida deles.
+- ⚠️ **Após `bundle destroy`**, o primeiro `bundle deploy` apenas inicia o compute do app sem publicar o código (bug conhecido do `lifecycle.started: true` no DABs). Sintoma: app fica em `UNAVAILABLE` apesar do compute `ACTIVE`. Recupere com `bundle deploy` uma segunda vez ou `databricks bundle run r18_compliance_app -t <target>`.
+- Próximos passos: conectar as pipelines às suas fontes reais (Oracle/DB2/VSAM/etc.) substituindo os XMLs de `sample/`, e adaptar o app à identidade visual/domínio da sua IF.
 
 ### 2. Ver o acelerador em ação (modo demo)
 
@@ -41,34 +47,22 @@ databricks bundle deploy -t dev    # sobe acelerador + geradores sintéticos + l
 
 ## Configuração de ambiente
 
-URLs de workspace, IDs de warehouse, dashboards e Genie Space **não são versionados** no repositório — todos vêm de variáveis de ambiente.
+| Cenário | Como configura |
+|---------|----------------|
+| **Deploy do bundle** (Databricks Apps + pipelines) | O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env` em [resources/app.yml](resources/app.yml#L18-L36) — usando referências `${resources.*}` que resolvem em deploy time. **Não é preciso preencher `.env`** para o deploy funcionar. Para reutilizar assets existentes, ver `--var catalog=...` / `--var warehouse_id=...` na seção de deploy. |
+| **Devloop local** (`./run_local.sh`) | `app/backend/main.py` carrega `.env` via `python-dotenv` no startup. Copie `.env.example` → `.env` e ajuste se for testar contra um workspace real. Para mock data (default), `USE_MOCK_BACKEND=true` já basta. |
+| **Frontend** | Não lê `.env` direto — recebe URLs/IDs via API do backend. |
 
-1. Copie o template e preencha com os valores do seu workspace:
+Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 
-   ```bash
-   cp .env.example .env
-   # edite .env com seus IDs reais (host, warehouse, dashboards, Genie)
-   ```
-
-2. Onde cada componente lê o `.env`:
-
-   | Componente | Como consome |
-   |------------|--------------|
-   | Backend (dev local) | `app/backend/main.py` carrega via `python-dotenv` no startup |
-   | Backend (Databricks Apps) | [scripts/deploy.sh](scripts/deploy.sh) gera um `app.yaml` runtime a partir do `.env` e faz overlay no path do bundle no workspace — o `app/backend/app.yaml` versionado fica em branco |
-   | Bundle DABs | `./scripts/deploy.sh` lê `DATABRICKS_WAREHOUSE_ID` e passa via `--var warehouse_id=...` |
-   | Frontend | Não lê `.env` direto — recebe URLs/IDs via API do backend |
-
-3. Variáveis principais (ver [.env.example](.env.example) para a lista completa):
-
-   | Variável | Descrição |
-   |----------|-----------|
-   | `DATABRICKS_HOST` | Host do workspace (`adb-<id>.<n>.azuredatabricks.net`) — o ID numérico é extraído daqui em runtime |
-   | `DATABRICKS_WAREHOUSE_ID` | SQL warehouse usado pela API |
-   | `DATABRICKS_CATALOG` | Catálogo Unity (default: `rc18_catalog`) |
-   | `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` / `_RECONCILIACAO` | IDs Lakeview |
-   | `GENIE_SPACE_ID` | ID do Genie Room |
-   | `USE_MOCK_BACKEND` | `true` para servir fixtures mock localmente |
+| Variável | Descrição |
+|----------|-----------|
+| `DATABRICKS_HOST` | Host do workspace (`adb-<id>.<n>.azuredatabricks.net`) — apenas para devloop local contra workspace real |
+| `DATABRICKS_WAREHOUSE_ID` | Apenas para devloop local; em deploy de produção o bundle aponta o app para o warehouse provisionado |
+| `DATABRICKS_CATALOG` | Apenas para devloop local; em deploy o bundle define via `${var.catalog}` |
+| `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para devloop local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
+| `GENIE_SPACE_ID` | Set quando houver um Genie Room provisionado externamente |
+| `USE_MOCK_BACKEND` | `true` no devloop para servir fixtures sem Databricks |
 
 ---
 
@@ -127,8 +121,7 @@ regulatory-data-governance/
 │       ├── dashboard_criticas.yml
 │       └── genie_scr.yml
 │
-├── scripts/                       # Utilitários de dev e deploy
-│   ├── deploy.sh                  # Deploy do bundle + app (lê .env, popula app.yaml runtime)
+├── scripts/                       # Utilitários de dev (não deploy)
 │   └── gen_doc3040_pdf.py
 │
 ├── docs/                          # Especificações, requisitos e referência BACEN
@@ -198,46 +191,54 @@ Abrir http://localhost:5173.
 
 ---
 
-## Deploy do acelerador (cliente)
+## Deploy do acelerador
 
 ### Pré-requisitos
 
-- `.env` preenchido (ver [Configuração de ambiente](#configuração-de-ambiente))
-- `databricks` CLI autenticada com um profile que aponte para o workspace destino
-  (default no script: `ssa-latam` — sobreponha com `PROFILE=<seu-profile>`)
+- `databricks` CLI autenticada com um profile apontando para o workspace destino
+- `DATABRICKS_BUNDLE_ENGINE=direct` exportado no shell (o bundle declara `catalogs:` e exige o direct deployment engine — sem isso o `bundle deploy` aborta na primeira linha)
 
-### One-liner
+### Sequência canônica
 
 ```bash
-# 1. Build do frontend (apenas se mudou o código Svelte)
+# 0. (Opcional) Rebuild do frontend se o código Svelte mudou
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 cd -
 
-# 2. Deploy fim-a-fim (bundle DABs + app + populate runtime app.yaml a partir do .env)
-./scripts/deploy.sh                                    # target=dev, profile=ssa-latam
-./scripts/deploy.sh prod                               # outro target
-TARGET=dev PROFILE=meu-profile APP_NAME=rc18-staging ./scripts/deploy.sh
+# 1. Sobe catálogo, warehouse, schemas, volumes, app, 3 pipelines DLT, 2 dashboards e setup_job.
+#    O app já é configurado via `apps.config.env` (USE_MOCK_BACKEND=false, dashboards, warehouse) —
+#    nenhum overlay de `app.yaml` é necessário.
+export DATABRICKS_BUNDLE_ENGINE=direct
+databricks bundle deploy -t dev --profile <seu-profile>
 
-# 3. Carregar tabelas de referência BACEN (domínios, críticas, calendário)
-databricks bundle run -t dev setup_reference_tables -p ssa-latam   # (após criar o job correspondente)
+# 2. Seeds: carrega domínios/críticas/calendário BACEN no schema `reference`
+#    e copia os XMLs de `sample/` para `landing.scr_xml/{3040,3050}/` para que
+#    as pipelines tenham dados para ingerir fim-a-fim de saída.
+databricks bundle run setup_reference_tables -t dev --profile <seu-profile>
+
+# 3. Roda as DLT na ordem do medallion
+databricks bundle run bronze -t dev --profile <seu-profile>
+databricks bundle run silver -t dev --profile <seu-profile>
+databricks bundle run gold   -t dev --profile <seu-profile>
 ```
 
-### O que o script faz
+### Bring-your-own (BYOC) catálogo / warehouse
 
-1. Carrega `.env` (falha se ausente ou se `DATABRICKS_WAREHOUSE_ID` estiver vazio)
-2. `databricks bundle deploy -t <target> -p <profile> --var warehouse_id=$DATABRICKS_WAREHOUSE_ID`
-   — sobe app, 3 pipelines DLT (`r18-bronze`, `r18-silver`, `r18-gold`), 2 dashboards e Genie Room
-3. Gera `app.yaml` runtime com os valores do `.env` (warehouse, dashboards, Genie, schemas) e faz overlay sobre o `app.yaml` em branco que veio no bundle — assim o `app/backend/app.yaml` versionado **nunca** carrega IDs reais
-4. `databricks apps deploy rc18-starter-kit` — reinicia o container com a config nova
-5. Imprime URL final + estado da app
-
-### Deploy manual (se precisar)
+Para apontar o bundle ao seu próprio catálogo e warehouse em vez dos provisionados:
 
 ```bash
-set -a && . ./.env && set +a
-databricks bundle deploy -t dev -p ssa-latam --var "warehouse_id=$DATABRICKS_WAREHOUSE_ID"
+databricks bundle deploy -t dev --profile <seu-profile> \
+  --var catalog=<nome_catalogo_existente> \
+  --var warehouse_id=<id_warehouse_existente>
 ```
-(Pulando os passos 3–4, a app sobe mas com env vars vazias — dashboards e queries reais não funcionam.)
+
+Adicionalmente, comente os blocos em [resources/catalog.yml](resources/catalog.yml) e [resources/warehouse.yml](resources/warehouse.yml) para o bundle não tentar gerenciar o ciclo de vida desses recursos externos.
+
+### Caveats
+
+- **App em "Unavailable" após `bundle destroy` + `bundle deploy`**. O `lifecycle.started: true` do app inicia o compute mas não publica o código no primeiro deploy depois de uma destruição. Recupere com mais um `bundle deploy` (segundo run publica o código) ou rodando `databricks bundle run r18_compliance_app -t dev --profile <seu-profile>` para forçar a publicação.
+- **Re-deploy do app é automático**: alterar código em `app/backend/` e rodar `bundle deploy` novamente já republica o container — não é preciso comando separado.
+- **Genie Room** não é provisionado pelo bundle. Para habilitar a aba Genie, crie a sala manualmente, pegue o ID e re-adicione `GENIE_SPACE_ID` em `resources/app.yml` ou rode `databricks apps update <app-name> --env GENIE_SPACE_ID=<id>` post-deploy.
 
 ---
 

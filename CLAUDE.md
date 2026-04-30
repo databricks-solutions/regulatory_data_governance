@@ -123,25 +123,32 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 
 # === Implementation deploy (accelerator — self-contained sandbox) ===
 # Default: provisions catalog + serverless warehouse + pipelines + dashboards + setup job + app.
+# The app uses `lifecycle.started: true`, so re-running `bundle deploy` on an
+# existing app pushes the new code automatically. EXCEPTION: the very first
+# deploy after a `bundle destroy` only starts the compute and skips the code
+# push — see the "Bundle gotchas" section. Re-run `bundle deploy` (or
+# `bundle run r18_compliance_app`) once to recover.
 # IMPORTANT: requires the direct deployment engine because the bundle declares a `catalogs:` resource.
 export DATABRICKS_BUNDLE_ENGINE=direct
-databricks bundle deploy -t dev --profile <p>                                  # creates resources
+databricks bundle deploy -t dev --profile <p>                                  # creates resources + starts compute
+# If app shows UNAVAILABLE after a destroy+deploy, recover with one of:
+#   databricks bundle deploy -t dev --profile <p>                              # second run pushes code
+#   databricks bundle run r18_compliance_app -t dev --profile <p>              # manual code push
 databricks bundle run setup_reference_tables -t dev --profile <p>              # seeds reference + loads sample XMLs into landing
 databricks bundle run bronze -t dev --profile <p>                              # ingests sample XMLs
 databricks bundle run silver -t dev --profile <p>                              # validate + DLT expectations
 databricks bundle run gold -t dev --profile <p>                                # curated tables + governance scorecard
-databricks bundle run r18_compliance_app -t dev --profile <p>                  # push code into the running app
 
 # Bring-your-own catalog / warehouse: override the vars AND comment out the corresponding
 # resources/catalog.yml / resources/warehouse.yml so the bundle doesn't manage them.
 databricks bundle deploy -t dev --var catalog=my_cat --var warehouse_id=01abc...
 
 # === Internal Databricks demo (mock app + synthetic XML generators) ===
-# Two-step deploy: `bundle deploy` creates the app shell; `bundle run` pushes the
-# code into the running container. Without step 2 the app shows "App Not Available".
+# `lifecycle.started: true` on the app makes re-deploys auto-push the code.
+# After a destroy+deploy, the FIRST deploy only starts compute (known issue);
+# re-run deploy once OR `bundle run r18_compliance_app` to push code.
 cd demo
-databricks bundle deploy -t dev-azure                     # rc18-demo: app shell + 3 jobs + catalog + bronze/reference
-databricks bundle run r18_compliance_app -t dev-azure     # push synced code into the running app
+databricks bundle deploy -t dev-azure                     # rc18-demo: app + 3 jobs + catalog + bronze/reference
 
 # Run synthetic generators / loader:
 databricks bundle run scr3040_generator -t dev-azure      # generate Doc 3040 XML (validates with BACEN tool)
@@ -221,6 +228,10 @@ SCR XML files → Bronze (parsed structs) → Silver (validated, R.18 expectatio
 
 - `catalogs:` resources require **direct deployment engine** — set `DATABRICKS_BUNDLE_ENGINE=direct` before `bundle deploy/run`. Without it, you get "Catalog resources are only supported with direct deployment mode".
 - **App env vars cannot be empty** — `apps.config.env` entries with `value: ""` get serialized without a `value` field, which the Apps API rejects with "Must specify environment variable source using either `value` or `valueFrom`." Either provide a non-empty default or omit the env entry entirely (the app code's `os.getenv(..., "")` covers absence).
+- **App auto-start during `bundle deploy`** — set `lifecycle.started: true` on the `apps` resource to make `bundle deploy` push the code AND start the app in one shot. Without it, the app stays in "Unavailable" until you run `bundle run <app_key>` separately. Only works in direct deployment mode. The IDE's bundle schema may flag `started` as unknown — that's a stale schema in the IDE; the CLI accepts it (verified via `bundle validate`).
+- **`lifecycle.started: true` is unreliable on the FIRST deploy after `bundle destroy`** — the compute starts, but the source-code deployment step is silently skipped (likely a race between compute-creation and the apps-deploy hook in the DABs CLI). Symptoms: `compute_status=ACTIVE`, `app_status=UNAVAILABLE`, `active_deployment=None`. Reproducer: `bundle destroy` → `bundle deploy` → check via `databricks apps get <app-name>`. Workaround on subsequent deploys works fine — the flag triggers code-push every time once an app already exists. Two ways to recover after a destroy+deploy:
+  - run `databricks bundle deploy` a SECOND time (the second run pushes code), or
+  - run `databricks bundle run r18_compliance_app -t <target>` once to push code manually.
 - DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines.
 - `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`.
 - **Bronze parser choice (3040 vs 3050)** —
