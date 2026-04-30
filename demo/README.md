@@ -3,26 +3,27 @@
 > ⚠️ **Esta pasta é exclusiva do time Databricks para demos.**
 > Se você é cliente usando este repositório como base para sua plataforma RC18, **ignore ou delete este diretório**. Nada no bundle do acelerador (raiz) depende do que está aqui.
 
-Este bundle existe só para demonstrar o acelerador rodando fim-a-fim com dados sintéticos do Doc 3040 e Doc 3050 — sem depender dos dados reais do cliente.
+Este bundle existe só para mostrar:
+1. O **app** rodando em **modo mock** (UI completa do acelerador, sem dependência de dados reais).
+2. Os **geradores sintéticos** de XML do Doc 3040 e Doc 3050, validados com os binários oficiais do BCB.
 
-## O que o demo entrega (além do acelerador)
+> O bundle do demo é **autocontido e enxuto** — não inclui as pipelines DLT (bronze/silver/gold), os dashboards Lakeview, nem o `setup_reference_tables` do acelerador. Para o stack completo do cliente, rodar o bundle `rc18-starter-kit` a partir da raiz do repo.
+
+## O que o demo entrega
 
 | Recurso | Tipo | Descrição |
 |---------|------|-----------|
-| `scr3040_generator` | Job (4 etapas) | Gera XML sintético do Doc 3040 válido para o Validador BACEN |
-| `scr3050_generator` | Job (5 etapas) | Gera XML sintético do Doc 3050 (TXB V11) a partir do 3040 via equivalência; valida com o Validador TXB |
-| `synthetic_data_loader` | Job | Carrega dados fictícios nas tabelas `bronze/silver/gold` do catálogo |
-| `scheduled_refresh` | Job agendado | Cron diário que re-executa o `synthetic_data_loader` |
-| `rc18_demo_warehouse` | SQL Warehouse | Serverless 2X-Small (auto-stop 10 min) que alimenta dashboards, Genie e jobs do demo |
-| `notebooks/scr3040_generator/` | Notebooks | Lógica de geração do Doc 3040 (setup, dados, regras, XML) |
+| `r18_compliance_app` | Databricks App | App em modo mock (`USE_MOCK_BACKEND=true`) — source compartilhado com o bundle do core (`../app/backend`) |
+| `rc18_demo_catalog` | Catalog | Catálogo dedicado ao demo, criado pelo bundle |
+| `bronze`, `reference` | Schemas | Homes para tabelas escritas pelos jobs (3040/3050 staging vai em `reference`; loader sintético vai em `bronze`) |
+| `scr3040_generator` | Job (5 tasks) | Gera XML sintético do Doc 3040 + valida com o `Validador3040` oficial do BCB |
+| `scr3050_generator` | Job (5 tasks) | Gera XML sintético do Doc 3050 (TXB V11) a partir do 3040 via equivalência + valida com o `ValidadorMDR` |
+| `synthetic_data_loader` | Job | Popula `${var.catalog}.bronze` com SCR sintético (operacoes_raw, clientes_raw, raw_3050_diario) |
+| `notebooks/scr3040_generator/` | Notebooks | Lógica de geração do Doc 3040 (setup, dados, regras, XML, validação) |
 | `notebooks/scr3050_generator/` | Notebooks | Lógica de agregação 3040→3050 + validação automatizada |
 | `prompts/` | Markdown | Meta-prompts que orientaram a construção dos geradores (docs, não runtime) |
 
 ## Como rodar
-
-O bundle do demo é **autocontido**: o próprio deploy provisiona um SQL Warehouse serverless 2X-Small (`rc18-demo-warehouse`) e usa ele para dashboards, Genie e jobs. Não é preciso passar `--var warehouse_id`.
-
-Se você prefere reutilizar um warehouse existente, sobreponha o variable: `--var warehouse_id=<id>` ou `BUNDLE_VAR_warehouse_id=<id>`.
 
 ### Escolha do target
 
@@ -39,31 +40,33 @@ O alvo (`-t`) combina `<env>-<cloud>` — define o `mode` (development/productio
 
 `dev-*` deploya em `/Workspace/Users/<user>/.bundle/...` (escopo pessoal, prefixa recursos com `[dev <user>]`). `prod-*` deploya em `/Workspace/Shared/.bundle/...` (compartilhado, sem prefixo, com permissão CAN_MANAGE para o grupo `users`).
 
+### Deploy
+
 ```bash
 cd demo
 
-# Dev (default)
+# 1. Validate + deploy: cria o catálogo, schemas, app shell e jobs.
 databricks bundle validate -t dev-azure --profile <your-databricks-profile>
 databricks bundle deploy   -t dev-azure --profile <your-databricks-profile>
 
-# Outras combinações
-databricks bundle deploy   -t dev-aws    --profile <your-databricks-profile>
-databricks bundle deploy   -t prod-azure --profile <your-databricks-profile>
+# 2. Push do código para dentro do app (sem este passo o app fica em "App Not Available").
+#    Roda `databricks apps deploy` por baixo dos panos e aguarda o terminal state.
+databricks bundle run r18_compliance_app -t dev-azure --profile <your-databricks-profile>
 
-# Executa os geradores (use o mesmo target do deploy)
-databricks bundle run scr3040_generator    -t dev-azure --profile <your-databricks-profile>
-databricks bundle run scr3050_generator    -t dev-azure --profile <your-databricks-profile>
+# 3. Executa os geradores e o loader sintético (use o mesmo target do deploy)
+databricks bundle run scr3040_generator     -t dev-azure --profile <your-databricks-profile>
+databricks bundle run scr3050_generator     -t dev-azure --profile <your-databricks-profile>
 databricks bundle run synthetic_data_loader -t dev-azure --profile <your-databricks-profile>
 ```
 
-O bundle `rc18-demo` **inclui todos os recursos do acelerador** (app, pipelines, dashboards, genie) MAIS os geradores sintéticos e o warehouse serverless. Para o cliente usar só o acelerador, rodar a partir da **raiz do repositório** (bundle `rc18-starter-kit`) — esse bundle não cria warehouse, o cliente aponta para o seu próprio via `--var warehouse_id=<id>`.
+> **Por que dois passos?** No DABs, `bundle deploy` apenas faz upload do source e cria o recurso de App. O container só passa a servir o código novo depois que `bundle run <app_key>` (ou `databricks apps deploy`) é chamado. Re-rode o passo 2 sempre que alterar o código do app.
 
 ## Estrutura
 
 ```
 demo/
 ├── README.md                          # este arquivo
-├── databricks.yml                     # bundle rc18-demo (inclui core + demo)
+├── databricks.yml                     # bundle rc18-demo (autocontido — não inclui ../resources)
 ├── assets/
 │   └── validators/                    # binários oficiais do BCB (sincronizados pelo bundle)
 │       ├── SCR3040_Validador.bin      # ZIP do Validador3040 (extensão .bin evita auto-extract no Workspace Files)
@@ -72,16 +75,17 @@ demo/
 ├── notebooks/
 │   ├── scr3040_generator/             # 5 etapas: setup, dados, regras, XML, validação BACEN
 │   ├── scr3050_generator/             # 5 etapas: setup, ingestão, agregação, XML, validação
-│   └── synthetic_data_loader.py       # carrega dados fictícios nas tabelas
+│   └── synthetic_data_loader.py       # carrega dados fictícios em ${var.catalog}.bronze
 ├── prompts/                           # meta-prompts dos geradores (docs)
 │   ├── syntetic-dataset-generator-3040.md
 │   └── syntetic-dataset-generator-3050.md
-└── resources/                         # DAB jobs do demo
-    ├── scr3040_generator.yml
-    ├── scr3050_generator.yml
-    ├── synthetic_data.yml
-    ├── scheduled_refresh.yml
-    └── warehouse.yml                   # SQL Warehouse serverless 2X-Small
+└── resources/                         # DAB resources do demo
+    ├── app.yml                        # App em modo mock (USE_MOCK_BACKEND=true)
+    ├── catalog.yml                    # rc18_demo_catalog
+    ├── uc_assets.yml                  # schemas bronze + reference
+    ├── synthetic_data.yml             # job r18-synthetic-data-loader
+    ├── scr3040_generator.yml          # job rc18-scr3040-generator
+    └── scr3050_generator.yml          # job rc18-scr3050-generator
 ```
 
 ## Parâmetros principais (jobs)
@@ -100,6 +104,10 @@ demo/
 - Valida o XML gerado via ValidadorMDR (Doc 3050/TXB V11) do BCB — requer JVM no driver, usa cluster clássico single-node SINGLE_USER
 - `validador_zip`, `xsd_path` — defaults apontam para artefatos versionados em `demo/assets/validators/` e sincronizados pelo bundle (não exigem upload manual)
 - `volume_out` — volume UC destino do XML (criado em runtime se não existir)
+
+### `synthetic_data_loader`
+- `catalog`, `schema_bronze` — destino das tabelas (default: `${var.catalog}.bronze`)
+- `n_operacoes` (default `50000`), `n_meses` (default `6`), `dt_base_inicio` (default `2025-09-01`)
 
 ## Dados sintéticos — características
 
@@ -120,4 +128,4 @@ databricks bundle destroy -t <env>-<cloud> --profile <your-databricks-profile>
 # ex: -t dev-azure, -t prod-aws, etc.
 ```
 
-Isso remove **todos** os recursos deployados por este bundle (acelerador + demo). Se quer limpar só o demo e manter o acelerador, destrua os jobs individualmente via UI ou CLI.
+Isso remove **apenas** os recursos do bundle do demo (app em mock, catálogo `rc18_demo_catalog`, schemas, e os 3 jobs). O acelerador (bundle `rc18-starter-kit`) não é tocado.
