@@ -1,10 +1,20 @@
-# Gold reconciliation pipeline — placeholder
+# Gold curation pipeline — produces position tables, governance scorecard, criticas summary
 resources:
   pipelines:
     gold_reconciliation:
-      name: "r18-gold-reconciliation-${bundle.target}"
+      name: "r18-gold-curation-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_gold}"
+      configuration:
+        # Resolve schemas via bundle resource references so dev-mode prefixing
+        # (`dev_<user>_reference`) is picked up.
+        source_catalog: "${var.catalog}"
+        source_schema: "${var.schema_bronze}"
+        bronze_schema: "${var.schema_bronze}"
+        silver_schema: "${var.schema_silver}"
+        gold_schema: "${var.schema_gold}"
+        quality_schema: "${var.schema_quality}"
+        reference_schema: "${resources.schemas.reference.name}"
       libraries:
         - notebook:
             path: ../../pipelines/gold/transformations/criticas_summary.py
@@ -12,5 +22,3 @@ resources:
             path: ../../pipelines/gold/transformations/posicao_mensal.py
         - notebook:
             path: ../../pipelines/gold/transformations/quality_scorecard.py
-        - notebook:
-            path: ../../pipelines/gold/transformations/reconciliacao_3040_3050.py

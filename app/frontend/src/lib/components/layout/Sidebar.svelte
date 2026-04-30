@@ -15,8 +15,7 @@
       title: 'Monitoramento',
       items: [
         { label: 'Qualidade R.18', href: '/quality', icon: 'shield' },
-        { label: 'Críticas SCR', href: '/validations', icon: 'check' },
-        { label: 'Reconciliação', href: '/reconciliation', icon: 'layers' }
+        { label: 'Críticas SCR', href: '/validations', icon: 'check' }
       ]
     },
     {
@@ -43,8 +42,7 @@
       title: 'Painéis',
       items: [
         { label: 'Conformidade R.18', href: '/dashboards/conformidade', icon: 'chart' },
-        { label: 'Monitor de Críticas', href: '/dashboards/criticas', icon: 'chart' },
-        { label: 'Reconciliação Executiva', href: '/dashboards/reconciliacao', icon: 'chart' }
+        { label: 'Monitor de Críticas', href: '/dashboards/criticas', icon: 'chart' }
       ]
     },
     {

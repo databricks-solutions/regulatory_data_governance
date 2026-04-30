@@ -37,7 +37,7 @@
       score: 92.5,
       target: 95.0,
       status: 'atencao',
-      metrics: { taxa_rejeicao_bcb_pct: 2.1, reconciliacao_pre_envio_pct: 99.8, validacao_fonte_primaria_pct: 97.5 },
+      metrics: { taxa_rejeicao_bcb_pct: 2.1, validacao_fonte_primaria_pct: 97.5 },
       violations: [
         { rule_id: 'SEM_014', rule_description: 'IPOC componentes divergentes dos campos da operação', severity: 'error', count: 127, status: 'fail' },
         { rule_id: 'SEM_008', rule_description: 'Taxa efetiva implausível para modalidade', severity: 'warning', count: 43, status: 'warn' },

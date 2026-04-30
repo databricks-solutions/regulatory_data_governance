@@ -58,19 +58,6 @@ export function getValidationRun(runId) {
   return apiFetch(`/validations/runs/${runId}`);
 }
 
-// Reconciliation
-export function getReconciliationSummary(dataBase) {
-  const params = dataBase ? `?data_base=${dataBase}` : '';
-  return apiFetch(`/reconciliation/summary${params}`);
-}
-
-export function getReconciliationDetail(reconType, dataBase, filters = {}) {
-  const params = new URLSearchParams();
-  if (dataBase) params.set('data_base', dataBase);
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  return apiFetch(`/reconciliation/${reconType}/details?${params}`);
-}
-
 // Lineage
 export function getLineageGraph(tableName, direction = 'both', depth = 5) {
   const params = new URLSearchParams({ direction, depth });

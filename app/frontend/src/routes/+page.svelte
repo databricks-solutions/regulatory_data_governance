@@ -14,12 +14,10 @@
     pending_validations: { scr3040: 3, scr3050: 1 },
     last_submission: { document: 'SCR 3050', data_base: '2026-03-28', status: 'aceito', submitted_at: '2026-03-30T14:22:00Z' },
     alerts: [
-      { severity: 'warning', message: 'Reconciliação 3040 vs COSIF: divergência 0.08% no saldo total', created_at: '2026-03-29T10:00:00Z' },
       { severity: 'info', message: 'Nova versão de leiaute V11 em vigor desde 07/11/2025', created_at: '2026-03-28T08:00:00Z' },
       { severity: 'error', message: 'IPOC componentes divergentes em 127 operações', created_at: '2026-03-27T16:00:00Z' }
     ],
-    deadline: { date: '2026-12-31', days_remaining: 274, phase: 'Fase 1 - Fundação' },
-    reconciliation: { total: 4, passed: 3, warning: 1, blocked: 0 }
+    deadline: { date: '2026-12-31', days_remaining: 274, phase: 'Fase 1 - Fundação' }
   });
 
   let dimensions = $state([
@@ -54,13 +52,6 @@
       if (data?.dimensions) dimensions = data.dimensions;
     } catch { /* use mock data */ }
   });
-
-  const reconStatuses = [
-    { type: '3040_vs_cosif', label: '3040 vs COSIF', status: 'passed' },
-    { type: '3040_vs_3050', label: '3040 vs 3050', status: 'passed' },
-    { type: '3040_vs_internal', label: '3040 vs Interno', status: 'passed' },
-    { type: '3050_vs_internal', label: '3050 vs Interno', status: 'warning' }
-  ];
 
   function getAlertIcon(severity) {
     if (severity === 'error') return 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z';
@@ -126,13 +117,6 @@
       href="/validations"
     />
     <KpiCard
-      title="Reconciliação"
-      value="{kpis.reconciliation.passed}/{kpis.reconciliation.total}"
-      subtitle="{kpis.reconciliation.warning} alerta | {kpis.reconciliation.blocked} bloqueado"
-      status={kpis.reconciliation.blocked > 0 ? 'error' : kpis.reconciliation.warning > 0 ? 'warning' : 'success'}
-      href="/reconciliation"
-    />
-    <KpiCard
       title="Prazo R.18"
       value={kpis.deadline.days_remaining}
       unit=" dias"
@@ -195,32 +179,6 @@
       </div>
     </div>
 
-    <!-- Reconciliation -->
-    <div class="card status-card">
-      <div class="status-card-header">
-        <div class="status-icon-wrapper recon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-        </div>
-        <div class="card-header">Reconciliação</div>
-      </div>
-      <div class="recon-list">
-        {#each reconStatuses as r}
-          <a href="/reconciliation/{r.type}" class="recon-item">
-            <div class="recon-status" class:passed={r.status === 'passed'} class:warn={r.status === 'warning'}>
-              {#if r.status === 'passed'}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
-              {:else}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/></svg>
-              {/if}
-            </div>
-            <span class="recon-label">{r.label}</span>
-            <svg class="recon-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
-          </a>
-        {/each}
-      </div>
-    </div>
 
     <!-- Active Alerts -->
     <div class="card status-card">

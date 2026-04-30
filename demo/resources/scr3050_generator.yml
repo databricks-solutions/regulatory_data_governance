@@ -20,11 +20,14 @@ resources:
         - name: catalog
           default: ${var.catalog}
         - name: schema
-          default: "reference"
+          # Use the bundle-managed reference schema so dev-mode prefixing
+          # (`dev_<user>_reference`) is picked up automatically.
+          default: ${resources.schemas.reference.name}
         - name: volume_out
-          default: "/Volumes/${var.catalog}/reference/scr3050_out"
+          default: "/Volumes/${var.catalog}/${resources.schemas.reference.name}/scr3050_out"
         - name: src_prefix_3040
-          default: "${var.catalog}.reference.f_3040_"
+          # Keep aligned with the 3040 generator's output schema.
+          default: "${var.catalog}.${resources.schemas.reference.name}.f_3040_"
         - name: leiaute_versao
           default: "V11"
         - name: validador_zip

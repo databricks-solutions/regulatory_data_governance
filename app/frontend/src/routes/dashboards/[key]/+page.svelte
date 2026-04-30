@@ -7,8 +7,7 @@
 
   const dashboardMeta = {
     conformidade: { title: 'Conformidade R.18', breadcrumb: 'Conformidade R.18' },
-    criticas: { title: 'Monitor de Críticas', breadcrumb: 'Monitor de Críticas' },
-    reconciliacao: { title: 'Reconciliação Executiva', breadcrumb: 'Reconciliação Executiva' }
+    criticas: { title: 'Monitor de Críticas', breadcrumb: 'Monitor de Críticas' }
   };
 
   let meta = $derived(dashboardMeta[dashboardKey] || { title: dashboardKey, breadcrumb: dashboardKey });

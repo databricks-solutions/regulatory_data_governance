@@ -93,7 +93,6 @@ class DimensionMetrics(BaseModel):
     sla_atendimento_pct: float | None = None
     catalogo_cobertura_pct: float | None = None
     taxa_rejeicao_bcb_pct: float | None = None
-    reconciliacao_pre_envio_pct: float | None = None
     validacao_fonte_primaria_pct: float | None = None
 
 
@@ -227,51 +226,6 @@ class RunSummary(BaseModel):
 
 class ValidationRunsResponse(BaseModel):
     runs: list[RunSummary]
-
-
-# --- Reconciliation ---
-
-class ReconChecks(BaseModel):
-    total: int
-    passed: int
-    failed: int
-    warning: int
-
-
-class ReconciliationItem(BaseModel):
-    type: str
-    name: str
-    status: str
-    executed_at: str
-    checks: ReconChecks
-    max_divergence_pct: float
-    tolerance_pct: float
-
-
-class ReconciliationSummaryResponse(BaseModel):
-    data_base: str
-    reconciliations: list[ReconciliationItem]
-
-
-class ReconDetailCheck(BaseModel):
-    rule_id: str
-    rule_name: str
-    scr_value: float
-    cosif_value: float | None = None
-    divergence: float
-    divergence_pct: float
-    tolerance_pct: float
-    status: str
-    modality: str | None = None
-    cosif_account: str | None = None
-
-
-class ReconciliationDetailResponse(BaseModel):
-    data_base: str
-    recon_type: str
-    executed_at: str
-    checks: list[ReconDetailCheck]
-    pagination: Pagination
 
 
 # --- Lineage ---

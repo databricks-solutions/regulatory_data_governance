@@ -142,13 +142,11 @@ async def get_dashboard_timeline(data_base: str = Query("2026-03")):
 DASHBOARD_KEY_MAP = {
     "conformidade": os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
     "criticas": os.getenv("DASHBOARD_ID_CRITICAS", ""),
-    "reconciliacao": os.getenv("DASHBOARD_ID_RECONCILIACAO", ""),
     "genie": os.getenv("GENIE_SPACE_ID", ""),
 }
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",
     "criticas": "Monitor de Críticas SCR",
-    "reconciliacao": "Reconciliação Executiva",
     "genie": "Consulta Natural — SCR R.18",
 }
 
@@ -215,13 +213,6 @@ async def list_dashboards():
                 name="Monitor de Criticas",
                 description="Taxa de aprovacao/rejeicao por documento, categoria de regra e severidade",
                 type="criticas",
-                last_published="2026-04-01T08:00:00Z",
-            ),
-            DashboardInfo(
-                id=os.getenv("DASHBOARD_ID_RECONCILIACAO", ""),
-                name="Reconciliacao Executiva",
-                description="Sumario de divergencias entre documentos SCR",
-                type="reconciliacao",
                 last_published="2026-04-01T08:00:00Z",
             ),
         ]

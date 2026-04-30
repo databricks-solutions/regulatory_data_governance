@@ -5,6 +5,14 @@ resources:
       name: "r18-silver-validation-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_silver}"
+      configuration:
+        # Resolve schemas via bundle resource references so dev-mode prefixing
+        # (`dev_<user>_landing` / `dev_<user>_reference`) is picked up.
+        source_catalog: "${var.catalog}"
+        source_schema: "${var.schema_bronze}"
+        silver_schema: "${var.schema_silver}"
+        quality_schema: "${var.schema_quality}"
+        reference_schema: "${resources.schemas.reference.name}"
       libraries:
         - notebook:
             path: ../../pipelines/silver/transformations/expectations.py

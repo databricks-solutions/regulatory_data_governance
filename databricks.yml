@@ -34,6 +34,10 @@ variables:
   warehouse_id:
     description: "SQL Warehouse ID — set per-target or via DATABRICKS_BUNDLE_VAR_warehouse_id"
 
+  genie_space_id:
+    description: "Genie Room ID for the SCR R.18 NL→SQL space — set per-target or via DATABRICKS_BUNDLE_VAR_genie_space_id"
+    default: ""
+
   app_name:
     default: "rc18-starter-kit"
 

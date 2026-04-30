@@ -14,15 +14,13 @@
   const DASHBOARD_TITLES = {
     conformidade: 'Painel de Conformidade R.18',
     criticas: 'Monitor de Críticas SCR',
-    reconciliacao: 'Reconciliação Executiva 3040 vs 3050',
     genie: 'Consulta Natural — SCR R.18'
   };
 
   const DASHBOARD_DESCRIPTIONS = {
     conformidade: '12 dimensões de qualidade R.18, tendência de conformidade e KPIs regulatórios',
     criticas: 'Taxa de aprovação por documento, severidade, top 20 críticas com maior rejeição',
-    reconciliacao: 'Divergências por modalidade (3040 vs 3050), batimento COSIF, tendência',
-    genie: 'Perguntas em linguagem natural sobre dados SCR, qualidade e reconciliação'
+    genie: 'Perguntas em linguagem natural sobre dados SCR e qualidade'
   };
 
   /**

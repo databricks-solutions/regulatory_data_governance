@@ -28,7 +28,6 @@ from routers import (
     health,
     lineage,
     quality,
-    reconciliation,
     reference,
     rule_engine,
     submissions,
@@ -82,7 +81,6 @@ app.include_router(health.router, prefix="/api/v1", tags=["system"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(quality.router, prefix="/api/v1/quality", tags=["quality"])
 app.include_router(validation.router, prefix="/api/v1/validations", tags=["validations"])
-app.include_router(reconciliation.router, prefix="/api/v1/reconciliation", tags=["reconciliation"])
 app.include_router(lineage.router, prefix="/api/v1/lineage", tags=["lineage"])
 app.include_router(xml_processing.router, prefix="/api/v1/xml", tags=["xml"])
 app.include_router(reference.router, prefix="/api/v1/reference", tags=["reference"])

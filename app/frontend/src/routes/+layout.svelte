@@ -71,13 +71,11 @@
     '/': 'Painel de Conformidade R.18',
     '/quality': 'Qualidade R.18',
     '/validations': 'Críticas SCR',
-    '/reconciliation': 'Reconciliação',
     '/lineage': 'Lineage',
     '/xml': 'Visualizador XML',
     '/genie': 'Consulta Natural',
     '/dashboards/conformidade': 'Conformidade R.18',
     '/dashboards/criticas': 'Monitor de Críticas',
-    '/dashboards/reconciliacao': 'Reconciliação Executiva',
     '/reference': 'Dados de Referência',
     '/governance': 'Gestão de Incidentes',
     '/rules': 'Motor de Regras'
@@ -90,7 +88,6 @@
     if (path.startsWith('/rules/datasets/')) return 'Detalhe do Dataset';
     if (path.startsWith('/rules')) return 'Motor de Regras';
     if (path.startsWith('/quality/')) return 'Dimensao R.18';
-    if (path.startsWith('/reconciliation/')) return 'Reconciliacao';
     return 'R.18 Compliance';
   });
 

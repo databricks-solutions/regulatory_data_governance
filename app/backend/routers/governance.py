@@ -85,25 +85,6 @@ _MOCK_IRREGULARITIES = [
         ],
     ),
     Irregularity(
-        id="IRR-2026-0050", detected_at="2026-03-29T10:00:00Z", data_base="2026-03", document="3040",
-        dimension_r18=8, dimension_name="Consistência", severity="medium", status="in_progress",
-        description="Reconciliação COSIF regra M01: divergência 0.08% em empréstimos capital de giro",
-        owner="eng.dados@bankcorp.com",
-        detected_by="monitor.dq@bankcorp.com",
-        responded_by="eng.dados@bankcorp.com",
-        responded_at="2026-03-29T14:00:00Z",
-        timeline=[
-            IncidentEvent(timestamp="2026-03-29T10:00:00Z", event_type="detected", actor="monitor.dq@bankcorp.com",
-                          description="Monitor de reconciliação detectou divergência 0.08% na regra M01 (COSIF vs 3040)"),
-            IncidentEvent(timestamp="2026-03-29T10:30:00Z", event_type="assigned", actor="coord.dados@bankcorp.com",
-                          description="Atribuído a eng.dados@bankcorp.com para investigação"),
-            IncidentEvent(timestamp="2026-03-29T14:00:00Z", event_type="responded", actor="eng.dados@bankcorp.com",
-                          description="Investigação iniciada. Suspeita de diferença temporal entre fontes Oracle e DB2"),
-            IncidentEvent(timestamp="2026-04-02T09:00:00Z", event_type="comment", actor="eng.dados@bankcorp.com",
-                          description="Confirmado: janela de extração DB2 difere em 2h da Oracle. Ajuste em andamento."),
-        ],
-    ),
-    Irregularity(
         id="IRR-2026-0051", detected_at="2026-04-01T09:00:00Z", data_base="2026-03", document="3050",
         dimension_r18=9, dimension_name="Efetividade", severity="low", status="open",
         description="Dashboard de efetividade sem dados para dimensão 9 (métrica de utilização pendente)",
@@ -120,7 +101,7 @@ _MOCK_ACTION_PLANS = [
     ActionPlan(
         id="AP-2026-001", irregularity_id="IRR-2026-0042",
         title="Atualizar tabela de equivalência V11",
-        description="Incluir regras de cessão imobiliária no mapeamento 3040/3050 para eliminar divergências de reconciliação",
+        description="Incluir regras de cessão imobiliária no mapeamento 3040→3050 (mod_3050_equiv) usado pelo silver",
         owner="eng.dados@bankcorp.com", created_at="2026-03-15T17:00:00Z",
         deadline="2026-04-15", status="completed", progress_pct=100.0,
         dimension_r18=8, dimension_name="Consistência",
@@ -139,19 +120,6 @@ _MOCK_ACTION_PLANS = [
         updates=[
             ActionPlanUpdate(date="2026-03-11", author="eng.dados@bankcorp.com", note="Bug identificado no notebook silver_3040 linha 142"),
             ActionPlanUpdate(date="2026-03-12", author="eng.dados@bankcorp.com", note="Fix aplicado, reprocessamento concluído, remessa 2 aceita"),
-        ],
-    ),
-    ActionPlan(
-        id="AP-2026-003", irregularity_id="IRR-2026-0050",
-        title="Investigar divergência reconciliação COSIF M01",
-        description="Análise da divergência 0.08% em empréstimos capital de giro entre COSIF e 3040",
-        owner="eng.dados@bankcorp.com", created_at="2026-03-30T10:00:00Z",
-        deadline="2026-04-30", status="in_progress", progress_pct=40.0,
-        dimension_r18=8, dimension_name="Consistência",
-        auditor_caveat="R2 - Monitorar evolução mensal conforme ressalva de auditoria",
-        updates=[
-            ActionPlanUpdate(date="2026-03-30", author="eng.dados@bankcorp.com", note="Investigação iniciada - comparando janelas de extração"),
-            ActionPlanUpdate(date="2026-04-02", author="eng.dados@bankcorp.com", note="Confirmada diferença de 2h na janela de extração DB2 vs Oracle"),
         ],
     ),
     ActionPlan(

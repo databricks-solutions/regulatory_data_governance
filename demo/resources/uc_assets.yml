@@ -1,0 +1,16 @@
+# Schemas required by the demo jobs:
+#   - bronze    — synthetic_data_loader writes operacoes_raw, clientes_raw, raw_3050_diario
+#   - reference — scr3040/scr3050 generators write f_3040_*, f_3050_* staging tables
+# Volumes (scr3040_out / scr3050_out under reference) are created on the fly by
+# the generator notebooks (CREATE VOLUME IF NOT EXISTS), so they are not declared here.
+resources:
+  schemas:
+    bronze:
+      catalog_name: ${var.catalog}
+      name: bronze
+      comment: "Demo — synthetic raw tables produced by the synthetic_data_loader job."
+
+    reference:
+      catalog_name: ${var.catalog}
+      name: reference
+      comment: "Demo — staging tables (f_3040_*, f_3050_*) written by the SCR generators, plus output volumes scr3040_out / scr3050_out."

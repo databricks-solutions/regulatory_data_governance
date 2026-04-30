@@ -1,63 +1,58 @@
-# Bundle do DEMO — para experimentar o acelerador fim-a-fim com dados sintéticos.
+# Bundle do DEMO RC18.
 #
-# Inclui todo o acelerador (app + pipelines + dashboards + genie) MAIS
-# os geradores sintéticos de Doc 3040/3050 e o loader de dados fictícios.
+# Escopo enxuto: serve para mostrar o app em modo mock + os geradores sintéticos
+# de Doc 3040/3050 e o loader de dados fictícios. NÃO inclui as pipelines do
+# acelerador (bronze/silver/gold), nem os dashboards Lakeview, nem o setup de
+# referência — esses só fazem sentido na implantação real (bundle do core, raiz
+# do repo: rc18-starter-kit).
 #
-# Para implantar apenas o acelerador (sem dados sintéticos), rodar
-# `databricks bundle deploy` a partir da raiz do repositório (bundle rc18-starter-kit).
+# Recursos provisionados pelo demo:
+#   - apps.r18_compliance_app             (mock=true, source compartilhado em ../app/backend)
+#   - catalogs.rc18_demo_catalog          (catálogo dedicado ao demo)
+#   - schemas.bronze, schemas.reference   (homes para tabelas geradas pelos jobs)
+#   - jobs.synthetic_data_loader          → r18-synthetic-data-loader
+#   - jobs.scr3040_generator              → rc18-scr3040-generator
+#   - jobs.scr3050_generator              → rc18-scr3050-generator
+#
+# Para implantar o acelerador completo (com pipelines DLT e dashboards), rodar
+# `databricks bundle deploy` a partir da raiz (bundle rc18-starter-kit).
 
 bundle:
   name: rc18-demo
 
 include:
-  # Recursos do acelerador (reutilizados do bundle do core)
-  - ../resources/*.yml
-  - ../resources/**/*.yml
-  # Recursos exclusivos do demo (geradores + loaders sintéticos)
   - resources/*.yml
 
 sync:
-  # Inclui apenas o que o bundle precisa (evita subir docs/, .venv/, etc.)
   paths:
+    # Source code do app (shared com o bundle do core)
     - ../app
-    - ../notebooks
-    - ../pipelines
-    - ../dashboards
-    - ../resources
-    - assets
+    # Notebooks dos geradores + loader sintético + assets do validador BACEN
     - notebooks
+    - assets
     - resources
     - prompts
-
+  exclude:
+    - "**/node_modules/"
+    - "**/__pycache__/"
+    - "**/*.pyc"
+    - "**/.DS_Store"
 
 variables:
   catalog:
     default: "rc18_demo_catalog"
     description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
 
-  warehouse_id:
-    description: "SQL Warehouse ID — defaults to the demo-provisioned 2X-Small serverless warehouse. Override with --var warehouse_id=<id> or BUNDLE_VAR_warehouse_id to reuse an existing warehouse."
-    default: ${resources.sql_warehouses.rc18_demo_warehouse.id}
-
   app_name:
     default: "rc18-demo"
 
   cloud:
-    description: "Target cloud: azure | aws | gcp. Set automatically by the target you pick (-t azure / -t aws / -t gcp)."
+    description: "Target cloud: azure | aws | gcp. Set automatically by the target you pick (-t <env>-<cloud>)."
     default: "azure"
 
   validator_node_type:
     description: "Cluster node type for the BACEN TXB validator (classic single-node, JVM required). Set automatically per target based on `cloud`."
     default: "Standard_DS3_v2"
-
-  schema_bronze:
-    default: "bronze"
-  schema_silver:
-    default: "silver"
-  schema_gold:
-    default: "gold"
-  schema_quality:
-    default: "quality"
 
 targets:
   # Cross product of env (dev | prod) × cloud (azure | aws | gcp) = 6 targets.

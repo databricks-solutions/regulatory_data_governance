@@ -128,7 +128,6 @@ async def get_app_config():
         dashboards={
             "compliance": os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
             "criticas": os.getenv("DASHBOARD_ID_CRITICAS", ""),
-            "reconciliacao": os.getenv("DASHBOARD_ID_RECONCILIACAO", ""),
         },
         genie_space_id=os.getenv("GENIE_SPACE_ID", ""),
         features={

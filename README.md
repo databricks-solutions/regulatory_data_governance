@@ -2,7 +2,7 @@
 
 Starter kit Databricks para conformidade com a **Resolução Conjunta BACEN nº 18** (governança de dados sobre risco de crédito — SCR Doc 3040 e Doc 3050).
 
-Entrega uma aplicação Databricks (FastAPI + Svelte) de monitoramento de qualidade, validação e reconciliação, esqueletos de pipelines DLT para tratamento dos CADOCs (como exemplo os 3040/3050), dashboards no AI/BI e uma sala Genie.
+Entrega uma aplicação Databricks (FastAPI + Svelte) de monitoramento de qualidade e validação, esqueletos de pipelines DLT para tratamento dos CADOCs (como exemplo os 3040/3050), dashboards no AI/BI e uma sala Genie.
 
 ---
 
@@ -27,7 +27,7 @@ cp .env.example .env             # preencha com IDs do seu workspace
 
 ### 2. Ver o acelerador em ação (modo demo)
 
-Quer experimentar o acelerador fim-a-fim com dados fictícios — Doc 3040 sendo gerado, agregado em 3050, reconciliado e exibido nos dashboards.
+Quer experimentar o acelerador fim-a-fim com dados fictícios — Doc 3040 sendo gerado, agregado em 3050 e exibido nos dashboards.
 
 ```bash
 cd demo
@@ -112,11 +112,12 @@ regulatory-data-governance/
 │
 ├── dashboards/                    # Definições Lakeview (AI/BI)
 │   ├── conformidade_r18.lvdash.json
-│   ├── monitor_criticas.lvdash.json
-│   └── reconciliacao_executiva.lvdash.json
+│   └── monitor_criticas.lvdash.json
 │
 ├── resources/                     # DAB resources do acelerador
 │   ├── app.yml                    # Databricks App
+│   ├── uc_assets.yml              # UC schemas (landing, reference) + volumes
+│   ├── setup_job.yml              # Seeds reference tables on deploy
 │   ├── pipelines/                 # DLT pipelines
 │   │   ├── bronze.yml
 │   │   ├── silver.yml
@@ -124,7 +125,6 @@ regulatory-data-governance/
 │   └── analytics/                 # Dashboards + Genie
 │       ├── dashboard_conformidade.yml
 │       ├── dashboard_criticas.yml
-│       ├── dashboard_reconciliacao.yml
 │       └── genie_scr.yml
 │
 ├── scripts/                       # Utilitários de dev e deploy
@@ -226,7 +226,7 @@ databricks bundle run -t dev setup_reference_tables -p ssa-latam   # (após cria
 
 1. Carrega `.env` (falha se ausente ou se `DATABRICKS_WAREHOUSE_ID` estiver vazio)
 2. `databricks bundle deploy -t <target> -p <profile> --var warehouse_id=$DATABRICKS_WAREHOUSE_ID`
-   — sobe app, 3 pipelines DLT (`r18-bronze-ingestion`, `r18-silver-validation`, `r18-gold-reconciliation`), 3 dashboards e Genie Room
+   — sobe app, 3 pipelines DLT (`r18-bronze-ingestion`, `r18-silver-validation`, `r18-gold-curation`), 2 dashboards e Genie Room
 3. Gera `app.yaml` runtime com os valores do `.env` (warehouse, dashboards, Genie, schemas) e faz overlay sobre o `app.yaml` em branco que veio no bundle — assim o `app/backend/app.yaml` versionado **nunca** carrega IDs reais
 4. `databricks apps deploy rc18-starter-kit` — reinicia o container com a config nova
 5. Imprime URL final + estado da app
@@ -246,7 +246,7 @@ databricks bundle deploy -t dev -p ssa-latam --var "warehouse_id=$DATABRICKS_WAR
 - **R.18**: resolução conjunta BACEN que exige política formal de qualidade para todo dado reportado ao BCB. 12 dimensões obrigatórias, governança no nível de board. Prazo: 31/12/2026.
 - **SCR Doc 3040**: dados detalhados de operações de crédito (130+ campos, IPOC, cessão/FIDC). Submissão em XML.
 - **SCR Doc 3050**: dados agregados (TXB/XML, layouts versionados — V11 atual). Periodicidade semanal/mensal seguindo calendário BCB.
-- **Equivalência**: mapeamento entre modalidades 3040 ↔ 3050 — base da reconciliação.
+- **Equivalência**: mapeamento entre modalidades 3040 ↔ 3050 — exposto no silver como `mod_3050_equiv` para consumo dos dashboards.
 - **Críticas**: regras de validação (sintáticas, semânticas e inter-documentais).
 
 Detalhes completos em [docs/spec/](docs/spec/) e [docs/bacen_r18_requirements_architecture.md](docs/bacen_r18_requirements_architecture.md).

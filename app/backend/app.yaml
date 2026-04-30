@@ -37,5 +37,3 @@ env:
     value: ""
   - name: DASHBOARD_ID_CRITICAS
     value: ""
-  - name: DASHBOARD_ID_RECONCILIACAO
-    value: ""

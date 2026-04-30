@@ -13,16 +13,24 @@
 dbutils.widgets.text("n_operacoes", "50000", "Number of operations per month")
 dbutils.widgets.text("n_meses", "6", "Number of months to generate")
 dbutils.widgets.text("dt_base_inicio", "2025-09-01", "Start date (YYYY-MM-DD)")
+dbutils.widgets.text("catalog", "rc18_demo_catalog", "Unity Catalog")
+dbutils.widgets.text("schema_bronze", "bronze", "Bronze schema name")
 
 N_OPERACOES = int(dbutils.widgets.get("n_operacoes"))
 N_MESES = int(dbutils.widgets.get("n_meses"))
 DT_BASE_INICIO = dbutils.widgets.get("dt_base_inicio")
 
-CATALOG = "rc18_catalog"
-BRONZE = "bronze"
+CATALOG = dbutils.widgets.get("catalog")
+BRONZE = dbutils.widgets.get("schema_bronze")
 CNPJ_IF = "99999999"  # Synthetic CNPJ-base for demo
 
+# Schema is declared by the bundle (demo/resources/uc_assets.yml) but we ensure
+# it exists here so the notebook is also runnable standalone (e.g. attached to
+# a cluster outside the bundle).
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{BRONZE}")
+
 print(f"Generating {N_OPERACOES} operations/month × {N_MESES} months starting from {DT_BASE_INICIO}")
+print(f"Target: {CATALOG}.{BRONZE}")
 
 # COMMAND ----------
 

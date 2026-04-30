@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<DocTXB cnpjInstituicao="99999999" dataBase="2026-03-31" indRemessa="I" nmContato="Equipe Governança SCR" telContato="11-33000000">
+  <referencia dataRef="2026-03-31">
+    <diario>
+      <crdLivre>
+        <pesJuridica>
+          <pre>
+            <capGirPrzAte365 txMedJuros="32.94" txMedEncFiscais="0.00" txMedEncOperacionais="0.00" vlrConcessoes="326697" przDecMedConcessoes="780" sldCarAtiva="255727591"/>
+          </pre>
+        </pesJuridica>
+      </crdLivre>
+    </diario>
+    <mensal>
+      <crdLivre>
+        <pesJuridica>
+          <pre>
+            <capGirPrzAte365 sldBaiPrejuizo="0" sldCarAte14="255727591" sldCarAte60="0" sldCarAte90="0" sldCarMaior90="0" przMedCarteira="511"/>
+          </pre>
+        </pesJuridica>
+      </crdLivre>
+    </mensal>
+  </referencia>
+</DocTXB>

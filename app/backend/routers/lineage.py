@@ -20,22 +20,16 @@ router = APIRouter()
 
 _MOCK_NODES = [
     LineageNode(id="ext_oracle_tb_operacoes", label="Oracle TB_OPERACOES_CREDITO", type="external_source", layer="source", system="Oracle Core Banking", metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-host:1521/CREDITO", update_frequency="CDC via ROWSCN")),
-    LineageNode(id="ext_mainframe_cosif", label="Mainframe COSIF Saldos", type="external_source", layer="source", system="Mainframe z/OS", metadata=LineageNodeMetadata(connection="DB2 JDBC", update_frequency="Batch diario")),
     LineageNode(id=f"{CATALOG}.bronze.operacoes_raw", label="operacoes_raw", type="table", layer="bronze", catalog=CATALOG, metadata=LineageNodeMetadata(row_count=1500000, last_updated="2026-03-31T23:15:00Z")),
-    LineageNode(id=f"{CATALOG}.bronze.raw_cosif_saldos", label="raw_cosif_saldos", type="table", layer="bronze", catalog=CATALOG, metadata=LineageNodeMetadata(row_count=50000, last_updated="2026-03-31T22:00:00Z")),
     LineageNode(id=f"{CATALOG}.silver.operacoes_validadas", label="operacoes_validadas", type="table", layer="silver", catalog=CATALOG, metadata=LineageNodeMetadata(row_count=1498500, last_updated="2026-03-31T01:30:00Z", expectations_pass_rate=99.9)),
     LineageNode(id=f"{CATALOG}.gold.posicao_mensal_3040", label="posicao_mensal_3040", type="table", layer="gold", catalog=CATALOG, metadata=LineageNodeMetadata(row_count=1498500, last_updated="2026-03-31T04:00:00Z")),
-    LineageNode(id=f"{CATALOG}.gold.reconciliacao_cosif", label="reconciliacao_cosif", type="table", layer="gold", catalog=CATALOG, metadata=LineageNodeMetadata(row_count=18, last_updated="2026-03-31T05:00:00Z")),
     LineageNode(id="ext_xml_3040_202603", label="SCR3040_202603.xml", type="external_output", layer="output", system="Validador BCB / STA", metadata=LineageNodeMetadata(file_size_mb=3800, parts=4, validated=True)),
 ]
 
 _MOCK_EDGES = [
     LineageEdge(source="ext_oracle_tb_operacoes", target=f"{CATALOG}.bronze.operacoes_raw", type="external_lineage", column_mappings=[ColumnMapping(source="CD_CNPJ_IF", target="cnpj_if"), ColumnMapping(source="CD_MODALIDADE", target="mod"), ColumnMapping(source="TP_CLIENTE", target="cli_tp")]),
-    LineageEdge(source="ext_mainframe_cosif", target=f"{CATALOG}.bronze.raw_cosif_saldos", type="external_lineage"),
     LineageEdge(source=f"{CATALOG}.bronze.operacoes_raw", target=f"{CATALOG}.silver.operacoes_validadas", type="uc_automatic", pipeline="scr3040_silver"),
     LineageEdge(source=f"{CATALOG}.silver.operacoes_validadas", target=f"{CATALOG}.gold.posicao_mensal_3040", type="uc_automatic", pipeline="scr3040_gold"),
-    LineageEdge(source=f"{CATALOG}.gold.posicao_mensal_3040", target=f"{CATALOG}.gold.reconciliacao_cosif", type="uc_automatic", pipeline="reconciliacao_gold"),
-    LineageEdge(source=f"{CATALOG}.bronze.raw_cosif_saldos", target=f"{CATALOG}.gold.reconciliacao_cosif", type="uc_automatic", pipeline="reconciliacao_gold"),
     LineageEdge(source=f"{CATALOG}.gold.posicao_mensal_3040", target="ext_xml_3040_202603", type="audit_table", audit_ref=f"{CATALOG}.quality.submissao_historico"),
 ]
 

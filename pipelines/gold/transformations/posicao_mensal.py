@@ -1,9 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Gold — Posição Mensal SCR 3040
-# MAGIC Builds the monthly position snapshot from validated silver operations, enriched with
-# MAGIC maturity vertex totals and reconciliation status. This table is the source for XML
-# MAGIC generation and the Databricks App dashboard.
+# MAGIC # Gold — Posição Mensal SCR 3040 e Posição 3050
+# MAGIC
+# MAGIC Builds two gold-layer "position" tables ready for the Databricks App, dashboards
+# MAGIC and downstream consumers:
+# MAGIC
+# MAGIC | Table | Source | One row per |
+# MAGIC |---|---|---|
+# MAGIC | `posicao_mensal_3040` | silver `operacoes_validadas` ⨝ `scr3040_cont_4966` ⨝ `scr3040_vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
+# MAGIC | `posicao_3050` | silver `scr3050_diario` ∪ `scr3050_mensal` | `(cnpj_if, dt_base, dt_referencia, periodo, carteira, segmento, encargo, modalidade)` |
+
+# COMMAND ----------
+
 
 import dlt
 from pyspark.sql import functions as F
@@ -13,9 +21,11 @@ SILVER_SCHEMA = spark.conf.get("silver_schema", "silver")
 GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
 
 
+# ── Posição Mensal SCR 3040 ───────────────────────────────────────────────────
+
 @dlt.table(
     name="posicao_mensal_3040",
-    comment="Posição mensal SCR 3040 — validada e reconciliada, pronta para geração XML",
+    comment="Posição mensal SCR 3040 — uma linha por <Op> validada, enriquecida com Res. 4966 e total de vértices",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
@@ -25,126 +35,99 @@ GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
 )
 def posicao_mensal_3040():
     ops = dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes_validadas")
-    venc = dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos").select(
-        "cnpj_if", "dt_base", "contrt", "ipoc", "total_saldo",
+    cont = (
+        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_cont_4966")
+        .select(
+            "cnpj_if", "dt_base", "ipoc",
+            "clas_at_fin", "est_inst_fin", "cart_prov_min",
+            "vlr_cont_br", "tje", "rend_mes",
+            "estagio_motivo", "estagio_dt_alocacao",
+        )
     )
-
-    # Join operations with maturity vertex totals
-    joined = ops.join(
-        venc.withColumnRenamed("total_saldo", "total_saldo_vencimentos"),
-        on=["cnpj_if", "dt_base", "contrt"],
-        how="left",
+    venc = (
+        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos")
+        .select(
+            "cnpj_if", "dt_base", "ipoc",
+            F.col("total_saldo").alias("total_saldo_vencimentos"),
+            "total_a_vencer", "total_vencido", "total_prejuizo",
+            "total_limites", "total_coobrigacoes",
+        )
     )
 
     return (
-        joined
-        .filter(F.col("is_valid") == True)
+        ops
+        .join(cont, ["cnpj_if", "dt_base", "ipoc"], "left")
+        .join(venc, ["cnpj_if", "dt_base", "ipoc"], "left")
         .select(
-            "cnpj_if",
-            "dt_base",
-            F.lit(1).alias("remessa"),
-            F.lit(1).alias("parte"),
-            "cli_tp",
-            "cli_cd",
-            "ipoc",
-            "contrt",
-            "natu_op",
-            "mod",
-            "mod_3050_equiv",
-            "cosif",
-            "prov_consttd",
-            "vlr_contr",
-            "tax_eft",
-            "dt_venc_op",
-            "dt_contr",
-            "class_op",
-            "total_saldo_vencimentos",
-            F.lit(None).cast("string").alias("reconciliacao_cosif_status"),
-            F.lit(None).cast("string").alias("reconciliacao_3050_status"),
+            "cnpj_if", "dt_base", "remessa", "parte",
+            "cli_tp", "cli_cd", "ipoc", "contrt", "det_cli",
+            "natu_op", "mod", "mod_3050_equiv", "segmento_3050_equiv",
+            "origem_rec", "indx", "perc_indx", "var_camb",
+            "dt_contr", "dt_venc_op", "tax_eft", "prov_consttd",
+            "carac_especial", "dia_atraso",
+            # Res. 4966 contábil
+            "clas_at_fin", "est_inst_fin", "cart_prov_min",
+            "vlr_cont_br", "tje", "rend_mes",
+            "estagio_motivo", "estagio_dt_alocacao",
+            # Vértices
+            "total_saldo_vencimentos", "total_a_vencer", "total_vencido",
+            "total_prejuizo", "total_limites", "total_coobrigacoes",
             F.col("validation_run_id").alias("pipeline_run_id"),
             F.current_timestamp().alias("_gold_timestamp"),
         )
     )
 
 
+# ── Posição SCR 3050 (diário + mensal unificados) ────────────────────────────
+
 @dlt.table(
-    name="posicao_diaria_3050",
-    comment="SCR 3050 — dados TXB diários e semanais reconciliados, prontos para geração XML/TXB",
+    name="posicao_3050",
+    comment="Posição SCR 3050 unificada — diário e mensal num mesmo schema, prontos para dashboard",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
     },
-    partition_cols=["dt_base_semanal"],
+    partition_cols=["dt_referencia"],
 )
-def posicao_diaria_3050():
-    diario = dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario")
-    mensal = dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_mensal")
-
-    # BCB calendar for business day counts
-    calendar = spark.table(f"{SOURCE_CATALOG}.reference.bcb_calendar")
-
-    # Count business days per week from calendar
-    weekly_du = (
-        calendar
-        .filter(F.col("is_dia_util") == True)
-        .groupBy("dt_base_semanal")
-        .agg(F.count("*").alias("dias_uteis_count"))
-    )
-
-    daily_enriched = (
-        diario
-        .filter(F.col("is_valid") == True)
-        .join(weekly_du, on="dt_base_semanal", how="left")
+def posicao_3050():
+    diario = (
+        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario")
         .select(
-            "cnpj_if",
-            "dt_base_semanal",
-            F.coalesce(F.col("ind_remessa"), F.lit(1)).alias("ind_remessa"),
-            "dt_referencia",
-            "modalidade",
-            "encargo",
-            "segmento",
-            "sub_modalidade",
-            F.lit("diario").alias("tipo_periodo"),
-            "vlr_concessoes",
-            "tx_med_juros",
-            "sld_car_ativa",
-            "sld_cedido",
-            "sld_adquirido",
-            F.lit(None).cast("decimal(15,3)").alias("sld_bai_prejuizo"),
-            F.lit(None).cast("decimal(15,3)").alias("sld_car_total_atraso"),
+            "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
+            F.lit("diario").alias("periodo"),
+            "carteira", "segmento", "encargo", "modalidade",
+            "vlr_concessoes", "tx_med_juros",
+            "tx_med_enc_fiscais", "tx_med_enc_operacionais",
+            "prz_dec_med_concessoes", "sld_car_ativa",
+            F.lit(None).cast("decimal(18,0)").alias("sld_bai_prejuizo"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate14"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate60"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate90"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_maior90"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_total"),
+            F.lit(None).cast("integer").alias("prz_med_carteira"),
             "leiaute_versao",
-            "dias_uteis_count",
-            F.lit(None).cast("string").alias("reconciliacao_3040_status"),
-            F.current_timestamp().alias("_gold_timestamp"),
         )
     )
-
-    # Monthly data: last DU of each month
-    monthly_enriched = (
-        mensal
-        .filter(F.col("is_valid") == True)
+    mensal = (
+        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_mensal")
         .select(
-            "cnpj_if",
-            F.col("dt_referencia").alias("dt_base_semanal"),
-            F.lit(1).alias("ind_remessa"),
-            "dt_referencia",
-            "modalidade",
-            "encargo",
-            "segmento",
-            "sub_modalidade",
-            F.lit("mensal").alias("tipo_periodo"),
-            F.lit(None).cast("decimal(15,3)").alias("vlr_concessoes"),
-            F.lit(None).cast("decimal(8,4)").alias("tx_med_juros"),
-            F.lit(None).cast("decimal(15,3)").alias("sld_car_ativa"),
-            F.lit(None).cast("decimal(15,3)").alias("sld_cedido"),
-            F.lit(None).cast("decimal(15,3)").alias("sld_adquirido"),
-            "sld_bai_prejuizo",
-            "sld_car_total",
-            F.lit("V11").alias("leiaute_versao"),
-            F.lit(None).cast("int").alias("dias_uteis_count"),
-            F.lit(None).cast("string").alias("reconciliacao_3040_status"),
-            F.current_timestamp().alias("_gold_timestamp"),
+            "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
+            F.lit("mensal").alias("periodo"),
+            "carteira", "segmento", "encargo", "modalidade",
+            F.lit(None).cast("decimal(18,0)").alias("vlr_concessoes"),
+            F.lit(None).cast("decimal(8,2)").alias("tx_med_juros"),
+            F.lit(None).cast("decimal(8,2)").alias("tx_med_enc_fiscais"),
+            F.lit(None).cast("decimal(8,2)").alias("tx_med_enc_operacionais"),
+            F.lit(None).cast("integer").alias("prz_dec_med_concessoes"),
+            F.lit(None).cast("decimal(18,0)").alias("sld_car_ativa"),
+            "sld_bai_prejuizo", "sld_car_ate14", "sld_car_ate60",
+            "sld_car_ate90", "sld_car_maior90", "sld_car_total",
+            "prz_med_carteira", "leiaute_versao",
         )
     )
 
-    return daily_enriched.unionByName(monthly_enriched, allowMissingColumns=True)
+    return (
+        diario.unionByName(mensal)
+        .withColumn("_gold_timestamp", F.current_timestamp())
+    )

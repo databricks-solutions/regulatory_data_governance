@@ -11,8 +11,9 @@
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "rc18_catalog", "Unity Catalog")
+dbutils.widgets.text("schema", "reference", "Reference Schema")
 CATALOG = dbutils.widgets.get("catalog")
-SCHEMA = "reference"
+SCHEMA = dbutils.widgets.get("schema")
 
 spark.sql(f"USE CATALOG {CATALOG}")
 spark.sql(f"USE SCHEMA {SCHEMA}")
@@ -315,35 +316,6 @@ INSERT INTO {CATALOG}.{SCHEMA}.leiaute_versoes (documento, versao, dt_vigencia_i
   ('3050_dominios', 'V10', '2025-11-07', true, NULL, 'Domínios atualizados para V11', '2025-10-15'),
   ('3050_criticas', 'V11', '2025-11-07', true, 130, 'Críticas V11', '2025-10-15'),
   ('3040', 'V1', '2000-01-01', true, 60, 'Versão única do SCR 3040', NULL)
-""")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 7. COSIF Account Codes
-
-# COMMAND ----------
-
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.cosif_contas (
-    cosif_sk BIGINT GENERATED ALWAYS AS IDENTITY,
-    cosif_conta STRING NOT NULL,
-    descricao STRING NOT NULL,
-    grupo_reconciliacao STRING NOT NULL,
-    tipo_operacao_3040 STRING,
-    sinal_soma INT NOT NULL,
-    nivel_conta INT NOT NULL
-)
-""")
-
-spark.sql(f"""
-INSERT INTO {CATALOG}.{SCHEMA}.cosif_contas (cosif_conta, descricao, grupo_reconciliacao, tipo_operacao_3040, sinal_soma, nivel_conta) VALUES
-  ('1610008', 'Títulos Descontados', 'T02', '0301', 1, 3),
-  ('1620001', 'Empréstimos', 'T03', '0201', 1, 3),
-  ('1630004', 'Financiamentos', 'T04', '0401', 1, 3),
-  ('1640007', 'Financiamentos Rurais e Agroindustriais', 'T05', '0501', 1, 3),
-  ('1650000', 'Financiamentos Imobiliários', 'T06', '0401', 1, 3),
-  ('1690009', 'Outros Créditos', 'T10', NULL, 1, 3)
 """)
 
 # COMMAND ----------

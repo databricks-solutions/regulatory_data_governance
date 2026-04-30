@@ -5,8 +5,11 @@
 # MAGIC (`governance_status_qualidade_mensal`) used by the R.18 compliance dashboard.
 # MAGIC Also maintains the violations log for the semi-annual report.
 
+# COMMAND ----------
+
+
 import dlt
-from pyspark.sql import functions as F
+from pyspark.sql import functions as F, Window
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
 QUALITY_SCHEMA = spark.conf.get("quality_schema", "quality")
@@ -33,7 +36,7 @@ def governance_status_qualidade_mensal():
         .withColumn(
             "rn",
             F.row_number().over(
-                F.Window.partitionBy("dt_base", "dimensao_id")
+                Window.partitionBy("dt_base", "dimensao_id")
                 .orderBy(F.col("run_timestamp").desc())
             ),
         )

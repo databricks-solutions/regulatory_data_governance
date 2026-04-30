@@ -107,7 +107,6 @@ _MOCK_COLUMNS: dict[str, list[REColumn]] = {
         REColumn(name="dia_atraso", type="INTEGER", nullable=True, description="Dias de atraso"),
         REColumn(name="cli_tp", type="STRING", nullable=False, description="Tipo de cliente"),
         REColumn(name="cli_cd", type="STRING", nullable=False, description="Codigo do cliente"),
-        REColumn(name="cosif", type="STRING", nullable=True, description="Codigo COSIF"),
         REColumn(name="prov_consttd", type="DECIMAL(15,2)", nullable=True, description="Provisao constituida"),
         REColumn(name="is_valid", type="BOOLEAN", nullable=False, description="Flag de validacao"),
     ],

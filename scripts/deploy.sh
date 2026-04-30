@@ -88,8 +88,6 @@ env:
     value: "${DASHBOARD_ID_CONFORMIDADE:-}"
   - name: DASHBOARD_ID_CRITICAS
     value: "${DASHBOARD_ID_CRITICAS:-}"
-  - name: DASHBOARD_ID_RECONCILIACAO
-    value: "${DASHBOARD_ID_RECONCILIACAO:-}"
 EOF
 
 # 3. Upload runtime app.yaml on top of the bundle's empty app.yaml

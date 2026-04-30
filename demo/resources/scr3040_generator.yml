@@ -21,9 +21,11 @@ resources:
         - name: catalog
           default: ${var.catalog}
         - name: schema
-          default: "reference"
+          # Use the bundle-managed reference schema so dev-mode prefixing
+          # (`dev_<user>_reference`) is picked up automatically.
+          default: ${resources.schemas.reference.name}
         - name: volume_out
-          default: "/Volumes/${var.catalog}/reference/scr3040_out"
+          default: "/Volumes/${var.catalog}/${resources.schemas.reference.name}/scr3040_out"
         - name: validador_zip
           # ZIP é versionado no repo (demo/assets/validators/SCR3040_Validador.bin)
           # e deployado pelo bundle em workspace files. A extensão `.bin` evita

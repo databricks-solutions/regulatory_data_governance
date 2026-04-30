@@ -1,9 +1,37 @@
+# Databricks App for the RC18 accelerator (implementation/customer bundle).
+# Runs against real Unity Catalog data — USE_MOCK_BACKEND is false.
+# Customers point the warehouse and dashboard IDs at their own assets via bundle vars.
 resources:
   apps:
     r18_compliance_app:
       name: ${var.app_name}-${bundle.target}
       description: "RC18 StarterKit — BACEN Resolucao Conjunta N.18 Compliance Accelerator"
       source_code_path: ../app/backend
+
+      config:
+        env:
+          - name: USE_MOCK_BACKEND
+            value: "false"
+          - name: DATABRICKS_CATALOG
+            value: ${var.catalog}
+          - name: DATABRICKS_WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: SCHEMA_BRONZE
+            value: ${var.schema_bronze}
+          - name: SCHEMA_SILVER
+            value: ${var.schema_silver}
+          - name: SCHEMA_GOLD
+            value: ${var.schema_gold}
+          - name: SCHEMA_QUALITY
+            value: ${var.schema_quality}
+          - name: SCHEMA_REFERENCE
+            value: reference
+          - name: DASHBOARD_ID_CONFORMIDADE
+            value: ${resources.dashboards.conformidade_r18.id}
+          - name: DASHBOARD_ID_CRITICAS
+            value: ${resources.dashboards.monitor_criticas.id}
+          - name: GENIE_SPACE_ID
+            value: ${var.genie_space_id}
 
       permissions:
         - level: CAN_USE

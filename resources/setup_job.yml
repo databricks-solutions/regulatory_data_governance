@@ -1,0 +1,21 @@
+# One-time setup job that seeds the `reference` schema with BCB domains, criticas,
+# calendar, modalidade equivalencia, and R.18 dimension definitions. Re-runnable
+# (every CREATE TABLE uses IF NOT EXISTS; INSERTs are idempotent on natural keys).
+#
+# Run order on a fresh deployment:
+#   1. databricks bundle deploy        # creates landing/reference schemas + volumes
+#   2. databricks bundle run setup_reference_tables   # seeds reference tables
+#   3. databricks bundle run bronze_ingestion          # then silver, gold
+
+resources:
+  jobs:
+    setup_reference_tables:
+      name: "r18-setup-reference-tables-${bundle.target}"
+      description: "Seeds rc18_catalog.reference with BCB domains, criticas, calendar, equivalencia, R.18 dimensions. Run once after `bundle deploy`, idempotent."
+      tasks:
+        - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_reference_tables.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}

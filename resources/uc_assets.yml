@@ -1,0 +1,39 @@
+# Unity Catalog schemas and volumes that the RC18 pipelines depend on.
+#
+# Source schemas (created here, lifecycle managed by the bundle):
+#   - landing    — raw SCR XML inbox + COSIF parquet + Auto Loader checkpoints
+#   - reference  — BCB domains, validation rules, calendar, equivalencia (seeded by setup_reference_tables)
+#
+# Output schemas (NOT declared here on purpose — DLT pipelines create and manage them):
+#   - bronze, silver, gold, quality
+#
+# The catalog itself is NOT declared in core. For demos it lives in
+# `demo/resources/catalog.yml`; for customer deployments the customer
+# provides an existing catalog via `${var.catalog}`.
+
+resources:
+  schemas:
+    landing:
+      catalog_name: ${var.catalog}
+      name: landing
+      comment: "Landing zone — raw SCR Doc 3040/3050 XML files, COSIF parquet, and Auto Loader schema/checkpoint state."
+
+    reference:
+      catalog_name: ${var.catalog}
+      name: reference
+      comment: "Reference data — BCB domains, criticas (validation rules), business-day calendar, modalidade equivalencia 3040↔3050, R.18 dimensions. Seeded by the setup_reference_tables job."
+
+  volumes:
+    scr_xml:
+      catalog_name: ${var.catalog}
+      schema_name: landing
+      name: scr_xml
+      volume_type: MANAGED
+      comment: "Inbox for SCR XML submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/. The bronze pipeline auto-loads from here."
+
+    checkpoints:
+      catalog_name: ${var.catalog}
+      schema_name: landing
+      name: _checkpoints
+      volume_type: MANAGED
+      comment: "Auto Loader schema-evolution and checkpoint state for bronze streaming ingestion. Do not delete while pipelines are running."

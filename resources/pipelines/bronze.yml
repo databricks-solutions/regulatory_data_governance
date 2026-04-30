@@ -6,10 +6,14 @@ resources:
       name: "r18-bronze-ingestion-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_bronze}"
+      configuration:
+        # Reference the bundle-managed schema by its resolved name, so dev-mode
+        # name prefixing (`dev_<user>_landing`) is picked up automatically.
+        source_catalog: "${var.catalog}"
+        source_schema: "${resources.schemas.landing.name}"
+        reference_schema: "${resources.schemas.reference.name}"
       libraries:
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_3040.py
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_3050.py
-        - notebook:
-            path: ../../pipelines/bronze/transformations/raw_cosif.py

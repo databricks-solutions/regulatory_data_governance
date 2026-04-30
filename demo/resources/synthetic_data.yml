@@ -1,9 +1,40 @@
-# Synthetic data loader job — placeholder
+# Synthetic data loader job — populates ${var.catalog}.bronze with fake SCR 3040/3050
+# rows (operacoes_raw, clientes_raw, raw_3050_diario). Standalone job; not chained
+# with the 3040/3050 generator pipelines.
 resources:
   jobs:
     synthetic_data_loader:
       name: "r18-synthetic-data-loader"
+      description: "Generates synthetic SCR 3040/3050 rows directly into ${var.catalog}.bronze for the demo bundle."
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema_bronze
+          default: "bronze"
+        - name: n_operacoes
+          default: "50000"
+        - name: n_meses
+          default: "6"
+        - name: dt_base_inicio
+          default: "2025-09-01"
+
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+            dependencies:
+              - faker
+
       tasks:
-        - task_key: "load_synthetic_data"
+        - task_key: load_synthetic_data
+          environment_key: serverless_env
           notebook_task:
             notebook_path: ../notebooks/synthetic_data_loader.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema_bronze: "{{job.parameters.schema_bronze}}"
+              n_operacoes: "{{job.parameters.n_operacoes}}"
+              n_meses: "{{job.parameters.n_meses}}"
+              dt_base_inicio: "{{job.parameters.dt_base_inicio}}"

@@ -8,14 +8,17 @@ Databricks-based accelerator for compliance with **BACEN Resolucao Conjunta N.18
 
 ## Two audiences, two bundles
 
-The repo is organized around two distinct scenarios, with **physical separation** between them:
+The repo is organized around two distinct scenarios, with **physical separation** between them. The two bundles are now disjoint — neither pulls resources from the other:
 
 | Scenario | Who | Bundle | What gets deployed |
 |----------|-----|--------|---------------------|
-| **Own-environment adoption** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App + pipelines + dashboards + genie. **No synthetic data, no generators.** |
-| **Demo mode** | Anyone wanting to see the accelerator in action with synthetic data | `rc18-demo` (`demo/databricks.yml`) | Everything from core + synthetic generators (3040/3050) + fake data loader |
+| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + bronze/silver/gold pipelines + 2 dashboards + `setup_reference_tables` job + `landing`/`reference` schemas + Auto Loader volumes. **No synthetic data, no generators.** |
+| **Demo mode** | Anyone wanting a quick hands-on with the app in mock mode and synthetic XML generation | `rc18-demo` (`demo/databricks.yml`) | App (`USE_MOCK_BACKEND=true`) + 3 jobs only: `r18-synthetic-data-loader`, `rc18-scr3040-generator`, `rc18-scr3050-generator` + dedicated catalog (`rc18_demo_catalog`) + `bronze`/`reference` schemas. **No DLT pipelines, no dashboards, no Genie.** |
 
-Critical invariant: **nothing in the core bundle (root) references `demo/`**. The customer can `rm -rf demo/` at any time without breaking anything. When editing, preserve this invariant.
+Critical invariants:
+1. **Nothing in the core bundle (root) references `demo/`** — customer can `rm -rf demo/` at any time without breaking anything.
+2. **The demo bundle does NOT include `../resources/*.yml`** — it ships its own `app.yml`, `uc_assets.yml`, generator jobs, and catalog. Core's pipelines/dashboards/setup-job are intentionally NOT deployed by `rc18-demo`.
+3. App source code (`app/backend`) is shared by both bundles. The runtime difference is the `apps.config.env` block in each bundle's `app.yml` (`USE_MOCK_BACKEND=false` in core, `=true` in demo).
 
 ## Tech Stack
 
@@ -55,16 +58,19 @@ regulatory-data-governance/
 ├── dashboards/                    # Lakeview JSON definitions (3)
 │
 ├── resources/                     # DAB resources of the accelerator (no demo jobs here)
-│   ├── app.yml
+│   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
+│   ├── setup_job.yml              # setup_reference_tables (seeds BACEN domains/criticas/calendar)
+│   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
 │   ├── pipelines/{bronze,silver,gold}.yml
-│   └── analytics/{dashboard_*,genie_scr}.yml
+│   └── analytics/dashboard_*.yml
 │
 ├── scripts/                       # Dev utilities (not deployed)
 ├── docs/                          # Specs, BACEN references, regulatory docs
 │
-└── demo/                          # ⚠️  INTERNAL DATABRICKS USE — synthetic data overlay
+└── demo/                          # ⚠️  INTERNAL DATABRICKS USE — independent demo bundle
     ├── README.md                  # Demo runbook
-    ├── databricks.yml             # Bundle rc18-demo (includes core + demo resources)
+    ├── databricks.yml             # Bundle rc18-demo (self-contained — does NOT include ../resources)
+    ├── deploy.sh                  # One-shot deploy: bundle deploy + bundle run r18_compliance_app
     ├── assets/
     │   └── validators/                # BCB official binaries (ZIPs renamed .bin to skip Workspace Files auto-extract — synced by bundle)
     │       ├── SCR3040_Validador.bin  # Validador3040 (SCR Doc 3040)
@@ -75,11 +81,13 @@ regulatory-data-governance/
     │   ├── scr3050_generator/     # 5-step synthetic Doc 3050 (validates with BACEN tool)
     │   └── synthetic_data_loader.py
     ├── prompts/                   # Meta-prompts that guided generator authoring
-    └── resources/                 # Jobs exclusive to the demo (NOT in core)
-        ├── scr3040_generator.yml
-        ├── scr3050_generator.yml
-        ├── synthetic_data.yml
-        └── scheduled_refresh.yml
+    └── resources/                 # Demo-only DAB resources
+        ├── app.yml                # Demo app — USE_MOCK_BACKEND=true (source: ../../app/backend)
+        ├── catalog.yml            # rc18_demo_catalog (so demo runs on a fresh workspace)
+        ├── uc_assets.yml          # bronze + reference schemas (homes for the 3 demo jobs)
+        ├── synthetic_data.yml     # r18-synthetic-data-loader job
+        ├── scr3040_generator.yml  # rc18-scr3040-generator job
+        └── scr3050_generator.yml  # rc18-scr3050-generator job
 ```
 
 ### Path conventions
@@ -89,14 +97,16 @@ regulatory-data-governance/
 - `resources/pipelines/*.yml` → `../../pipelines/...`
 - `resources/analytics/dashboard_*.yml` → `../../dashboards/*.lvdash.json`
 
-**Demo bundle** (`demo/databricks.yml`): uses `sync.paths: [..]` + `include` from both `../resources/` (core) and `resources/` (demo-local). Paths in demo's own resource YAMLs are relative to `demo/resources/`:
-- `demo/resources/*.yml` → `../notebooks/...` (one level up to `demo/notebooks/`)
+**Demo bundle** (`demo/databricks.yml`): self-contained — only `include`s `resources/*.yml` from `demo/resources/`. Paths in demo's resource YAMLs:
+- `demo/resources/app.yml` → `../../app/backend` (shared app source)
+- `demo/resources/scr*_generator.yml` → `../notebooks/...` (one level up to `demo/notebooks/`)
+- `demo/resources/synthetic_data.yml` → `../notebooks/synthetic_data_loader.py`
 
 ### Invariants to preserve
 
 1. Nothing in root `databricks.yml` or `resources/` references `demo/`. Customer must be able to `rm -rf demo/` safely.
 2. Core bundle (`rc18-starter-kit`) never deploys synthetic data or generators.
-3. Demo bundle (`rc18-demo`) always bundles the core + its overlay (both get deployed together).
+3. Demo bundle (`rc18-demo`) is self-contained and does NOT include core's pipelines, dashboards, or `setup_reference_tables`. Only the shared `app/backend` source is reused.
 
 ## Development Commands
 
@@ -107,15 +117,25 @@ regulatory-data-governance/
 # Frontend build → copy into app/backend/frontend_dist (served by FastAPI)
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 
-# === Accelerator deploy (what the customer runs) ===
-databricks bundle deploy -t dev                # rc18-starter-kit: app + pipelines + dashboards + genie
+# === Implementation deploy (accelerator — what the customer runs) ===
+# Requires: --var warehouse_id=<id>  (or BUNDLE_VAR_warehouse_id)
+databricks bundle deploy -t dev --var warehouse_id=<id>   # rc18-starter-kit: app (mock=false) + pipelines + dashboards + setup job
 
-# === Internal Databricks demo (with synthetic data) ===
+# === Internal Databricks demo (mock app + synthetic XML generators) ===
+# One-shot deploy (bundle deploy + apps deploy in a single command):
+./demo/deploy.sh                                          # default target dev-azure
+./demo/deploy.sh dev-aws                                  # custom target
+
+# Equivalent two-step manual flow:
 cd demo
-databricks bundle deploy -t dev                # rc18-demo: accelerator + synthetic generators + loader
-databricks bundle run scr3040_generator -t dev # generate Doc 3040 XML
-databricks bundle run scr3050_generator -t dev # generate Doc 3050 XML from 3040 via equivalence
-databricks bundle run synthetic_data_loader -t dev
+databricks bundle deploy -t dev-azure                     # rc18-demo: app shell + 3 jobs + catalog + bronze/reference
+databricks bundle run r18_compliance_app -t dev-azure     # push synced code into the running app — without
+                                                          # this the app shows "App Not Available"
+
+# Run synthetic generators / loader:
+databricks bundle run scr3040_generator -t dev-azure      # generate Doc 3040 XML (validates with BACEN tool)
+databricks bundle run scr3050_generator -t dev-azure      # generate Doc 3050 XML from 3040 via equivalencia
+databricks bundle run synthetic_data_loader -t dev-azure  # populate ${var.catalog}.bronze with synthetic SCR rows
 ```
 
 ## Databricks Assets
@@ -137,11 +157,12 @@ Databricks App. See [.env.example](.env.example) for the full list of variables.
 
 | Schema | Tables | Purpose |
 |--------|--------|---------|
-| `bronze` | 7 | Raw ingestion (operacoes_raw, clientes_raw, raw_3050_*, raw_cosif_saldos) |
-| `silver` | 8 | Validated (operacoes_validadas, scr3050_diario/mensal, quarantine) |
-| `gold` | 6 | Reconciled (posicao_mensal_3040, reconciliacao_*, governance_*) |
-| `reference` | 7 | Domains, criticas rules, BCB calendar, equivalencia, R.18 dimensions |
-| `quality` | 5 | Scorecard, criticas_results, reconciliation_results, submissao_historico |
+| `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
+| `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
+| `silver` | 8 | Validated (operacoes_validadas, scr3040_clientes/garantias/vencimentos/cont_4966, scr3050_diario/mensal, quarantine) |
+| `gold` | 4 | Curated (posicao_mensal_3040, posicao_3050, governance_status_qualidade_mensal, governance_violacoes_log) |
+| `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
+| `quality` | 4 | quality_scorecard, criticas_results, qualidade_dimensoes_mensal, violacoes_log |
 
 ## Key Links
 
@@ -158,14 +179,14 @@ See [docs/gdocs_notes.md](docs/gdocs_notes.md) for meeting notes and project con
 - **R.18**: Joint resolution mandating a formal Data Quality Policy covering ALL information reported to BCB. 12 mandatory quality dimensions, board-level governance, semi-annual reports, 5-year retention. Deadline: 31/12/2026.
 - **SCR 3040**: Detailed credit operation data — individual operations with 130+ fields, IPOC identification, cessao/FIDC complexity. Submitted as XML, validated before sending to BCB.
 - **SCR 3050**: Aggregated credit data in TXB/XML format. Versioned layouts (current: V11). Weekly/monthly periodicity with BCB business day calendar.
-- **Equivalencia**: Mapping between Doc 3040 and Doc 3050 modalities — critical for reconciliation.
+- **Equivalencia**: Mapping between Doc 3040 and Doc 3050 modalities — exposed as `mod_3050_equiv` in silver for downstream consumers.
 - **Criticas**: Validation rules (syntactic + semantic + inter-document) that must pass before submission.
 - **Dominios**: Data dictionaries defining valid values for each field.
 
 ## Architecture
 
 ```
-Sources (Oracle/DB2/VSAM) → Bronze (raw) → Silver (validated, R.18 expectations) → Gold (reconciled)
+SCR XML files → Bronze (parsed structs) → Silver (validated, R.18 expectations) → Gold (curated)
                                                                                       ↓
                                                                               Lakeview Dashboards
                                                                               Genie Room (NL→SQL)
