@@ -1,9 +1,15 @@
-# Bundle do ACELERADOR RC18
+# Bundle do ACELERADOR RC18 (rc18-starter-kit).
 #
-# Contém APENAS o acelerador: app, pipelines (esqueletos 3040/3050),
-# dashboards Lakeview e Genie Room. Nenhum dado sintético, nenhum gerador.
+# Self-contained: provisiona catálogo + warehouse + schemas + volumes + pipelines
+# DLT (bronze/silver/gold) + dashboards + setup job + app. O setup job semeia o
+# schema reference E carrega os XMLs de exemplo em sample/ para o landing volume,
+# permitindo rodar fim-a-fim com `databricks bundle deploy` apenas.
 #
-# Para demos (com dados fictícios), ver demo/databricks.yml.
+# Customers que já possuem catálogo/warehouse podem sobrepor --var catalog=<name>
+# e --var warehouse_id=<id>; nesse caso comentar resources/{catalog,warehouse}.yml
+# para evitar que o bundle tente gerenciar o lifecycle de assets externos.
+#
+# Para o bundle de demo (mock app + geradores sintéticos), ver demo/databricks.yml.
 
 bundle:
   name: rc18-starter-kit
@@ -20,6 +26,7 @@ sync:
     - pipelines
     - dashboards
     - resources
+    - sample
   exclude:
     - "**/node_modules/"
     - "**/__pycache__/"
@@ -32,7 +39,8 @@ variables:
     description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
 
   warehouse_id:
-    description: "SQL Warehouse ID — set per-target or via DATABRICKS_BUNDLE_VAR_warehouse_id"
+    description: "SQL Warehouse ID — defaults to the bundle-provisioned 2X-Small serverless warehouse. Override with --var warehouse_id=<id> or BUNDLE_VAR_warehouse_id to reuse an existing warehouse."
+    default: ${resources.sql_warehouses.rc18_warehouse.id}
 
   genie_space_id:
     description: "Genie Room ID for the SCR R.18 NL→SQL space — set per-target or via DATABRICKS_BUNDLE_VAR_genie_space_id"
@@ -55,6 +63,13 @@ targets:
     default: true
     mode: development
     workspace:
-      # Profile comes from `databricks bundle deploy -p <name>` (deploy.sh passes it from $DATABRICKS_PROFILE)
       # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: users
+        level: CAN_MANAGE

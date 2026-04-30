@@ -25,7 +25,7 @@ SILVER_SCHEMA = spark.conf.get("silver_schema", "silver")
 )
 def qualidade_dimensoes_mensal():
     """Denormalized view joining governance scorecard with dimension metadata for the API."""
-    gov = dlt.read(f"{SOURCE_CATALOG}.{GOLD_SCHEMA}.governance_status_qualidade_mensal")
+    gov = spark.table(f"{SOURCE_CATALOG}.{GOLD_SCHEMA}.governance_status_qualidade_mensal")
 
     return (
         gov
@@ -51,6 +51,6 @@ def qualidade_dimensoes_mensal():
 )
 def violacoes_log():
     """Pass-through from governance_violacoes_log for API consumption."""
-    return dlt.read(f"{SOURCE_CATALOG}.{GOLD_SCHEMA}.governance_violacoes_log")
+    return spark.table(f"{SOURCE_CATALOG}.{GOLD_SCHEMA}.governance_violacoes_log")
 
 

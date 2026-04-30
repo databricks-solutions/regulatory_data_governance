@@ -30,8 +30,11 @@ resources:
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
             value: ${resources.dashboards.monitor_criticas.id}
-          - name: GENIE_SPACE_ID
-            value: ${var.genie_space_id}
+          # GENIE_SPACE_ID intentionally omitted — Databricks Apps rejects env
+          # entries without a `value`, and DABs serializes empty-string vars
+          # without one. To enable the Genie tab, set it post-deploy with:
+          #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
+          # or re-add this block once you have a non-empty default for the var.
 
       permissions:
         - level: CAN_USE

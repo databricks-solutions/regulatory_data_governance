@@ -6,6 +6,11 @@ resources:
       name: "r18-bronze-ingestion-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_bronze}"
+      environment:
+        # The XML parser UDFs in raw_3040.py / raw_3050.py import lxml at function
+        # scope. Installed via pip into the pipeline's serverless runtime.
+        dependencies:
+          - lxml
       configuration:
         # Reference the bundle-managed schema by its resolved name, so dev-mode
         # name prefixing (`dev_<user>_landing`) is picked up automatically.

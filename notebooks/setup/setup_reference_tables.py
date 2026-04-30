@@ -231,6 +231,9 @@ CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.modalidades_equivalencia (
     pagina_equivalencia INT,
     observacoes STRING
 )
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported'
+)
 """)
 
 spark.sql(f"""

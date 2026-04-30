@@ -18,6 +18,9 @@
 
 import dlt
 from pyspark.sql import functions as F, Row
+from pyspark.sql.types import (
+    StructType, StructField, StringType, IntegerType, BooleanType, DoubleType, TimestampType,
+)
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
 SILVER_SCHEMA = spark.conf.get("silver_schema", "silver")
@@ -39,7 +42,6 @@ def _safe_pct(numerator: int, denominator: int) -> float:
         "delta.logRetentionDuration": "interval 1825 days",
     },
     partition_cols=["dt_base"],
-    schema=f"{SOURCE_CATALOG}.{QUALITY_SCHEMA}",
 )
 def quality_scorecard():
     ops = dlt.read("operacoes_validadas")
@@ -126,7 +128,22 @@ def quality_scorecard():
             detalhes=None,
         ))
 
-    return spark.createDataFrame(rows)
+    scorecard_schema = StructType([
+        StructField("run_id", StringType()),
+        StructField("run_timestamp", TimestampType()),
+        StructField("dt_base", StringType()),
+        StructField("tabela", StringType()),
+        StructField("documento", StringType()),
+        StructField("dimensao_id", StringType()),
+        StructField("score_pct", DoubleType()),
+        StructField("meta_pct", DoubleType()),
+        StructField("atingiu_meta", BooleanType()),
+        StructField("total_registros", IntegerType()),
+        StructField("registros_conformes", IntegerType()),
+        StructField("registros_nao_conformes", IntegerType()),
+        StructField("detalhes", StringType()),
+    ])
+    return spark.createDataFrame(rows, schema=scorecard_schema)
 
 
 # ── Critica Results (per-rule pass/fail) ──────────────────────────────────────
@@ -139,7 +156,6 @@ def quality_scorecard():
         "delta.logRetentionDuration": "interval 1825 days",
     },
     partition_cols=["dt_base"],
-    schema=f"{SOURCE_CATALOG}.{QUALITY_SCHEMA}",
 )
 def criticas_results():
     ops = dlt.read("operacoes_validadas")
@@ -195,9 +211,21 @@ def criticas_results():
                 sample_falhas=None,
             ))
 
-    if not results:
-        return spark.createDataFrame(
-            [],
-            schema="run_id STRING, dt_base STRING, documento STRING, critica_id STRING",
-        )
-    return spark.createDataFrame(results)
+    criticas_schema = StructType([
+        StructField("run_id", StringType()),
+        StructField("run_timestamp", TimestampType()),
+        StructField("dt_base", StringType()),
+        StructField("documento", StringType()),
+        StructField("critica_id", StringType()),
+        StructField("critica_descricao", StringType()),
+        StructField("grupo", StringType()),
+        StructField("severidade", StringType()),
+        StructField("dimension_r18", StringType()),
+        StructField("status", StringType()),
+        StructField("registros_avaliados", IntegerType()),
+        StructField("registros_conformes", IntegerType()),
+        StructField("registros_nao_conformes", IntegerType()),
+        StructField("taxa_conformidade_pct", DoubleType()),
+        StructField("sample_falhas", StringType()),
+    ])
+    return spark.createDataFrame(results, schema=criticas_schema)

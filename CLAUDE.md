@@ -12,7 +12,7 @@ The repo is organized around two distinct scenarios, with **physical separation*
 
 | Scenario | Who | Bundle | What gets deployed |
 |----------|-----|--------|---------------------|
-| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + bronze/silver/gold pipelines + 2 dashboards + `setup_reference_tables` job + `landing`/`reference` schemas + Auto Loader volumes. **No synthetic data, no generators.** |
+| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads `sample/Doc3040*.xml` and `sample/Doc3050*.xml` into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. Self-contained: deploys end-to-end with `databricks bundle deploy` alone. Customers with an existing catalog/warehouse override `--var catalog=<name> --var warehouse_id=<id>` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
 | **Demo mode** | Anyone wanting a quick hands-on with the app in mock mode and synthetic XML generation | `rc18-demo` (`demo/databricks.yml`) | App (`USE_MOCK_BACKEND=true`) + 3 jobs only: `r18-synthetic-data-loader`, `rc18-scr3040-generator`, `rc18-scr3050-generator` + dedicated catalog (`rc18_demo_catalog`) + `bronze`/`reference` schemas. **No DLT pipelines, no dashboards, no Genie.** |
 
 Critical invariants:
@@ -57,9 +57,14 @@ regulatory-data-governance/
 │
 ├── dashboards/                    # Lakeview JSON definitions (3)
 │
+├── sample/                        # Canonical Doc 3040 / Doc 3050 XMLs uploaded by the
+│                                  # implementation bundle into ${var.catalog}.landing.scr_xml
+│
 ├── resources/                     # DAB resources of the accelerator (no demo jobs here)
 │   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
-│   ├── setup_job.yml              # setup_reference_tables (seeds BACEN domains/criticas/calendar)
+│   ├── catalog.yml                # ${var.catalog} (default rc18_catalog)
+│   ├── warehouse.yml              # Serverless 2X-Small warehouse, default for ${var.warehouse_id}
+│   ├── setup_job.yml              # 2 tasks: setup_reference + load_sample_xmls
 │   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
 │   ├── pipelines/{bronze,silver,gold}.yml
 │   └── analytics/dashboard_*.yml
@@ -68,9 +73,8 @@ regulatory-data-governance/
 ├── docs/                          # Specs, BACEN references, regulatory docs
 │
 └── demo/                          # ⚠️  INTERNAL DATABRICKS USE — independent demo bundle
-    ├── README.md                  # Demo runbook
+    ├── README.md                  # Demo runbook (deploy steps + parameters)
     ├── databricks.yml             # Bundle rc18-demo (self-contained — does NOT include ../resources)
-    ├── deploy.sh                  # One-shot deploy: bundle deploy + bundle run r18_compliance_app
     ├── assets/
     │   └── validators/                # BCB official binaries (ZIPs renamed .bin to skip Workspace Files auto-extract — synced by bundle)
     │       ├── SCR3040_Validador.bin  # Validador3040 (SCR Doc 3040)
@@ -117,20 +121,27 @@ regulatory-data-governance/
 # Frontend build → copy into app/backend/frontend_dist (served by FastAPI)
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 
-# === Implementation deploy (accelerator — what the customer runs) ===
-# Requires: --var warehouse_id=<id>  (or BUNDLE_VAR_warehouse_id)
-databricks bundle deploy -t dev --var warehouse_id=<id>   # rc18-starter-kit: app (mock=false) + pipelines + dashboards + setup job
+# === Implementation deploy (accelerator — self-contained sandbox) ===
+# Default: provisions catalog + serverless warehouse + pipelines + dashboards + setup job + app.
+# IMPORTANT: requires the direct deployment engine because the bundle declares a `catalogs:` resource.
+export DATABRICKS_BUNDLE_ENGINE=direct
+databricks bundle deploy -t dev --profile <p>                                  # creates resources
+databricks bundle run setup_reference_tables -t dev --profile <p>              # seeds reference + loads sample XMLs into landing
+databricks bundle run bronze_ingestion -t dev --profile <p>                    # ingests sample XMLs
+databricks bundle run silver_validation -t dev --profile <p>                   # validate + DLT expectations
+databricks bundle run gold_reconciliation -t dev --profile <p>                 # curated tables + governance scorecard
+databricks bundle run r18_compliance_app -t dev --profile <p>                  # push code into the running app
+
+# Bring-your-own catalog / warehouse: override the vars AND comment out the corresponding
+# resources/catalog.yml / resources/warehouse.yml so the bundle doesn't manage them.
+databricks bundle deploy -t dev --var catalog=my_cat --var warehouse_id=01abc...
 
 # === Internal Databricks demo (mock app + synthetic XML generators) ===
-# One-shot deploy (bundle deploy + apps deploy in a single command):
-./demo/deploy.sh                                          # default target dev-azure
-./demo/deploy.sh dev-aws                                  # custom target
-
-# Equivalent two-step manual flow:
+# Two-step deploy: `bundle deploy` creates the app shell; `bundle run` pushes the
+# code into the running container. Without step 2 the app shows "App Not Available".
 cd demo
 databricks bundle deploy -t dev-azure                     # rc18-demo: app shell + 3 jobs + catalog + bronze/reference
-databricks bundle run r18_compliance_app -t dev-azure     # push synced code into the running app — without
-                                                          # this the app shows "App Not Available"
+databricks bundle run r18_compliance_app -t dev-azure     # push synced code into the running app
 
 # Run synthetic generators / loader:
 databricks bundle run scr3040_generator -t dev-azure      # generate Doc 3040 XML (validates with BACEN tool)
@@ -205,6 +216,16 @@ SCR XML files → Bronze (parsed structs) → Silver (validated, R.18 expectatio
 - **API fields**: English names, Portuguese-BR display values
 - **Specs before code**: Always check docs/spec/ before implementing new features
 - **Data model source of truth**: docs/spec/03_data_model.md (v1.1 canonical names in Appendix C)
+
+## Bundle gotchas (learned the hard way)
+
+- `catalogs:` resources require **direct deployment engine** — set `DATABRICKS_BUNDLE_ENGINE=direct` before `bundle deploy/run`. Without it, you get "Catalog resources are only supported with direct deployment mode".
+- **App env vars cannot be empty** — `apps.config.env` entries with `value: ""` get serialized without a `value` field, which the Apps API rejects with "Must specify environment variable source using either `value` or `valueFrom`." Either provide a non-empty default or omit the env entry entirely (the app code's `os.getenv(..., "")` covers absence).
+- DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines.
+- `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`.
+- **Bronze pipeline needs `lxml`** — declared via `resources.pipelines.bronze_ingestion.environment.dependencies: [lxml]` in `resources/pipelines/bronze.yml`. The XML parser UDFs import `lxml.etree`.
+- **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
+- Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Wipe `.databricks/bundle/<target>/` before redeploying to a different workspace.
 
 ## Key Decisions & Constraints
 

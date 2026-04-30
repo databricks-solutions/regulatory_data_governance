@@ -12,7 +12,11 @@ import dlt
 from pyspark.sql import functions as F, Window
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
-QUALITY_SCHEMA = spark.conf.get("quality_schema", "quality")
+# quality_scorecard / criticas_results live with the silver pipeline (DLT
+# pipelines target a single schema; running them in their own pipeline is a
+# follow-up). Read them from silver via spark.table() — dlt.read() only works
+# for tables defined in THIS pipeline.
+QUALITY_SOURCE_SCHEMA = spark.conf.get("silver_schema", "silver")
 GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
 REFERENCE_SCHEMA = spark.conf.get("reference_schema", "reference")
 
@@ -28,7 +32,7 @@ REFERENCE_SCHEMA = spark.conf.get("reference_schema", "reference")
 )
 def governance_status_qualidade_mensal():
     """Aggregate latest quality scores per dimension per data-base."""
-    scorecard = dlt.read(f"{SOURCE_CATALOG}.{QUALITY_SCHEMA}.quality_scorecard")
+    scorecard = spark.table(f"{SOURCE_CATALOG}.{QUALITY_SOURCE_SCHEMA}.quality_scorecard")
 
     # Get the latest run per dimension per dt_base
     latest = (
@@ -89,7 +93,7 @@ def governance_status_qualidade_mensal():
 )
 def governance_violacoes_log():
     """Build violations log from criticas_results with failures."""
-    criticas = dlt.read(f"{SOURCE_CATALOG}.{QUALITY_SCHEMA}.criticas_results")
+    criticas = spark.table(f"{SOURCE_CATALOG}.{QUALITY_SOURCE_SCHEMA}.criticas_results")
 
     # Only log failures (REPROVADO) and alerts (ALERTA)
     return (

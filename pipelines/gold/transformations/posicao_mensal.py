@@ -34,9 +34,9 @@ GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
     partition_cols=["dt_base"],
 )
 def posicao_mensal_3040():
-    ops = dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes_validadas")
+    ops = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes_validadas")
     cont = (
-        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_cont_4966")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_cont_4966")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             "clas_at_fin", "est_inst_fin", "cart_prov_min",
@@ -45,7 +45,7 @@ def posicao_mensal_3040():
         )
     )
     venc = (
-        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             F.col("total_saldo").alias("total_saldo_vencimentos"),
@@ -91,7 +91,7 @@ def posicao_mensal_3040():
 )
 def posicao_3050():
     diario = (
-        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario")
         .select(
             "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
             F.lit("diario").alias("periodo"),
@@ -110,7 +110,7 @@ def posicao_3050():
         )
     )
     mensal = (
-        dlt.read(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_mensal")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_mensal")
         .select(
             "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
             F.lit("mensal").alias("periodo"),
