@@ -6,7 +6,7 @@
       "queryLines": [
         "SELECT documento, dt_base, status, ",
         "  COUNT(*) AS qtd_criticas ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -3), 'yyyy-MM') ",
         "GROUP BY documento, dt_base, status"
       ]
@@ -18,8 +18,8 @@
         "SELECT severidade, ",
         "  COUNT(*) AS total, ",
         "  SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS reprovadas ",
-        "FROM rc18_catalog.quality.criticas_results ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results) ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results) ",
         "GROUP BY severidade"
       ]
     },
@@ -32,7 +32,7 @@
         "  documento, ",
         "  MAX(severidade) AS severidade, ",
         "  COUNT(*) AS ocorrencias ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE status = 'FAIL' ",
         "  AND dt_base >= DATE_FORMAT(add_months(current_date(), -1), 'yyyy-MM') ",
         "GROUP BY critica_id, documento ",
@@ -46,7 +46,7 @@
       "queryLines": [
         "SELECT documento, dt_base AS mes, ",
         "  ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
         "GROUP BY documento, dt_base"
       ]
@@ -56,9 +56,9 @@
       "displayName": "KPI Taxa Aprovacao 3040",
       "queryLines": [
         "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE documento = '3040' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3040')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results WHERE documento = '3040')"
       ]
     },
     {
@@ -66,9 +66,9 @@
       "displayName": "KPI Taxa Aprovacao 3050",
       "queryLines": [
         "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE documento = '3050' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3050')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results WHERE documento = '3050')"
       ]
     },
     {
@@ -76,9 +76,9 @@
       "displayName": "KPI Criticas Bloqueantes Abertas",
       "queryLines": [
         "SELECT COUNT(*) AS criticas_bloqueantes ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
         "WHERE severidade = 'BLOQUEANTE' AND status = 'FAIL' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results)"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results)"
       ]
     }
   ],
