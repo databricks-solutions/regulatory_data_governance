@@ -12,7 +12,7 @@
 # Run order on a fresh deployment:
 #   1. databricks bundle deploy             # provisions catalog, schemas, volumes, pipelines, app
 #   2. databricks bundle run setup          # seeds reference + loads sample XMLs
-#   3. databricks bundle run bronze_ingestion       # then silver_validation, gold_reconciliation
+#   3. databricks bundle run bronze                 # then silver, gold
 #   4. databricks bundle run r18_compliance_app     # push code into the app container
 
 resources:

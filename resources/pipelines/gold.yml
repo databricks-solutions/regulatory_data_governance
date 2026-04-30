@@ -1,8 +1,8 @@
 # Gold curation pipeline — produces position tables, governance scorecard, criticas summary
 resources:
   pipelines:
-    gold_reconciliation:
-      name: "r18-gold-curation-${bundle.target}"
+    gold:
+      name: "r18-gold-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_gold}"
       configuration:

@@ -2,8 +2,8 @@
 # Will be populated when pipeline code is implemented
 resources:
   pipelines:
-    bronze_ingestion:
-      name: "r18-bronze-ingestion-${bundle.target}"
+    bronze:
+      name: "r18-bronze-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_bronze}"
       environment:

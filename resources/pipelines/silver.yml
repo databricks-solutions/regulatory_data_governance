@@ -1,8 +1,8 @@
 # Silver validation pipeline — placeholder
 resources:
   pipelines:
-    silver_validation:
-      name: "r18-silver-validation-${bundle.target}"
+    silver:
+      name: "r18-silver-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${var.schema_silver}"
       configuration:

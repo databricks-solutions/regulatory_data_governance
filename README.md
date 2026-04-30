@@ -226,7 +226,7 @@ databricks bundle run -t dev setup_reference_tables -p ssa-latam   # (após cria
 
 1. Carrega `.env` (falha se ausente ou se `DATABRICKS_WAREHOUSE_ID` estiver vazio)
 2. `databricks bundle deploy -t <target> -p <profile> --var warehouse_id=$DATABRICKS_WAREHOUSE_ID`
-   — sobe app, 3 pipelines DLT (`r18-bronze-ingestion`, `r18-silver-validation`, `r18-gold-curation`), 2 dashboards e Genie Room
+   — sobe app, 3 pipelines DLT (`r18-bronze`, `r18-silver`, `r18-gold`), 2 dashboards e Genie Room
 3. Gera `app.yaml` runtime com os valores do `.env` (warehouse, dashboards, Genie, schemas) e faz overlay sobre o `app.yaml` em branco que veio no bundle — assim o `app/backend/app.yaml` versionado **nunca** carrega IDs reais
 4. `databricks apps deploy rc18-starter-kit` — reinicia o container com a config nova
 5. Imprime URL final + estado da app
