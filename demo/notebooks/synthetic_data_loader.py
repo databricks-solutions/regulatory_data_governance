@@ -102,7 +102,6 @@ def generate_operations(dt_base_str: str, n: int) -> list[dict]:
             "dt_contr": dt_contr.isoformat(),
             "vlr_contr": vlr_contr,
             "dia_atraso": max(0, random.randint(-30, 180)),
-            "cosif": f"16{random.randint(10000, 99999)}",
             "prov_consttd": round(vlr_contr * random.uniform(0, 0.15), 2),
         })
     return rows
@@ -216,55 +215,14 @@ print(f"Written {df_3050.count()} rows to {CATALOG}.{BRONZE}.raw_3050_diario")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Generate COSIF Saldos
-
-# COMMAND ----------
-
-cosif_contas = ["1610008", "1620001", "1630004", "1640007", "1650000", "1690009"]
-cosif_rows = []
-for m in range(N_MESES):
-    dt = start_date + relativedelta(months=m)
-    dt_base_str = dt.strftime("%Y-%m")
-    for conta in cosif_contas:
-        saldo = round(random.uniform(1000000, 50000000000), 2)
-        cosif_rows.append({
-            "cnpj_if": CNPJ_IF,
-            "dt_base": dt_base_str,
-            "cosif_conta": conta,
-            "cosif_descricao": f"Conta COSIF {conta}",
-            "saldo_credor": saldo if random.random() > 0.5 else 0,
-            "saldo_devedor": 0 if random.random() > 0.5 else saldo * 0.1,
-            "saldo_liquido": saldo,
-            "tp_conta": "01",
-        })
-
-cosif_df = spark.createDataFrame(cosif_rows)
-cosif_df = (
-    cosif_df
-    .withColumn("_pk_hash", F.sha2(F.concat_ws("|", "cnpj_if", "dt_base", "cosif_conta"), 256))
-    .withColumn("_source_system", F.lit("synthetic_generator"))
-    .withColumn("_source_table", F.lit("synthetic_cosif"))
-    .withColumn("_ingestion_timestamp", F.current_timestamp())
-    .withColumn("_change_type", F.lit("FULL_LOAD"))
-    .withColumn("_ingestion_date", F.current_date())
-    .withColumn("_source_column_map", F.lit(None).cast("string"))
-)
-
-cosif_df.write.mode("overwrite").saveAsTable(f"{CATALOG}.{BRONZE}.raw_cosif_saldos")
-print(f"Written {cosif_df.count()} rows to {CATALOG}.{BRONZE}.raw_cosif_saldos")
-
-# COMMAND ----------
-
 print(f"""
 Synthetic data generation complete:
   - {CATALOG}.{BRONZE}.operacoes_raw: {N_OPERACOES * N_MESES} operations
   - {CATALOG}.{BRONZE}.clientes_raw: deduplicated clients
   - {CATALOG}.{BRONZE}.raw_3050_diario: daily 3050 records
-  - {CATALOG}.{BRONZE}.raw_cosif_saldos: COSIF balances
 
 Next steps:
   1. Run the bronze pipeline to validate data is readable
   2. Run the silver pipeline to apply DLT expectations
-  3. Run the gold pipeline for reconciliation
+  3. Run the gold pipeline for the curated position tables
 """)
