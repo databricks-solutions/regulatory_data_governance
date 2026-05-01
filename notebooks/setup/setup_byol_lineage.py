@@ -98,6 +98,56 @@ print(f"Removed {len(to_delete)} existing rc18_* objects")
 # COMMAND ----------
 
 OBJECTS = [
+    # ── Origin Systems (upstream of Oracle/DB2) ────────────────────────────
+    ExternalMetadata(
+        name="rc18_los_originacao_credito",
+        system_type=SystemType.OTHER,
+        entity_type="APPLICATION",
+        description=(
+            "Sistema de Originacao de Credito (LOS) — plataforma de aprovacao e "
+            "contratacao de credito. Gera operacoes, garantias e cessoes no momento "
+            "da aprovacao e as persiste nas tabelas Oracle do Core Banking."
+        ),
+        url="https://los-prod.bancorp.internal/api/v2",
+        columns=[
+            "NR_PROPOSTA", "CD_PRODUTO", "CD_MODALIDADE_LOS", "VLR_APROVADO",
+            "CD_CNPJ_CPF_CLIENTE", "NR_CONTRATO", "DT_APROVACAO",
+            "CD_TIPO_GARANTIA", "VLR_GARANTIA", "IN_CESSAO_FIDC",
+            "VLR_CESSAO", "CD_CNPJ_CESSIONARIO",
+        ],
+        properties={
+            "source_system":    "LOS — Sistema de Originacao de Credito (Pega Systems)",
+            "update_mode":      "Evento em tempo real — trigger de aprovacao de credito",
+            "integration":      "REST API v2 -> Oracle via middleware bancario",
+            "r18_sensitivity":  "ALTO — ponto de origem de todas operacoes de credito SCR",
+            "data_owner":       "Diretoria de Credito — Squad Originacao",
+            "contact":          "squad-originacao-credito@bancorp.internal",
+        },
+    ),
+    ExternalMetadata(
+        name="rc18_crm_cadastro_clientes",
+        system_type=SystemType.OTHER,
+        entity_type="APPLICATION",
+        description=(
+            "Sistema de CRM e MDM (Master Data Management) de clientes. "
+            "Fonte de verdade para dados cadastrais de pessoas fisicas e juridicas — "
+            "sincroniza com Oracle TB_CONTRATANTES e IBM DB2 CLIENTES_CREDITO."
+        ),
+        url="https://crm.bancorp.internal/sfdc",
+        columns=[
+            "CD_CLIENTE_CRM", "CD_CNPJ_CPF", "NM_CLIENTE", "DT_NASCIMENTO_ABERTURA",
+            "CD_SEG_PORTE", "CD_ATIVIDADE_ECON", "CD_MUNICIPIO", "CD_PAIS_RESIDENCIA",
+            "NR_TELEFONE", "DS_EMAIL", "CD_AGENCIA_RELACIONAMENTO",
+        ],
+        properties={
+            "source_system":    "CRM / MDM Clientes (Salesforce Financial Services Cloud)",
+            "update_mode":      "Batch diario 01h00 (carga completa) + webhooks em tempo real",
+            "integration":      "Salesforce Connect -> Oracle e DB2 via ESB bancario",
+            "r18_sensitivity":  "ALTO — cadastro mandatorio para identificacao no SCR",
+            "data_owner":       "Diretoria de Relacionamento com Clientes",
+            "contact":          "squad-mdm-clientes@bancorp.internal",
+        },
+    ),
     # ── Oracle Core Banking ────────────────────────────────────────────────
     ExternalMetadata(
         name="rc18_oracle_tb_operacoes_credito",
@@ -393,7 +443,62 @@ print(f"\nCreated {len(created)}/{len(OBJECTS)} external metadata objects")
 # COMMAND ----------
 
 RELATIONSHIPS = [
-    # Oracle sources -> Informatica SCR3040 extractor
+    # ── Origin systems -> Oracle/DB2 ──────────────────────────────────────
+    dict(
+        source=ext_obj("rc18_los_originacao_credito"),
+        target=ext_obj("rc18_oracle_tb_operacoes_credito"),
+        columns=[
+            col("NR_PROPOSTA",    "NR_CONTRATO"),
+            col("VLR_APROVADO",   "VLR_CONTABIL_BRL"),
+            col("CD_PRODUTO",     "CD_MODALIDADE"),
+            col("DT_APROVACAO",   "DT_CONTRATACAO"),
+        ],
+        properties={"transform": "Evento de aprovacao de credito — LOS persiste operacao no Core Banking Oracle"},
+    ),
+    dict(
+        source=ext_obj("rc18_los_originacao_credito"),
+        target=ext_obj("rc18_oracle_tb_garantias"),
+        columns=[
+            col("CD_TIPO_GARANTIA", "CD_TIPO_GARANTIA"),
+            col("VLR_GARANTIA",     "VLR_GARANTIA"),
+            col("NR_CONTRATO",      "CD_IPOC"),
+        ],
+        properties={"transform": "Registro automatico de garantia apos aprovacao de credito"},
+    ),
+    dict(
+        source=ext_obj("rc18_los_originacao_credito"),
+        target=ext_obj("rc18_oracle_tb_cessoes_fidc"),
+        columns=[
+            col("IN_CESSAO_FIDC",       "IN_COOBRIGACAO"),
+            col("VLR_CESSAO",           "VLR_CESSAO"),
+            col("CD_CNPJ_CESSIONARIO",  "CD_CNPJ_CESSIONARIO"),
+        ],
+        properties={"transform": "Registro de cessao a FIDC — somente operacoes estruturadas"},
+    ),
+    dict(
+        source=ext_obj("rc18_crm_cadastro_clientes"),
+        target=ext_obj("rc18_oracle_tb_contratantes"),
+        columns=[
+            col("CD_CNPJ_CPF",       "CD_CNPJ_CPF"),
+            col("NM_CLIENTE",        "NM_CLIENTE"),
+            col("CD_SEG_PORTE",      "CD_SEG_PORTE"),
+            col("CD_ATIVIDADE_ECON", "CD_ATIVIDADE_ECON"),
+            col("CD_MUNICIPIO",      "CD_MUNICIPIO"),
+        ],
+        properties={"transform": "Sincronizacao diaria CRM -> Oracle via ESB — fonte de verdade para cadastro"},
+    ),
+    dict(
+        source=ext_obj("rc18_crm_cadastro_clientes"),
+        target=ext_obj("rc18_db2_clientes_credito"),
+        columns=[
+            col("CD_CLIENTE_CRM",    "CD_CLIENTE"),
+            col("CD_CNPJ_CPF",       "CD_CNPJ_CPF"),
+            col("NM_CLIENTE",        "NM_CLIENTE"),
+            col("CD_AGENCIA_RELACIONAMENTO", "CD_AGENCIA"),
+        ],
+        properties={"transform": "Replica batch 01h00 para mainframe DB2 — historico legado"},
+    ),
+    # ── Oracle sources -> Informatica SCR3040 extractor ───────────────────
     dict(
         source=ext_obj("rc18_oracle_tb_operacoes_credito"),
         target=ext_obj("rc18_etl_scr3040_extractor"),

@@ -33,17 +33,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _EXT_META: dict[str, dict] = {
-    "rc18_oracle_tb_operacoes_credito": dict(label="Oracle: TB_OPERACOES_CREDITO", layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
+    # Origin systems (upstream of Oracle/DB2)
+    "rc18_los_originacao_credito":      dict(label="LOS: Originacao de Credito",    layer="origin",    system="Loan Origination System", system_type="OTHER"),
+    "rc18_crm_cadastro_clientes":       dict(label="CRM: Cadastro de Clientes",     layer="origin",    system="CRM / MDM Clientes",      system_type="OTHER"),
+    # Oracle Core Banking
+    "rc18_oracle_tb_operacoes_credito": dict(label="Oracle: TB_OPERACOES_CREDITO",  layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
     "rc18_oracle_tb_garantias":         dict(label="Oracle: TB_GARANTIAS",          layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
     "rc18_oracle_tb_contratantes":      dict(label="Oracle: TB_CONTRATANTES",       layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
     "rc18_oracle_tb_cessoes_fidc":      dict(label="Oracle: TB_CESSOES_FIDC",       layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
+    # IBM DB2 Mainframe
     "rc18_db2_clientes_credito":        dict(label="DB2: CLIENTES_CREDITO",         layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
     "rc18_db2_historico_scr":           dict(label="DB2: HISTORICO_SCR",            layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
     "rc18_db2_plano_contas_cosif":      dict(label="DB2: PLANO_CONTAS_COSIF",       layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
+    # ETL
     "rc18_etl_scr3040_extractor":       dict(label="Informatica ETL: SCR3040",      layer="etl",       system="Informatica PowerCenter", system_type="OTHER"),
     "rc18_etl_scr3050_aggregator":      dict(label="Informatica ETL: SCR3050",      layer="etl",       system="Informatica PowerCenter", system_type="OTHER"),
+    # BACEN validators
     "rc18_bacen_validador_scr3040":     dict(label="Validador BCB: Doc 3040",        layer="validator", system="BACEN Validador3040",     system_type="OTHER"),
     "rc18_bacen_validador_scr3050":     dict(label="Validador BCB: Doc 3050",        layer="validator", system="BACEN ValidadorMDR",      system_type="OTHER"),
+    # Final submission
     "rc18_sta_cadip_doc3040":           dict(label="STA/CADIP: Doc 3040",           layer="output",    system="BACEN STA/CADIP",        system_type="OTHER"),
     "rc18_sta_cadip_doc3050":           dict(label="STA/CADIP: Doc 3050",           layer="output",    system="BACEN STA/CADIP",        system_type="OTHER"),
 }
@@ -69,6 +77,11 @@ def _short_label(full_name: str) -> str:
 
 def _build_mock(catalog: str) -> LineageGraphResponse:
     nodes = [
+        # Origin systems — upstream of Oracle/DB2
+        LineageNode(id="rc18_los_originacao_credito", label="LOS: Originacao de Credito", type="external_source", layer="origin", system="Loan Origination System", system_type="OTHER",
+                    metadata=LineageNodeMetadata(connection="https://los-prod.bancorp.internal/api/v2", update_frequency="Tempo real — evento de aprovacao de credito")),
+        LineageNode(id="rc18_crm_cadastro_clientes",  label="CRM: Cadastro de Clientes",  type="external_source", layer="origin", system="CRM / MDM Clientes",      system_type="OTHER",
+                    metadata=LineageNodeMetadata(connection="https://crm.bancorp.internal/sfdc", update_frequency="Batch diario 01h00 + atualizacoes em tempo real")),
         LineageNode(id="rc18_oracle_tb_operacoes_credito", label="Oracle: TB_OPERACOES_CREDITO", type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
                     metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-banking-prod:1521/CREDITO", update_frequency="CDC via ROWSCN 15 min")),
         LineageNode(id="rc18_oracle_tb_garantias",   label="Oracle: TB_GARANTIAS",    type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
@@ -109,6 +122,16 @@ def _build_mock(catalog: str) -> LineageGraphResponse:
         LineageNode(id="rc18_sta_cadip_doc3050", label="STA/CADIP: Doc 3050", type="external_output", layer="output", system="BACEN STA/CADIP", system_type="OTHER", metadata=LineageNodeMetadata()),
     ]
     edges = [
+        # Origin → Oracle/DB2
+        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_operacoes_credito", type="external_lineage", label="aprovacao credito",
+                    column_mappings=[ColumnMapping(source="NR_PROPOSTA", target="NR_CONTRATO"), ColumnMapping(source="VLR_APROVADO", target="VLR_CONTABIL_BRL"), ColumnMapping(source="CD_PRODUTO", target="CD_MODALIDADE")]),
+        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_garantias",    type="external_lineage", label="registro garantia",
+                    column_mappings=[ColumnMapping(source="CD_TIPO_GARANTIA", target="CD_TIPO_GARANTIA"), ColumnMapping(source="VLR_GARANTIA", target="VLR_GARANTIA")]),
+        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_cessoes_fidc", type="external_lineage", label="cessao FIDC"),
+        LineageEdge(source="rc18_crm_cadastro_clientes",  target="rc18_oracle_tb_contratantes", type="external_lineage", label="sync cadastro",
+                    column_mappings=[ColumnMapping(source="CD_CNPJ_CPF", target="CD_CNPJ_CPF"), ColumnMapping(source="NM_CLIENTE", target="NM_CLIENTE"), ColumnMapping(source="CD_SEG_PORTE", target="CD_SEG_PORTE")]),
+        LineageEdge(source="rc18_crm_cadastro_clientes",  target="rc18_db2_clientes_credito",   type="external_lineage", label="replica mainframe"),
+        # Oracle/DB2 → ETL
         LineageEdge(source="rc18_oracle_tb_operacoes_credito", target="rc18_etl_scr3040_extractor", type="external_lineage", label="CDC extract",
                     column_mappings=[ColumnMapping(source="CD_CNPJ_IF", target="cnpj_if"), ColumnMapping(source="CD_IPOC", target="ipoc"), ColumnMapping(source="VLR_CONTABIL_BRL", target="vlr_contabil")]),
         LineageEdge(source="rc18_oracle_tb_garantias",    target="rc18_etl_scr3040_extractor",  type="external_lineage", label="JOIN via IPOC"),

@@ -10,9 +10,9 @@
   let selectedEdge = $state(null);
   let columnLineage = $state(null);
 
-  // Layer X positions (px) — left to right: external sources → ETL → Databricks medallion → validators → BCB
-  const LAYER_ORDER = ['source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
-  const LAYER_X     = { source: 40, etl: 290, bronze: 540, silver: 790, gold: 1040, validator: 1290, output: 1540 };
+  // Layer X positions (px) — left to right: origin → external sources → ETL → Databricks medallion → validators → BCB
+  const LAYER_ORDER = ['origin', 'source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
+  const LAYER_X     = { origin: 40, source: 290, etl: 540, bronze: 790, silver: 1040, gold: 1290, validator: 1540, output: 1790 };
   const NODE_W = 200;
   const NODE_H = 44;
   const NODE_GAP = 24;
@@ -88,6 +88,9 @@
   const CATALOG = 'classic_stable_hj897w_catalog';
 
   const initialApiNodes = [
+    // Origin systems
+    { id: 'rc18_los_originacao_credito', label: 'LOS: Originacao de Credito', type: 'external_source', layer: 'origin', system: 'Loan Origination System', metadata: { connection: 'https://los-prod.bancorp.internal/api/v2', update_frequency: 'Tempo real — evento de aprovacao de credito' } },
+    { id: 'rc18_crm_cadastro_clientes',  label: 'CRM: Cadastro de Clientes',  type: 'external_source', layer: 'origin', system: 'CRM / MDM Clientes',      metadata: { connection: 'https://crm.bancorp.internal/sfdc',            update_frequency: 'Batch diario 01h00 + tempo real' } },
     { id: 'rc18_oracle_tb_operacoes_credito', label: 'Oracle: TB_OPERACOES_CREDITO', type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { connection: 'jdbc:oracle:thin:@core-banking-prod:1521/CREDITO', update_frequency: 'CDC via ROWSCN 15 min' } },
     { id: 'rc18_oracle_tb_garantias',         label: 'Oracle: TB_GARANTIAS',          type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { update_frequency: 'CDC via ROWSCN' } },
     { id: 'rc18_oracle_tb_contratantes',      label: 'Oracle: TB_CONTRATANTES',       type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { update_frequency: 'Batch 02h00' } },
@@ -111,6 +114,13 @@
   ];
 
   const initialApiEdges = [
+    // Origin → Oracle/DB2
+    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_operacoes_credito', type: 'external_lineage', label: 'aprovacao credito', column_mappings: [{source:'NR_PROPOSTA',target:'NR_CONTRATO'},{source:'VLR_APROVADO',target:'VLR_CONTABIL_BRL'},{source:'CD_PRODUTO',target:'CD_MODALIDADE'}] },
+    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_garantias',         type: 'external_lineage', label: 'registro garantia', column_mappings: [{source:'CD_TIPO_GARANTIA',target:'CD_TIPO_GARANTIA'},{source:'VLR_GARANTIA',target:'VLR_GARANTIA'}] },
+    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_cessoes_fidc',      type: 'external_lineage', label: 'cessao FIDC' },
+    { source: 'rc18_crm_cadastro_clientes',  target: 'rc18_oracle_tb_contratantes',      type: 'external_lineage', label: 'sync cadastro',    column_mappings: [{source:'CD_CNPJ_CPF',target:'CD_CNPJ_CPF'},{source:'NM_CLIENTE',target:'NM_CLIENTE'},{source:'CD_SEG_PORTE',target:'CD_SEG_PORTE'}] },
+    { source: 'rc18_crm_cadastro_clientes',  target: 'rc18_db2_clientes_credito',        type: 'external_lineage', label: 'replica mainframe' },
+    // Oracle/DB2 → ETL
     { source: 'rc18_oracle_tb_operacoes_credito', target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'CDC extract', column_mappings: [{source:'CD_CNPJ_IF',target:'cnpj_if'},{source:'CD_IPOC',target:'ipoc'},{source:'VLR_CONTABIL_BRL',target:'vlr_contabil'}] },
     { source: 'rc18_oracle_tb_garantias',         target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'JOIN via IPOC' },
     { source: 'rc18_oracle_tb_contratantes',      target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'lookup contratante' },
@@ -197,8 +207,9 @@
 
   // Side panel: derive layer label
   const LAYER_LABELS = {
-    source: 'Fonte Externa', etl: 'ETL / Integração', bronze: 'Bronze (Databricks)',
-    silver: 'Silver (Databricks)', gold: 'Gold (Databricks)', validator: 'Validador BCB', output: 'Saída BCB'
+    origin: 'Originação / CRM', source: 'Fonte Externa', etl: 'ETL / Integração',
+    bronze: 'Bronze (Databricks)', silver: 'Silver (Databricks)', gold: 'Gold (Databricks)',
+    validator: 'Validador BCB', output: 'Saída BCB'
   };
 </script>
 
@@ -209,7 +220,7 @@
     <div class="legend-items">
       <span class="legend-item"><span class="leg-line byol"></span> BYOL (Externo — dashed)</span>
       <span class="legend-item"><span class="leg-line uc"></span> UC Automático (DLT — solid)</span>
-      {#each [['source','Fonte Oracle/DB2'],['etl','Informatica ETL'],['bronze','Bronze'],['silver','Silver'],['gold','Gold'],['validator','Validador BCB'],['output','STA/CADIP']] as [l, lbl]}
+      {#each [['origin','LOS/CRM'],['source','Oracle/DB2'],['etl','Informatica ETL'],['bronze','Bronze'],['silver','Silver'],['gold','Gold'],['validator','Validador BCB'],['output','STA/CADIP']] as [l, lbl]}
         {@const c = layerColors[l]}
         <span class="legend-item">
           <span class="leg-node" style="background:{c.bg};border-color:{c.border};"></span>
@@ -233,7 +244,7 @@
       {:else}
         <!-- SVG fallback -->
         <div class="graph-fallback">
-          <svg viewBox="0 0 1780 820" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 2060 860" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <marker id="arrow-uc"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="#005CA9" />
@@ -274,7 +285,7 @@
             {/each}
 
             <!-- Layer headers -->
-            {#each [['source','Fontes Externas',40],['etl','ETL',290],['bronze','Bronze',540],['silver','Silver',790],['gold','Gold',1040],['validator','Validadores',1290],['output','BCB STA',1540]] as [l, lbl, lx]}
+            {#each [['origin','Originacao',40],['source','Oracle/DB2',290],['etl','ETL',540],['bronze','Bronze',790],['silver','Silver',1040],['gold','Gold',1290],['validator','Validadores',1540],['output','BCB STA',1790]] as [l, lbl, lx]}
               {@const c = layerColors[l]}
               <rect x={lx} y="8" width={NODE_W} height="22" rx="4" fill={c.bg} stroke={c.border} />
               <text x={lx + NODE_W/2} y="23" text-anchor="middle" fill={c.text} font-size="10" font-weight="700" font-family="var(--font-primary)">{lbl}</text>

@@ -1,4 +1,5 @@
 export const layerColors = {
+  origin:    { bg: '#E0F2F1', border: '#00796B', text: '#004D40' },
   source:    { bg: '#F0F0F5', border: '#7A7A8A', text: '#4A4A5A' },
   etl:       { bg: '#F3E5F5', border: '#7B1FA2', text: '#4A148C' },
   bronze:    { bg: '#F5F0EB', border: '#8D6E63', text: '#4E342E' },
