@@ -1,9 +1,20 @@
 export const layerColors = {
-  source: { bg: '#F0F0F5', border: '#7A7A8A', text: '#4A4A5A' },
-  bronze: { bg: '#F0F0F5', border: '#7A7A8A', text: '#4A4A5A' },
-  silver: { bg: '#E5F0F8', border: '#005CA9', text: '#003D73' },
-  gold: { bg: '#FFF3E8', border: '#F37021', text: '#D35F1A' },
-  output: { bg: '#FFF3E8', border: '#F37021', text: '#D35F1A' }
+  source:    { bg: '#F0F0F5', border: '#7A7A8A', text: '#4A4A5A' },
+  etl:       { bg: '#F3E5F5', border: '#7B1FA2', text: '#4A148C' },
+  bronze:    { bg: '#F5F0EB', border: '#8D6E63', text: '#4E342E' },
+  silver:    { bg: '#E5F0F8', border: '#005CA9', text: '#003D73' },
+  gold:      { bg: '#FFF8E1', border: '#F57F17', text: '#E65100' },
+  validator: { bg: '#E8F5E9', border: '#2E7D32', text: '#1B5E20' },
+  output:    { bg: '#FCE4EC', border: '#C62828', text: '#880E4F' }
+};
+
+// Node colors by system type (overrides layer color when specified)
+export const systemColors = {
+  ORACLE:      { bg: '#FFF0E0', border: '#D35F1A', text: '#8B3A00' },
+  DB2:         { bg: '#E8EAF6', border: '#5C6BC0', text: '#283593' },
+  INFORMATICA: { bg: '#F3E5F5', border: '#7B1FA2', text: '#4A148C' },
+  BACEN:       { bg: '#E8F5E9', border: '#2E7D32', text: '#1B5E20' },
+  STA:         { bg: '#FCE4EC', border: '#C62828', text: '#880E4F' }
 };
 
 export const statusColors = {

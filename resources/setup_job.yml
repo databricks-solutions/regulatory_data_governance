@@ -1,25 +1,27 @@
 # One-time setup job for a fresh deploy of the implementation bundle.
 #
-# Two tasks:
-#   1. setup_reference     — seeds rc18_catalog.reference with BCB domains, criticas,
-#                            calendar, equivalencia, R.18 dimensions. Idempotent:
-#                            CREATE TABLE IF NOT EXISTS + INSERTs on natural keys.
+# Three tasks:
+#   1. setup_reference     — seeds reference schema with BCB domains, criticas,
+#                            calendar, equivalencia, R.18 dimensions. Idempotent.
 #   2. load_sample_xmls    — copies sample/Doc3040_*.xml and sample/Doc3050_*.xml
-#                            into ${var.catalog}.landing.scr_xml/{3040,3050}/, so the
-#                            bronze pipelines have data to ingest end-to-end.
-#                            Skip if you don't want sample data in the landing volume.
+#                            into landing.scr_xml/{3040,3050}/. Idempotent.
+#   3. setup_byol_lineage  — registers 13 external metadata objects (Oracle, DB2,
+#                            Informatica, BACEN validators, STA/CADIP) and 13
+#                            lineage relationships with the UC External Lineage API.
+#                            Requires CREATE EXTERNAL METADATA on the metastore.
+#                            Idempotent (deletes rc18_* objects before recreating).
 #
 # Run order on a fresh deployment:
-#   1. databricks bundle deploy             # provisions catalog, schemas, volumes, pipelines, app
-#   2. databricks bundle run setup          # seeds reference + loads sample XMLs
-#   3. databricks bundle run bronze                 # then silver, gold
-#   4. databricks bundle run r18_compliance_app     # push code into the app container
+#   1. databricks bundle deploy             # provisions schemas, volumes, pipelines, app
+#   2. databricks bundle run setup_reference_tables  # seeds reference + loads sample XMLs + registers BYOL
+#   3. databricks bundle run bronze         # ingests sample XMLs
+#   4. databricks bundle run silver && databricks bundle run gold
 
 resources:
   jobs:
     setup_reference_tables:
       name: "r18-setup-${bundle.target}"
-      description: "Seeds rc18_catalog.reference with BCB domains/criticas/calendar/equivalencia/R.18 dimensions, then loads the canonical Doc 3040/3050 sample XMLs into the landing volume. Run once after `bundle deploy`. Idempotent."
+      description: "Seeds reference schema, loads sample XMLs, and registers BYOL external lineage metadata. Run once after bundle deploy. Idempotent."
       tasks:
         - task_key: "setup_reference"
           notebook_task:
@@ -37,3 +39,14 @@ resources:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
               source_dir: ${workspace.file_path}/sample
+
+        - task_key: "setup_byol_lineage"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_byol_lineage.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${var.schema_bronze}
+              silver_schema: ${var.schema_silver}
+              gold_schema: ${var.schema_gold}
