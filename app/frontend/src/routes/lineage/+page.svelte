@@ -218,8 +218,8 @@
   <div class="legend-bar">
     <span class="legend-title">Linhagem RC18 — BYOL + UC Automático</span>
     <div class="legend-items">
-      <span class="legend-item"><span class="leg-line byol"></span> BYOL (Externo — dashed)</span>
-      <span class="legend-item"><span class="leg-line uc"></span> UC Automático (DLT — solid)</span>
+      <span class="legend-item"><span class="leg-line byol"></span> BYOL (Externo — dashed fixo)</span>
+      <span class="legend-item"><span class="leg-line uc"></span> UC Automático (DLT — dashed animado)</span>
       {#each [['origin','LOS/CRM'],['source','Oracle/DB2'],['etl','Informatica ETL'],['bronze','Bronze'],['silver','Silver'],['gold','Gold'],['validator','Validador BCB'],['output','STA/CADIP']] as [l, lbl]}
         {@const c = layerColors[l]}
         <span class="legend-item">
@@ -472,7 +472,15 @@
   .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--gray-600); white-space: nowrap; }
   .leg-line { display: inline-block; width: 28px; height: 2px; }
   .leg-line.byol { background: repeating-linear-gradient(90deg,#7A7A8A 0,#7A7A8A 6px,transparent 6px,transparent 10px); }
-  .leg-line.uc   { background: #005CA9; }
+  .leg-line.uc {
+    background: repeating-linear-gradient(90deg,#005CA9 0,#005CA9 6px,transparent 6px,transparent 10px);
+    background-size: 10px 2px;
+    animation: leg-dash-move 0.6s linear infinite;
+  }
+  @keyframes leg-dash-move {
+    from { background-position: 0 0; }
+    to   { background-position: 10px 0; }
+  }
   .leg-node { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; }
 
   /* ---- Layout ---- */
