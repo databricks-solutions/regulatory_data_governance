@@ -31,29 +31,10 @@
   ];
 
   onMount(async () => {
-    // Mock data
-    data = {
-      dimension: { id: dimId, code: dimensionNames[dimId - 1]?.toLowerCase() || '', name: dimName, article: `Art. 2, par. 2, ${dimId}`, description: 'Medida de qualidade conforme R.18' },
-      score: 92.5,
-      target: 95.0,
-      status: 'atencao',
-      metrics: { taxa_rejeicao_bcb_pct: 2.1, validacao_fonte_primaria_pct: 97.5 },
-      violations: [
-        { rule_id: 'SEM_014', rule_description: 'IPOC componentes divergentes dos campos da operação', severity: 'error', count: 127, status: 'fail' },
-        { rule_id: 'SEM_008', rule_description: 'Taxa efetiva implausível para modalidade', severity: 'warning', count: 43, status: 'warn' },
-        { rule_id: 'S10_001', rule_description: 'Campos obrigatórios - Operação', severity: 'error', count: 42, status: 'fail' }
-      ],
-      trend: [
-        { month: '2025-10', score: 85.0 }, { month: '2025-11', score: 87.0 },
-        { month: '2025-12', score: 89.0 }, { month: '2026-01', score: 90.0 },
-        { month: '2026-02', score: 91.0 }, { month: '2026-03', score: 92.5 }
-      ]
-    };
-
     try {
       const resp = await getQualityDimension(dimId, appState.dataBase);
       if (resp) data = resp;
-    } catch { /* use mock */ }
+    } catch {}
   });
 
   let statusVariant = $derived(data.status === 'conforme' ? 'success' : data.status === 'atencao' ? 'warning' : 'error');

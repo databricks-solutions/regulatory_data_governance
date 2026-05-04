@@ -10,29 +10,8 @@
   let selectedNode = $state(null);
   let columnLineage = $state(null);
 
-  // Mock lineage data matching API spec
-  let nodes = $state([
-    { id: 'ext_oracle_tb_operacoes', position: { x: 50, y: 50 }, data: { label: 'Oracle TB_OPERACOES_CREDITO', layer: 'source', type: 'external_source', system: 'Oracle Core Banking', metadata: { connection: 'jdbc:oracle', update_frequency: 'CDC via ROWSCN' } }, type: 'default' },
-    { id: 'ext_db2_clientes', position: { x: 50, y: 200 }, data: { label: 'DB2 CLIENTES_CREDITO', layer: 'source', type: 'external_source', system: 'DB2 Mainframe', metadata: {} }, type: 'default' },
-    { id: 'rc18_catalog.bronze.scr3040_operacoes_raw', position: { x: 350, y: 50 }, data: { label: 'operacoes_raw', layer: 'bronze', type: 'table', row_count: 52000000, last_updated: '2026-03-30T23:15:00Z' }, type: 'default' },
-    { id: 'rc18_catalog.bronze.scr3040_clientes_raw', position: { x: 350, y: 200 }, data: { label: 'clientes_raw', layer: 'bronze', type: 'table', row_count: 1250000, last_updated: '2026-03-30T23:15:00Z' }, type: 'default' },
-    { id: 'rc18_catalog.silver.scr3040_operacoes', position: { x: 650, y: 100 }, data: { label: 'operacoes_validadas', layer: 'silver', type: 'table', row_count: 51850000, last_updated: '2026-03-31T01:30:00Z', expectations_pass_rate: 99.7 }, type: 'default' },
-    { id: 'rc18_catalog.gold.scr3040_posicao_mensal', position: { x: 950, y: 100 }, data: { label: 'posicao_mensal_3040', layer: 'gold', type: 'table', row_count: 51850000, last_updated: '2026-03-31T04:00:00Z' }, type: 'default' },
-    { id: 'ext_xml_3040_202603', position: { x: 1250, y: 50 }, data: { label: 'SCR3040_202603.xml', layer: 'output', type: 'external_output', system: 'Validador BCB / STA', metadata: { file_size_mb: 3800, parts: 4 } }, type: 'default' },
-    { id: 'ext_sta_cadip', position: { x: 1250, y: 180 }, data: { label: 'STA / CADIP', layer: 'output', type: 'external_output', system: 'BCB', metadata: {} }, type: 'default' }
-  ]);
-
-  let edges = $state([
-    { id: 'e1', source: 'ext_oracle_tb_operacoes', target: 'rc18_catalog.bronze.scr3040_operacoes_raw', type: 'default', style: 'stroke: #7A7A8A; stroke-dasharray: 5 5;', animated: false },
-    { id: 'e2', source: 'ext_db2_clientes', target: 'rc18_catalog.bronze.scr3040_clientes_raw', type: 'default', style: 'stroke: #7A7A8A; stroke-dasharray: 5 5;', animated: false },
-    { id: 'e3', source: 'rc18_catalog.bronze.scr3040_operacoes_raw', target: 'rc18_catalog.silver.scr3040_operacoes', type: 'default', style: 'stroke: #005CA9;', animated: true },
-    { id: 'e4', source: 'rc18_catalog.bronze.scr3040_clientes_raw', target: 'rc18_catalog.silver.scr3040_operacoes', type: 'default', style: 'stroke: #005CA9;', animated: true },
-    { id: 'e5', source: 'rc18_catalog.silver.scr3040_operacoes', target: 'rc18_catalog.gold.scr3040_posicao_mensal', type: 'default', style: 'stroke: #005CA9;', animated: true },
-    { id: 'e6', source: 'rc18_catalog.gold.scr3040_posicao_mensal', target: 'ext_xml_3040_202603', type: 'default', style: 'stroke: #F37021; stroke-dasharray: 3 3;', animated: false },
-    { id: 'e7', source: 'ext_xml_3040_202603', target: 'ext_sta_cadip', type: 'default', style: 'stroke: #F37021; stroke-dasharray: 3 3;', animated: false }
-  ]);
-
-  const mockColumns = ['ipoc', 'modalidade', 'tipo_cliente', 'cnpj_if', 'dt_contr', 'vlr_contabil', 'dt_venc_op'];
+  let nodes = $state([]);
+  let edges = $state([]);
 
   function handleNodeClick(event) {
     const node = event.detail?.node || event.node;
@@ -49,7 +28,7 @@
       const data = await getColumnLineage(tableName, col);
       columnLineage = { column: col, ...data, loading: false };
     } catch {
-      columnLineage = { column: col, loading: false, upstream_columns: [{ table: 'rc18_catalog.bronze.scr3040_operacoes_raw', column: col, transformation: 'passthrough' }] };
+      columnLineage = { column: col, loading: false, upstream_columns: [] };
     }
   }
 
@@ -94,7 +73,7 @@
           animated: e.type === 'uc_automatic'
         }));
       }
-    } catch { /* use mock data */ }
+    } catch {}
   });
 </script>
 
@@ -190,7 +169,7 @@
           <div class="panel-section">
             <div class="panel-label">Colunas</div>
             <div class="column-list">
-              {#each mockColumns as col}
+              {#each (selectedNode?.data?.columns || []) as col}
                 <button class="col-btn" class:active={columnLineage?.column === col} onclick={() => handleColumnClick(col)}>
                   {col}
                 </button>

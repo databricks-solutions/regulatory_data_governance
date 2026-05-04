@@ -22,45 +22,10 @@
     'classificacao_risco', 'origem_recurso', 'indexador', 'periodicidade'
   ];
 
-  // Mock data
-  let dominios = $state([
-    { codigo: '0101', descricao: 'Empréstimos - Cheque especial' },
-    { codigo: '0201', descricao: 'Capital de giro com prazo até 365 dias' },
-    { codigo: '0202', descricao: 'Capital de giro com prazo superior a 365 dias' },
-    { codigo: '0301', descricao: 'Investimento com prazo até 365 dias' },
-    { codigo: '0401', descricao: 'Desconto de duplicatas' },
-    { codigo: '0501', descricao: 'Financiamento rural - Custeio' },
-    { codigo: '0601', descricao: 'Financiamento imobiliário - SFH' },
-    { codigo: '0901', descricao: 'Cartão de crédito - Compra à vista' },
-    { codigo: '1101', descricao: 'Crédito consignado - INSS' },
-    { codigo: '1511', descricao: 'Microcrédito produtivo orientado' }
-  ]);
-
-  let calendario = $state([
-    { data: '2026-03-02', tipo: 'util', ultimo_du_semana: false, ultimo_du_mes: false },
-    { data: '2026-03-06', tipo: 'util', ultimo_du_semana: true, ultimo_du_mes: false },
-    { data: '2026-03-13', tipo: 'util', ultimo_du_semana: true, ultimo_du_mes: false },
-    { data: '2026-03-20', tipo: 'util', ultimo_du_semana: true, ultimo_du_mes: false },
-    { data: '2026-03-27', tipo: 'util', ultimo_du_semana: true, ultimo_du_mes: false },
-    { data: '2026-03-31', tipo: 'util', ultimo_du_semana: false, ultimo_du_mes: true }
-  ]);
-
-  let equivalencia = $state([
-    { mod_3040: '0201', desc_3040: 'Capital de giro até 365 dias', cat_3050: 'capitalDeGiro', notas: 'PJ only' },
-    { mod_3040: '0202', desc_3040: 'Capital de giro > 365 dias', cat_3050: 'capitalDeGiro', notas: 'PF excl' },
-    { mod_3040: '0301', desc_3040: 'Investimento até 365 dias', cat_3050: 'investimento', notas: '' },
-    { mod_3040: '0401', desc_3040: 'Desconto de duplicatas', cat_3050: 'descontos', notas: '' },
-    { mod_3040: '0601', desc_3040: 'Financiamento imobiliário SFH', cat_3050: 'imobiliario', notas: 'SFH only' },
-    { mod_3040: '0901', desc_3040: 'Cartão de crédito', cat_3050: 'cartaoCredito', notas: '' }
-  ]);
-
-  let versoes = $state([
-    { doc: '3040', versao: '-', vigencia_inicio: '-', vigencia_fim: '-', status: 'atual' },
-    { doc: '3050', versao: 'V11', vigencia_inicio: '07/11/2025', vigencia_fim: '-', status: 'atual' },
-    { doc: '3050', versao: 'V10', vigencia_inicio: '04/03/2022', vigencia_fim: '31/10/2025', status: 'historico' },
-    { doc: '3050', versao: 'V9', vigencia_inicio: '01/08/2021', vigencia_fim: '03/03/2022', status: 'historico' },
-    { doc: '3050', versao: 'V8', vigencia_inicio: '05/02/2021', vigencia_fim: '31/07/2021', status: 'historico' }
-  ]);
+  let dominios = $state([]);
+  let calendario = $state([]);
+  let equivalencia = $state([]);
+  let versoes = $state([]);
 
   const domCols = [
     { key: 'codigo', label: 'Código', sortable: true, width: '100px' },
@@ -93,7 +58,7 @@
     try {
       const data = await getReferenceDominios(selectedField);
       if (data) dominios = data;
-    } catch { /* use mock */ }
+    } catch {}
   });
 </script>
 
