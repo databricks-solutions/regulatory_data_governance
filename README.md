@@ -19,11 +19,10 @@ git clone <repo>
 cd regulatory-data-governance
 export DATABRICKS_BUNDLE_ENGINE=direct                       # obrigatório (bundle declara `catalogs:`)
 databricks bundle deploy -t dev --profile <seu-profile>      # cria catálogo, warehouse, schemas, app, pipelines, dashboards
-databricks bundle run setup_reference_tables -t dev --profile <seu-profile>   # seeds reference + carrega XMLs de exemplo
-databricks bundle run bronze -t dev --profile <seu-profile>  # ingere XMLs do landing volume
-databricks bundle run silver -t dev --profile <seu-profile>
-databricks bundle run gold   -t dev --profile <seu-profile>
+databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>   # orquestra setup → bronze → silver → gold
 ```
+
+> Prefere rodar passo a passo? Veja a [sequência canônica](#sequência-canônica) abaixo, que dispara cada job/pipeline individualmente.
 
 - **Nenhum dado sintético é envolvido.** O bundle na raiz (`databricks.yml`, nome `rc18-starter-kit`) entrega só o framework — nenhum gerador, nenhum loader fictício. Os XMLs de `sample/` são apenas duas amostras canônicas (uma 3040, uma 3050) que o `setup_reference_tables` copia para `landing.scr_xml` para o `bundle deploy` ser auto-suficiente fim-a-fim.
 - **Pode deletar `demo/`** sem medo: nada do bundle do acelerador depende daquela pasta.
@@ -112,6 +111,7 @@ regulatory-data-governance/
 │   ├── app.yml                    # Databricks App
 │   ├── uc_assets.yml              # UC schemas (landing, reference) + volumes
 │   ├── setup_job.yml              # Seeds reference tables on deploy
+│   ├── orchestration_job.yml      # Job rc18_end_to_end (setup → bronze → silver → gold)
 │   ├── pipelines/                 # DLT pipelines
 │   │   ├── bronze.yml
 │   │   ├── silver.yml
@@ -205,18 +205,19 @@ Abrir http://localhost:5173.
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 cd -
 
-# 1. Sobe catálogo, warehouse, schemas, volumes, app, 3 pipelines DLT, 2 dashboards e setup_job.
+# 1. Sobe catálogo, warehouse, schemas, volumes, app, 3 pipelines DLT, 2 dashboards,
+#    setup_job e o job de orquestração rc18_end_to_end.
 #    O app já é configurado via `apps.config.env` (USE_MOCK_BACKEND=false, dashboards, warehouse) —
 #    nenhum overlay de `app.yaml` é necessário.
 export DATABRICKS_BUNDLE_ENGINE=direct
 databricks bundle deploy -t dev --profile <seu-profile>
 
-# 2. Seeds: carrega domínios/críticas/calendário BACEN no schema `reference`
-#    e copia os XMLs de `sample/` para `landing.scr_xml/{3040,3050}/` para que
-#    as pipelines tenham dados para ingerir fim-a-fim de saída.
-databricks bundle run setup_reference_tables -t dev --profile <seu-profile>
+# 2a. Atalho: orquestração fim-a-fim (setup_reference → load_sample_xmls → bronze → silver → gold).
+#     Roda tudo em um único job com dependências encadeadas.
+databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>
 
-# 3. Roda as DLT na ordem do medallion
+# 2b. Alternativa: disparar cada etapa manualmente (útil para reprocessar uma camada).
+databricks bundle run setup_reference_tables -t dev --profile <seu-profile>   # seeds reference + carrega XMLs de exemplo
 databricks bundle run bronze -t dev --profile <seu-profile>
 databricks bundle run silver -t dev --profile <seu-profile>
 databricks bundle run gold   -t dev --profile <seu-profile>
