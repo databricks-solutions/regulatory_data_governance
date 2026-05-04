@@ -21,8 +21,8 @@
 # MAGIC pivots `(carteira, segmento, encargo, modalidade)` into rows.
 # MAGIC
 # MAGIC Output table `raw_3050_doc` carries one row per XML file with `header` + nested
-# MAGIC arrays `diario` and `mensal`. Silver explodes these into `scr3050_diario` /
-# MAGIC `scr3050_mensal`.
+# MAGIC arrays `diario` and `mensal`. Silver explodes both arrays into a single
+# MAGIC `scr3050_validated` table with a `periodicidade` column.
 
 # COMMAND ----------
 

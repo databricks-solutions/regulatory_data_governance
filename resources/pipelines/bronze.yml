@@ -5,7 +5,7 @@ resources:
     bronze:
       name: "r18-bronze-${bundle.target}"
       catalog: "${var.catalog}"
-      schema: "${var.schema_bronze}"
+      schema: "${resources.schemas.bronze_schema.name}"
       environment:
         # The XML parser UDFs in raw_3040.py / raw_3050.py import lxml at function
         # scope. Installed via pip into the pipeline's serverless runtime.

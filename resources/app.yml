@@ -25,16 +25,25 @@ resources:
             value: ${var.catalog}
           - name: DATABRICKS_WAREHOUSE_ID
             value: ${var.warehouse_id}
+          # Schema names are sourced from the schema RESOURCES (not raw vars) so
+          # that DABs `mode: development` prefixing (`dev_<user>_<schema>`) is
+          # honored consistently across the pipeline targets AND the app's env.
+          # Without this, the deployed app reads bare `gold`/`silver` while the
+          # pipeline writes to `dev_<user>_gold` — TABLE_OR_VIEW_NOT_FOUND.
+          # Customers using bring-your-own-catalog (commenting out
+          # resources/uc_assets.yml) must replace these resource refs with
+          # ${var.schema_*} (defaults to bronze/silver/gold) and also set
+          # SCHEMA_REFERENCE to their existing reference schema.
           - name: SCHEMA_BRONZE
-            value: ${var.schema_bronze}
+            value: ${resources.schemas.bronze_schema.name}
           - name: SCHEMA_SILVER
-            value: ${var.schema_silver}
+            value: ${resources.schemas.silver_schema.name}
           - name: SCHEMA_GOLD
-            value: ${var.schema_gold}
+            value: ${resources.schemas.gold_schema.name}
           - name: SCHEMA_QUALITY
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
-            value: reference
+            value: ${resources.schemas.reference.name}
           - name: DASHBOARD_ID_CONFORMIDADE
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS

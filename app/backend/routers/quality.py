@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, USE_MOCK, execute_query
 from models import (
     DimensionDetail,
     DimensionDetailResponse,
@@ -15,20 +15,35 @@ from models import (
 
 router = APIRouter()
 
+# Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2 (Art. 2, §2 of Joint Resolution 18).
+# Aligned with the Roman-numeral seed in `notebooks/setup/setup_reference_tables.py` and the
+# scorecard emitted by `pipelines/silver/transformations/quality_metrics.py`.
 _R18_DIMENSIONS = [
     {"id": 1, "code": "acessibilidade", "name": "Acessibilidade", "description": "Condicoes para obter informacoes, incluindo local, forma, prazos e tratamento PcD", "article": "Art. 2, par.2, I"},
-    {"id": 2, "code": "acuracia", "name": "Acuracia", "description": "Medida em que a informacao reflete a realidade de forma precisa", "article": "Art. 2, par.2, II"},
-    {"id": 3, "code": "atualidade", "name": "Atualidade", "description": "Intervalo entre a ocorrencia e a disponibilizacao da informacao", "article": "Art. 2, par.2, III"},
-    {"id": 4, "code": "completude", "name": "Completude", "description": "Abrangencia dos dados em relacao ao esperado", "article": "Art. 2, par.2, IV"},
-    {"id": 5, "code": "confidencialidade", "name": "Confidencialidade", "description": "Controle de acesso segundo autorizacoes e legislacao vigente", "article": "Art. 2, par.2, V"},
-    {"id": 6, "code": "conformidade", "name": "Conformidade", "description": "Aderencia a regras, padroes e leiautes normativos", "article": "Art. 2, par.2, VI"},
-    {"id": 7, "code": "confiabilidade", "name": "Confiabilidade", "description": "Nivel de confianca nos dados em funcao de processos e controles", "article": "Art. 2, par.2, VII"},
-    {"id": 8, "code": "consistencia", "name": "Consistencia", "description": "Coerencia entre dados de diferentes fontes e documentos", "article": "Art. 2, par.2, VIII"},
-    {"id": 9, "code": "efetividade", "name": "Efetividade", "description": "Capacidade da informacao de produzir resultados pretendidos", "article": "Art. 2, par.2, IX"},
-    {"id": 10, "code": "rastreabilidade", "name": "Rastreabilidade", "description": "Capacidade de rastrear a origem, transformacoes e destino do dado", "article": "Art. 2, par.2, X"},
-    {"id": 11, "code": "tempestividade", "name": "Tempestividade", "description": "Disponibilizacao dentro dos prazos estabelecidos", "article": "Art. 2, par.2, XI"},
-    {"id": 12, "code": "unicidade", "name": "Unicidade", "description": "Ausencia de registros duplicados ou redundantes", "article": "Art. 2, par.2, XII"},
+    {"id": 2, "code": "acuracia", "name": "Acurácia", "description": "Medida em que a informacao reflete a realidade de forma precisa, conforme metodologia", "article": "Art. 2, par.2, II"},
+    {"id": 3, "code": "adaptabilidade", "name": "Adaptabilidade", "description": "Capacidade de gerar informações em formato que atenda diversas demandas e mudanças regulamentares", "article": "Art. 2, par.2, III"},
+    {"id": 4, "code": "clareza", "name": "Clareza", "description": "Apresentação concisa, compreensível, atendendo às necessidades do usuário", "article": "Art. 2, par.2, IV"},
+    {"id": 5, "code": "comparabilidade", "name": "Comparabilidade", "description": "Capacidade de identificar semelhanças e diferenças entre períodos ou domínios", "article": "Art. 2, par.2, V"},
+    {"id": 6, "code": "completude", "name": "Completude", "description": "Capacidade de atender integralmente os aspectos requeridos", "article": "Art. 2, par.2, VI"},
+    {"id": 7, "code": "confiabilidade", "name": "Confiabilidade", "description": "Ausência de desvio relevante nos dados revisados vs valor inicial", "article": "Art. 2, par.2, VII"},
+    {"id": 8, "code": "consistencia", "name": "Consistência", "description": "Informações padronizadas e livres de contradições, mesmo de fontes diferentes", "article": "Art. 2, par.2, VIII"},
+    {"id": 9, "code": "integridade", "name": "Integridade", "description": "Garantia de autenticidade e ausência de modificação não autorizada", "article": "Art. 2, par.2, IX"},
+    {"id": 10, "code": "rastreabilidade", "name": "Rastreabilidade", "description": "Condições para rastrear a informação desde a origem até a disponibilização ao usuário final", "article": "Art. 2, par.2, X"},
+    {"id": 11, "code": "relevancia", "name": "Relevância", "description": "Capacidade de fornecer informações úteis que influenciem tomada de decisões", "article": "Art. 2, par.2, XI"},
+    {"id": 12, "code": "tempestividade", "name": "Tempestividade", "description": "Fornecimento em tempo hábil, no prazo estabelecido", "article": "Art. 2, par.2, XII"},
 ]
+
+# `gold.qualidade_dimensoes_mensal.dimensao_id` is stored as a Roman numeral string
+# (matches `reference.dimensoes_r18.dimensao_id`). Map to int for the App's `DimensionDetail.id` int field.
+_DIM_ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+                     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
+
+
+def _safe_dim_int(roman_or_int) -> int:
+    """Tolerate either Roman string or int in case the schema evolves."""
+    if isinstance(roman_or_int, int):
+        return roman_or_int
+    return _DIM_ROMAN_TO_INT.get(str(roman_or_int), 0)
 
 _MOCK_SCORES = [95.0, 92.5, 98.0, 88.0, 100.0, 91.0, 89.5, 85.0, 78.0, 90.0, 93.0, 97.0]
 _MOCK_TARGETS = [90.0, 95.0, 95.0, 95.0, 100.0, 95.0, 90.0, 90.0, 85.0, 90.0, 95.0, 95.0]
@@ -68,20 +83,26 @@ async def get_quality_dimensions(
         overall = round(sum(_MOCK_SCORES) / len(_MOCK_SCORES), 1)
         return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
+    # Note: `valor_metrica` was added by Phase 1 simplification but isn't load-bearing
+    # for this endpoint — we don't need to project it.
     rows = await execute_query(
-        "SELECT dimensao_id, dimensao_nome, metrica_principal, valor_metrica, "
+        "SELECT dimensao_id, dimensao_nome, metrica_principal, "
         "score_pct, meta_pct, status, total_registros, registros_conformes, registros_nao_conformes "
-        f"FROM {CATALOG}.gold.qualidade_dimensoes_mensal WHERE dt_base = :data_base",
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal WHERE dt_base = :data_base "
+        "ORDER BY dimensao_id",
         {"data_base": data_base},
     )
-    dims = [
-        DimensionDetail(
-            id=r["dimensao_id"], code=_R18_DIMENSIONS[r["dimensao_id"] - 1]["code"],
-            name=r["dimensao_nome"], description=_R18_DIMENSIONS[r["dimensao_id"] - 1]["description"],
-            score=r["score_pct"], target=r["meta_pct"], status=r["status"],
-        )
-        for r in rows
-    ]
+    dims = []
+    for r in rows:
+        dim_int = _safe_dim_int(r["dimensao_id"])
+        meta = _R18_DIMENSIONS[dim_int - 1] if 1 <= dim_int <= 12 else {"code": "", "description": ""}
+        dims.append(DimensionDetail(
+            id=dim_int, code=meta["code"],
+            name=r["dimensao_nome"] or meta.get("name", ""),
+            description=meta["description"],
+            score=float(r["score_pct"] or 0), target=float(r["meta_pct"] or 0),
+            status=r["status"] or "",
+        ))
     overall = round(sum(d.score for d in dims) / max(len(dims), 1), 1)
     return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
@@ -122,18 +143,24 @@ async def get_quality_dimension_detail(
             trend=_mock_trend(score),
         )
 
+    # gold.qualidade_dimensoes_mensal.dimensao_id is a Roman numeral string ('I'..'XII').
+    _INT_TO_ROMAN = {v: k for k, v in _DIM_ROMAN_TO_INT.items()}
+    roman_id = _INT_TO_ROMAN.get(dimension_id, "")
     rows = await execute_query(
         "SELECT score_pct, meta_pct, status, metrica_principal, "
         "total_registros, registros_conformes, registros_nao_conformes "
-        f"FROM {CATALOG}.gold.qualidade_dimensoes_mensal "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
         "WHERE dt_base = :data_base AND dimensao_id = :dimension_id",
-        {"data_base": data_base, "dimension_id": dimension_id},
+        {"data_base": data_base, "dimension_id": roman_id},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="No data for this dimension/data_base")
     r = rows[0]
     return DimensionDetailResponse(
-        dimension=d, score=r["score_pct"], target=r["meta_pct"], status=r["status"],
+        dimension=d,
+        score=float(r["score_pct"] or 0),
+        target=float(r["meta_pct"] or 0),
+        status=r["status"] or "",
         metrics={}, violations=[], trend=[],
     )
 
@@ -150,8 +177,8 @@ async def get_quality_trend(
 
     rows = await execute_query(
         "SELECT dt_base, AVG(score_pct) as avg_score "
-        f"FROM {CATALOG}.gold.qualidade_dimensoes_mensal "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
         "WHERE dt_base >= :start GROUP BY dt_base ORDER BY dt_base",
         {"start": data_base},
     )
-    return {"data_base": data_base, "trend": [{"month": r["dt_base"], "score": round(r["avg_score"], 1)} for r in rows]}
+    return {"data_base": data_base, "trend": [{"month": r["dt_base"], "score": round(float(r["avg_score"] or 0), 1)} for r in rows]}

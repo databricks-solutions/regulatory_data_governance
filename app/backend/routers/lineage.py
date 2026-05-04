@@ -57,20 +57,27 @@ async def get_lineage_graph(
         return LineageGraphResponse(nodes=nodes, edges=edges)
 
     from db import execute_query
-    table_rows = await execute_query(
-        "SELECT source_table_full_name, target_table_full_name "
-        "FROM system.access.table_lineage "
-        "WHERE target_table_catalog = :catalog "
-        "AND event_time > CURRENT_TIMESTAMP() - INTERVAL 30 DAYS",
-        {"catalog": CATALOG},
-    )
     nodes_set: set[str] = set()
     edges = []
-    for r in table_rows:
-        src, tgt = r["source_table_full_name"], r["target_table_full_name"]
-        nodes_set.add(src)
-        nodes_set.add(tgt)
-        edges.append(LineageEdge(source=src, target=tgt, type="uc_automatic"))
+    try:
+        table_rows = await execute_query(
+            "SELECT source_table_full_name, target_table_full_name "
+            "FROM system.access.table_lineage "
+            "WHERE target_table_catalog = :catalog "
+            "AND event_time > CURRENT_TIMESTAMP() - INTERVAL 30 DAYS",
+            {"catalog": CATALOG},
+        )
+        for r in table_rows:
+            src, tgt = r["source_table_full_name"], r["target_table_full_name"]
+            if src is None or tgt is None:
+                continue
+            nodes_set.add(src)
+            nodes_set.add(tgt)
+            edges.append(LineageEdge(source=src, target=tgt, type="uc_automatic"))
+    except Exception:
+        # Workspace user lacks USE SCHEMA on system.access (UC system tables) — return empty
+        # graph rather than 500. The mock branch above keeps the demo populated.
+        pass
     nodes = [
         LineageNode(
             id=n, label=n.split(".")[-1], type="table",
@@ -109,15 +116,21 @@ async def get_column_lineage(table_name: str, column_name: str):
         )
 
     from db import execute_query
-    rows = await execute_query(
-        "SELECT source_table_full_name, source_column_name, "
-        "target_table_full_name, target_column_name "
-        "FROM system.access.column_lineage "
-        "WHERE target_table_full_name = :table_name",
-        {"table_name": table_name},
-    )
-    upstream = [
-        UpstreamColumn(table=r["source_table_full_name"], column=r["source_column_name"], transformation="derived")
-        for r in rows
-    ]
+    upstream = []
+    try:
+        rows = await execute_query(
+            "SELECT source_table_full_name, source_column_name, "
+            "target_table_full_name, target_column_name "
+            "FROM system.access.column_lineage "
+            "WHERE target_table_full_name = :table_name",
+            {"table_name": table_name},
+        )
+        upstream = [
+            UpstreamColumn(table=r["source_table_full_name"], column=r["source_column_name"], transformation="derived")
+            for r in rows if r["source_table_full_name"] and r["source_column_name"]
+        ]
+    except Exception:
+        # Workspace user lacks USE SCHEMA on system.access (UC system tables) — return empty
+        # column lineage rather than 500.
+        pass
     return ColumnLineageResponse(target_column=f"{table_name}.{column_name}", upstream_columns=upstream)

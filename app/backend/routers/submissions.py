@@ -77,31 +77,16 @@ async def get_submissions(
             ),
         )
 
-    rows = await execute_query(
-        "SELECT documento, dt_base, remessa, parte, nome_arquivo, "
-        "validador_bcb_status, validador_bcb_errors, bcb_status, bcb_descricao_retorno, "
-        "dt_envio_sta, dt_resposta_bcb, enviado_no_prazo, antecedencia_dias_uteis, responsavel_aprovacao "
-        f"FROM {CATALOG}.quality.quality_submissao_historico "
-        "WHERE (:documento IS NULL OR documento = :documento) "
-        "AND (:bcb_status IS NULL OR bcb_status = :bcb_status) "
-        "AND dt_base >= :data_base_from AND dt_base <= :data_base_to "
-        "ORDER BY dt_envio_sta DESC LIMIT :limit",
-        {"documento": document, "bcb_status": status, "data_base_from": data_base_from, "data_base_to": data_base_to, "limit": limit},
-    )
-    subs = [
-        SubmissionRecord(
-            id=f"sub_{r['dt_base']}_{r['documento']}_r{r['remessa']}", document=r["documento"],
-            data_base=r["dt_base"], remessa=r["remessa"], parts=r.get("parte", 1),
-            status=r["bcb_status"], submitted_at=str(r["dt_envio_sta"]),
-            file_size_mb=0, validator_result=r.get("validador_bcb_status", ""),
-            validator_errors=r.get("validador_bcb_errors", 0), validator_warnings=0,
-            channel="STA", submitted_by="", quality_gate_passed=True, quality_gate_score=0,
-        )
-        for r in rows
-    ]
+    # NOTE: there is no submission-tracking table provisioned by the bronze/silver/gold
+    # pipelines yet — `quality.quality_submissao_historico` was a planned table that was
+    # never materialized. Until that pipeline lands, real mode returns an empty list rather
+    # than crashing the page; the mock branch above keeps powering demos.
     return SubmissionsResponse(
-        submissions=subs,
-        summary=SubmissionSummary(total_submissions=len(subs), accepted=0, rejected=0, acceptance_rate_pct=0, avg_days_before_deadline=0),
+        submissions=[],
+        summary=SubmissionSummary(
+            total_submissions=0, accepted=0, rejected=0,
+            acceptance_rate_pct=0, avg_days_before_deadline=0,
+        ),
     )
 
 

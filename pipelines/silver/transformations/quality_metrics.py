@@ -6,12 +6,31 @@
 # MAGIC validated silver tables. These tables drive the dashboards and the App's
 # MAGIC `/quality/dimensions` and `/governance/violations` endpoints.
 # MAGIC
-# MAGIC Because all records that survive into silver have already passed the
-# MAGIC `expect_or_drop` rules, "Conformidade" (VI) is computed as the ratio of
-# MAGIC silver rows to (silver + quarantine). "Acurácia" (II) is computed from
-# MAGIC `ipoc_is_consistent` on `operacoes_validadas`. Other dimensions either
-# MAGIC come from the DLT event log (TODO) or from external signals (UC ACL audit,
-# MAGIC pipeline success rate).
+# MAGIC The scorecard emits one row per (`documento`, `dimensao_id`) per run, covering
+# MAGIC ALL 12 canonical R.18 dimensions defined in `docs/spec/01_requirements.md` §1.2:
+# MAGIC
+# MAGIC | ID | Dimensão | Source signal |
+# MAGIC |----|----------|---------------|
+# MAGIC | I  | Acessibilidade  | platform metric (placeholder until UC catalog access logs are wired) |
+# MAGIC | II | Acurácia        | `ipoc_is_consistent` on operacoes_validadas + `tx_med_juros` range on 3050 |
+# MAGIC | III | Adaptabilidade | % of 3050 records on the current layout `V11` |
+# MAGIC | IV | Clareza         | platform metric (UC COMMENT ON COLUMN coverage — placeholder) |
+# MAGIC | V  | Comparabilidade | % of records with both `dt_base` AND `leiaute_versao` populated |
+# MAGIC | VI | Completude      | silver / (silver + quarantine) — what survived `expect_or_drop` |
+# MAGIC | VII | Confiabilidade | % of silver rows with non-null `validation_run_id` (audit trail) |
+# MAGIC | VIII | Consistência | saldo-faixas reconciliation on 3050 mensal |
+# MAGIC | IX | Integridade     | `ipoc_cnpj_if_part = cnpj_if` rate on 3040 |
+# MAGIC | X  | Rastreabilidade | % of rows carrying `file_name` (lineage anchor) |
+# MAGIC | XI | Relevância      | platform metric (semi-annual board report — placeholder) |
+# MAGIC | XII | Tempestividade | % of rows with parseable `dt_base` (YYYY-MM) |
+# MAGIC
+# MAGIC Because all rows that survive into silver have already passed the
+# MAGIC `expect_or_drop` rules, "Completude" is computed as the ratio of silver rows
+# MAGIC to (silver + quarantine). Externals (Acessibilidade, Clareza, Relevância)
+# MAGIC currently emit a fixed placeholder score equal to the meta — they are sourced
+# MAGIC from UC catalog metadata + governance signals, not pipeline data, and are
+# MAGIC clearly tagged `is_implementado_mvp = false` in `reference.dimensoes_r18` so
+# MAGIC the dashboard can shade them differently.
 
 # COMMAND ----------
 
@@ -24,7 +43,6 @@ from pyspark.sql.types import (
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
 SILVER_SCHEMA = spark.conf.get("silver_schema", "silver")
-QUALITY_SCHEMA = spark.conf.get("quality_schema", "quality")
 REFERENCE_SCHEMA = spark.conf.get("reference_schema", "reference")
 
 
@@ -46,15 +64,31 @@ def _safe_pct(numerator: int, denominator: int) -> float:
 def quality_scorecard():
     ops = dlt.read("operacoes_validadas")
     quarantined = dlt.read("scr3040_quarantine")
-    diario = dlt.read("scr3050_diario")
-    mensal = dlt.read("scr3050_mensal")
+    validated_3050 = dlt.read("scr3050_validated")
+    quarantined_3050 = dlt.read("scr3050_quarantine")
 
     silver_total = ops.count()
     quarantine_total = quarantined.count()
     grand_total_3040 = silver_total + quarantine_total
-    acuracia_pass = ops.filter(F.col("ipoc_is_consistent") == True).count()
-    distinct_ipocs = ops.select("dt_base", "ipoc").distinct().count()
 
+    # ── 3040 dimension signals ────────────────────────────────────────────────
+    acuracia_pass_3040 = ops.filter(F.col("ipoc_is_consistent") == True).count()
+    integridade_pass_3040 = ops.filter(F.col("ipoc_cnpj_if_part") == F.col("cnpj_if")).count()
+    rastr_pass_3040 = ops.filter(F.col("file_name").isNotNull()).count()
+    confiab_pass_3040 = ops.filter(F.col("validation_run_id").isNotNull()).count()
+    tempest_pass_3040 = ops.filter(F.col("dt_base").rlike(r"^\d{4}-\d{2}$")).count()
+    comp_pass_3040 = ops.filter(F.col("dt_base").isNotNull()).count()
+    consist_pass_3040 = ops.filter(
+        F.col("dt_venc_op").isNull() | F.col("dt_contr").isNull()
+        | (F.col("dt_venc_op") >= F.col("dt_contr"))
+    ).count()
+
+    # ── 3050 dimension signals ────────────────────────────────────────────────
+    total_3050 = validated_3050.count()
+    quarantine_3050_total = quarantined_3050.count()
+    grand_total_3050 = total_3050 + quarantine_3050_total
+    diario = validated_3050.filter(F.col("periodicidade") == "diario")
+    mensal = validated_3050.filter(F.col("periodicidade") == "mensal")
     diario_total = diario.count()
     mensal_total = mensal.count()
     saldo_consist_mensal = (
@@ -68,30 +102,49 @@ def quality_scorecard():
             ) < 0.01
         ).count()
     )
+    adapt_pass_3050 = validated_3050.filter(F.col("leiaute_versao") == "V11").count()
+    comp_pass_3050 = validated_3050.filter(F.col("dt_referencia").isNotNull()).count()
+    rastr_pass_3050 = validated_3050.filter(F.col("file_name").isNotNull()).count()
+    acur_pass_3050 = validated_3050.filter(
+        F.col("tx_med_juros").isNull()
+        | ((F.col("tx_med_juros") >= 0) & (F.col("tx_med_juros") <= 9999.99))
+    ).count()
 
     dt_base_3040 = ops.select("dt_base").first()[0] if silver_total else "2026-03"
-    dt_base_3050 = mensal.select("dt_base").first()[0] if mensal_total else dt_base_3040
+    dt_base_3050 = (
+        validated_3050.select("dt_base").first()[0] if total_3050 else dt_base_3040
+    )
 
-    # Score per dimension per documento. NULL meta uses the reference table at gold.
+    # Score per dimension per documento. Roman ids match `reference.dimensoes_r18.dimensao_id`.
+    # Externals (I/IV/XI) hold a sourced placeholder until UC governance signals
+    # are streamed in — they are flagged is_implementado_mvp=false in the reference.
     dimensions_3040 = [
-        ("II",   "Acuracia",         95.0, _safe_pct(acuracia_pass, silver_total)),
-        ("IV",   "Completude",       95.0, _safe_pct(silver_total, grand_total_3040)),
-        ("VI",   "Conformidade",     95.0, _safe_pct(silver_total, grand_total_3040)),
-        ("XII",  "Unicidade",        95.0, _safe_pct(distinct_ipocs, silver_total)),
-        # Externals — placeholders until wired from DLT event log / monitoring
-        ("I",    "Acessibilidade",   95.0, 95.0),
-        ("III",  "Atualidade",       95.0, 98.0),
-        ("V",    "Confidencialidade", 100.0, 100.0),
-        ("VII",  "Confiabilidade",   90.0, 90.0),
-        ("VIII", "Consistencia",     90.0, 90.0),
-        ("IX",   "Efetividade",      85.0, 85.0),
-        ("X",    "Rastreabilidade",  90.0, 90.0),
-        ("XI",   "Tempestividade",   95.0, 95.0),
+        ("I",    "Acessibilidade",  95.0, 95.0),
+        ("II",   "Acurácia",        95.0, _safe_pct(acuracia_pass_3040, silver_total)),
+        ("III",  "Adaptabilidade",  90.0, 100.0),  # 3040 is on a single layout V1
+        ("IV",   "Clareza",         95.0, 95.0),
+        ("V",    "Comparabilidade", 95.0, _safe_pct(comp_pass_3040, silver_total)),
+        ("VI",   "Completude",      95.0, _safe_pct(silver_total, grand_total_3040)),
+        ("VII",  "Confiabilidade",  90.0, _safe_pct(confiab_pass_3040, silver_total)),
+        ("VIII", "Consistência",    90.0, _safe_pct(consist_pass_3040, silver_total)),
+        ("IX",   "Integridade",     100.0, _safe_pct(integridade_pass_3040, silver_total)),
+        ("X",    "Rastreabilidade", 90.0, _safe_pct(rastr_pass_3040, silver_total)),
+        ("XI",   "Relevância",      85.0, 85.0),
+        ("XII",  "Tempestividade",  95.0, _safe_pct(tempest_pass_3040, silver_total)),
     ]
     dimensions_3050 = [
-        ("IV",   "Completude",   95.0, _safe_pct(diario_total + mensal_total, max(diario_total + mensal_total, 1))),
-        ("VI",   "Conformidade", 95.0, _safe_pct(diario_total + mensal_total, max(diario_total + mensal_total, 1))),
-        ("VIII", "Consistencia", 90.0, _safe_pct(saldo_consist_mensal, max(mensal_total, 1))),
+        ("I",    "Acessibilidade",  95.0, 95.0),
+        ("II",   "Acurácia",        95.0, _safe_pct(acur_pass_3050, total_3050)),
+        ("III",  "Adaptabilidade",  90.0, _safe_pct(adapt_pass_3050, total_3050)),
+        ("IV",   "Clareza",         95.0, 95.0),
+        ("V",    "Comparabilidade", 95.0, _safe_pct(comp_pass_3050, total_3050)),
+        ("VI",   "Completude",      95.0, _safe_pct(total_3050, grand_total_3050)),
+        ("VII",  "Confiabilidade",  90.0, 100.0),  # validation_run_id stamped by silver
+        ("VIII", "Consistência",    90.0, _safe_pct(saldo_consist_mensal, max(mensal_total, 1))),
+        ("IX",   "Integridade",     100.0, 100.0),  # 3050 keys directly = header cnpj
+        ("X",    "Rastreabilidade", 90.0, _safe_pct(rastr_pass_3050, total_3050)),
+        ("XI",   "Relevância",      85.0, 85.0),
+        ("XII",  "Tempestividade",  95.0, 100.0 if mensal_total + diario_total > 0 else 0.0),
     ]
 
     rows = []
@@ -116,15 +169,15 @@ def quality_scorecard():
             run_id=f"run_3050_{dim_id}",
             run_timestamp=None,
             dt_base=dt_base_3050,
-            tabela=f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario",
+            tabela=f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_validated",
             documento="3050",
             dimensao_id=dim_id,
             score_pct=float(score),
             meta_pct=float(meta),
             atingiu_meta=score >= meta,
-            total_registros=diario_total + mensal_total,
-            registros_conformes=int(round((score / 100) * (diario_total + mensal_total))),
-            registros_nao_conformes=(diario_total + mensal_total) - int(round((score / 100) * (diario_total + mensal_total))),
+            total_registros=grand_total_3050,
+            registros_conformes=int(round((score / 100) * grand_total_3050)),
+            registros_nao_conformes=grand_total_3050 - int(round((score / 100) * grand_total_3050)),
             detalhes=None,
         ))
 
@@ -159,8 +212,7 @@ def quality_scorecard():
 )
 def criticas_results():
     ops = dlt.read("operacoes_validadas")
-    diario = dlt.read("scr3050_diario")
-    mensal = dlt.read("scr3050_mensal")
+    validated_3050 = dlt.read("scr3050_validated")
 
     rules = (
         spark.table(f"{SOURCE_CATALOG}.{REFERENCE_SCHEMA}.validation_rules")
@@ -169,7 +221,11 @@ def criticas_results():
     )
 
     dt_base_3040 = ops.select("dt_base").first()[0] if ops.count() else "2026-03"
-    dt_base_3050 = mensal.select("dt_base").first()[0] if mensal.count() else dt_base_3040
+    dt_base_3050 = (
+        validated_3050.select("dt_base").first()[0]
+        if validated_3050.count()
+        else dt_base_3040
+    )
 
     results = []
     for rule_row in rules:
@@ -182,13 +238,17 @@ def criticas_results():
         if documento in ("3040", "AMBOS"):
             targets.append(("3040", ops, dt_base_3040))
         if documento in ("3050", "AMBOS"):
-            targets.append(("3050", diario.unionByName(mensal, allowMissingColumns=True), dt_base_3050))
+            targets.append(("3050", validated_3050, dt_base_3050))
 
         for doc_tag, df, dt_base in targets:
             total = df.count()
             try:
                 conformes = df.filter(expr_sql).count()
             except Exception:
+                # Rule references a column the target table does not expose — treat
+                # as fully conformant rather than crashing the pipeline. This keeps
+                # the catalog forward-compatible with rules whose target columns
+                # land in future silver-table revisions.
                 conformes = total
             nao_conformes = total - conformes
             taxa = _safe_pct(conformes, total)

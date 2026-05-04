@@ -1,9 +1,19 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Gold — Governance Quality Scorecard (Monthly)
+# MAGIC # Gold — Governance Quality Scorecard + Violações (Monthly)
+# MAGIC
 # MAGIC Aggregates per-run quality scores into the monthly governance scorecard
-# MAGIC (`governance_status_qualidade_mensal`) used by the R.18 compliance dashboard.
-# MAGIC Also maintains the violations log for the semi-annual report.
+# MAGIC consumed by the App and dashboards. Two tables only:
+# MAGIC
+# MAGIC | Table | Source | Consumed by |
+# MAGIC |---|---|---|
+# MAGIC | `qualidade_dimensoes_mensal` | silver `quality_scorecard` ⨝ reference `dimensoes_r18` | App `/quality/dimensions`, dashboards |
+# MAGIC | `violacoes_log` | silver `criticas_results` (failures + alerts) | App `/governance/irregularities`, semi-annual report |
+# MAGIC
+# MAGIC Each `qualidade_dimensoes_mensal` row carries the latest score for a
+# MAGIC `(dt_base, documento, dimensao_id)` combination plus dimension-name metadata
+# MAGIC and a VERDE/AMARELO/VERMELHO status — the table is directly the contract the
+# MAGIC App reads, no intermediate `governance_*` view needed.
 
 # COMMAND ----------
 
@@ -12,26 +22,25 @@ import dlt
 from pyspark.sql import functions as F, Window
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
-# quality_scorecard / criticas_results live with the silver pipeline (DLT
-# pipelines target a single schema; running them in their own pipeline is a
-# follow-up). Read them from silver via spark.table() — dlt.read() only works
-# for tables defined in THIS pipeline.
+# quality_scorecard / criticas_results live in the silver pipeline (DLT
+# pipelines target a single schema). Read them via spark.table() — dlt.read()
+# only works for tables defined in THIS pipeline.
 QUALITY_SOURCE_SCHEMA = spark.conf.get("silver_schema", "silver")
 GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
 REFERENCE_SCHEMA = spark.conf.get("reference_schema", "reference")
 
 
 @dlt.table(
-    name="governance_status_qualidade_mensal",
-    comment="Pontuação mensal das 12 dimensões R.18 — base para dashboard Conformidade e relatório semestral",
+    name="qualidade_dimensoes_mensal",
+    comment="Pontuação mensal das 12 dimensões R.18 — base para App /quality/dimensions, dashboard Conformidade e relatório semestral",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
     },
     partition_cols=["dt_base"],
 )
-def governance_status_qualidade_mensal():
-    """Aggregate latest quality scores per dimension per data-base."""
+def qualidade_dimensoes_mensal():
+    """Latest quality score per dimension per data-base, joined with dimension metadata."""
     scorecard = spark.table(f"{SOURCE_CATALOG}.{QUALITY_SOURCE_SCHEMA}.quality_scorecard")
 
     # Get the latest run per dimension per dt_base
@@ -83,19 +92,18 @@ def governance_status_qualidade_mensal():
 
 
 @dlt.table(
-    name="governance_violacoes_log",
-    comment="Log de todas as violações de qualidade — histórico para relatório semestral R.18 Art. 3",
+    name="violacoes_log",
+    comment="Log de violações de qualidade (REPROVADO + ALERTA) — base para App /governance/irregularities e relatório semestral R.18 Art. 3",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
     },
     partition_cols=["dt_base"],
 )
-def governance_violacoes_log():
-    """Build violations log from criticas_results with failures."""
+def violacoes_log():
+    """Build violations log from criticas_results, filtering to failures + alerts."""
     criticas = spark.table(f"{SOURCE_CATALOG}.{QUALITY_SOURCE_SCHEMA}.criticas_results")
 
-    # Only log failures (REPROVADO) and alerts (ALERTA)
     return (
         criticas
         .filter(F.col("status").isin("REPROVADO", "ALERTA"))

@@ -1,11 +1,15 @@
 # Unity Catalog schemas and volumes that the RC18 pipelines depend on.
 #
-# Source schemas (created here, lifecycle managed by the bundle):
-#   - landing    — raw SCR XML inbox + COSIF parquet + Auto Loader checkpoints
-#   - reference  — BCB domains, validation rules, calendar, equivalencia (seeded by setup_reference_tables)
+# All schemas are declared here so DABs `mode: development` prefixing
+# (`dev_<user>_<name>`) is applied consistently across:
+#   - the schema CREATE itself,
+#   - each DLT pipeline's `schema:` target, and
+#   - each pipeline's `configuration` block where downstream pipelines need the
+#     schema name (gold reads silver via spark.table, etc.).
 #
-# Output schemas (NOT declared here on purpose — DLT pipelines create and manage them):
-#   - bronze, silver, gold, quality
+# Without this, in dev mode the silver pipeline target gets prefixed to
+# `dev_<user>_silver` while a config value of `${var.schema_silver}` = `silver`
+# still resolves to plain `silver` — which makes gold read an empty schema.
 #
 # The catalog itself is NOT declared in core. For demos it lives in
 # `demo/resources/catalog.yml`; for customer deployments the customer
@@ -22,6 +26,21 @@ resources:
       catalog_name: ${var.catalog}
       name: reference
       comment: "Reference data — BCB domains, criticas (validation rules), business-day calendar, modalidade equivalencia 3040↔3050, R.18 dimensions. Seeded by the setup_reference_tables job."
+
+    bronze_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_bronze}
+      comment: "Bronze — raw XML parsed into typed structs, one row per file (raw_3040_doc, raw_3050_doc)."
+
+    silver_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_silver}
+      comment: "Silver — validated/normalized SCR tables (operacoes_validadas, scr3040_*, scr3050_validated, quarantine) + per-run quality_scorecard / criticas_results."
+
+    gold_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_gold}
+      comment: "Gold — curated tables for App + dashboards (posicao_mensal_3040, posicao_3050, qualidade_dimensoes_mensal, violacoes_log)."
 
   volumes:
     scr_xml:

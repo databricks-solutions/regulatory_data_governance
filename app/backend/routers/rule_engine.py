@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import USE_MOCK as _DB_USE_MOCK, execute_query, fq, CATALOG, SCHEMA_QUALITY
+from db import USE_MOCK as _DB_USE_MOCK, execute_query, fq, CATALOG, SCHEMA_QUALITY, SCHEMA_SILVER, SCHEMA_BRONZE
 
 # re_* tables are not yet provisioned in <catalog>.quality; always serve mock data
 USE_MOCK = True
@@ -46,7 +46,7 @@ _MOCK_DATASETS = [
     REDataset(
         dataset_id="ds_001",
         name="Operacoes Validadas (Silver)",
-        source_path=f"{CATALOG}.silver.operacoes_validadas",
+        source_path=f"{CATALOG}.{SCHEMA_SILVER}.operacoes_validadas",
         tipo="table",
         data_base="2026-03",
         row_count_approx=1_500_000,
@@ -55,8 +55,8 @@ _MOCK_DATASETS = [
     ),
     REDataset(
         dataset_id="ds_002",
-        name="SCR 3050 Diario (Silver)",
-        source_path=f"{CATALOG}.silver.scr3050_diario",
+        name="SCR 3050 Validated (Silver)",
+        source_path=f"{CATALOG}.{SCHEMA_SILVER}.scr3050_validated",
         tipo="table",
         data_base="2026-03",
         row_count_approx=210_000,
@@ -66,7 +66,7 @@ _MOCK_DATASETS = [
     REDataset(
         dataset_id="ds_003",
         name="Operacoes Raw (Bronze)",
-        source_path=f"{CATALOG}.bronze.operacoes_raw",
+        source_path=f"{CATALOG}.{SCHEMA_BRONZE}.operacoes_raw",
         tipo="table",
         data_base="2026-03",
         row_count_approx=1_500_000,
@@ -76,7 +76,7 @@ _MOCK_DATASETS = [
     REDataset(
         dataset_id="ds_004",
         name="Clientes Validados (Silver)",
-        source_path=f"{CATALOG}.silver.scr3040_clientes",
+        source_path=f"{CATALOG}.{SCHEMA_SILVER}.scr3040_clientes",
         tipo="table",
         data_base="2026-03",
         row_count_approx=750_000,
@@ -856,7 +856,7 @@ async def create_dataset(req: dict):
         ds = REDataset(
             dataset_id=f"ds_{uuid.uuid4().hex[:6]}",
             name=req.get("name", "New Dataset"),
-            source_path=req.get("source_path", f"{CATALOG}.silver.new_table"),
+            source_path=req.get("source_path", f"{CATALOG}.{SCHEMA_SILVER}.new_table"),
             tipo=req.get("tipo", "table"),
             data_base=req.get("data_base"),
             row_count_approx=req.get("row_count_approx"),
@@ -1708,10 +1708,11 @@ async def seed_rules():
             rule_ids=[r.rule_id for r in seeded],
         )
 
-    # In real mode, insert seeded rules from ref_criticas
+    # In real mode, insert seeded rules from validation_rules
+    from db import SCHEMA_REFERENCE
     rows = await execute_query(
         f"SELECT critica_id, descricao, grupo, severidade, dimensao_r18, expressao_sql "
-        f"FROM {CATALOG}.reference.ref_criticas WHERE is_active = TRUE",
+        f"FROM {CATALOG}.{SCHEMA_REFERENCE}.validation_rules WHERE is_active = TRUE",
     )
     created = 0
     rule_ids = []

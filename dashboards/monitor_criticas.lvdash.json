@@ -6,7 +6,7 @@
       "queryLines": [
         "SELECT documento, dt_base, status, ",
         "  COUNT(*) AS qtd_criticas ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "FROM rc18_catalog.silver.criticas_results ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -3), 'yyyy-MM') ",
         "GROUP BY documento, dt_base, status"
       ]
@@ -17,9 +17,9 @@
       "queryLines": [
         "SELECT severidade, ",
         "  COUNT(*) AS total, ",
-        "  SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS reprovadas ",
-        "FROM rc18_catalog.quality.criticas_results ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results) ",
+        "  SUM(CASE WHEN status = 'REPROVADO' THEN 1 ELSE 0 END) AS reprovadas ",
+        "FROM rc18_catalog.silver.criticas_results ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.silver.criticas_results) ",
         "GROUP BY severidade"
       ]
     },
@@ -28,12 +28,12 @@
       "displayName": "Top 20 Criticas com Maior Reprovacao",
       "queryLines": [
         "SELECT critica_id AS codigo_critica, ",
-        "  MAX(descricao) AS descricao, ",
+        "  MAX(critica_descricao) AS descricao, ",
         "  documento, ",
         "  MAX(severidade) AS severidade, ",
         "  COUNT(*) AS ocorrencias ",
-        "FROM rc18_catalog.quality.criticas_results ",
-        "WHERE status = 'FAIL' ",
+        "FROM rc18_catalog.silver.criticas_results ",
+        "WHERE status = 'REPROVADO' ",
         "  AND dt_base >= DATE_FORMAT(add_months(current_date(), -1), 'yyyy-MM') ",
         "GROUP BY critica_id, documento ",
         "ORDER BY ocorrencias DESC ",
@@ -45,8 +45,8 @@
       "displayName": "Tendencia da Taxa de Aprovacao",
       "queryLines": [
         "SELECT documento, dt_base AS mes, ",
-        "  ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "  ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
+        "FROM rc18_catalog.silver.criticas_results ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
         "GROUP BY documento, dt_base"
       ]
@@ -55,20 +55,20 @@
       "name": "ds_kpi_taxa_3040",
       "displayName": "KPI Taxa Aprovacao 3040",
       "queryLines": [
-        "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "SELECT ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
+        "FROM rc18_catalog.silver.criticas_results ",
         "WHERE documento = '3040' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3040')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.silver.criticas_results WHERE documento = '3040')"
       ]
     },
     {
       "name": "ds_kpi_taxa_3050",
       "displayName": "KPI Taxa Aprovacao 3050",
       "queryLines": [
-        "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
-        "FROM rc18_catalog.quality.criticas_results ",
+        "SELECT ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
+        "FROM rc18_catalog.silver.criticas_results ",
         "WHERE documento = '3050' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results WHERE documento = '3050')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.silver.criticas_results WHERE documento = '3050')"
       ]
     },
     {
@@ -76,9 +76,9 @@
       "displayName": "KPI Criticas Bloqueantes Abertas",
       "queryLines": [
         "SELECT COUNT(*) AS criticas_bloqueantes ",
-        "FROM rc18_catalog.quality.criticas_results ",
-        "WHERE severidade = 'BLOQUEANTE' AND status = 'FAIL' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.criticas_results)"
+        "FROM rc18_catalog.silver.criticas_results ",
+        "WHERE severidade = 'BLOQUEANTE' AND status = 'REPROVADO' ",
+        "  AND dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.silver.criticas_results)"
       ]
     }
   ],

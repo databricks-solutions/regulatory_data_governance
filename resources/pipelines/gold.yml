@@ -4,20 +4,18 @@ resources:
     gold:
       name: "r18-gold-${bundle.target}"
       catalog: "${var.catalog}"
-      schema: "${var.schema_gold}"
+      schema: "${resources.schemas.gold_schema.name}"
       configuration:
-        # Resolve schemas via bundle resource references so dev-mode prefixing
-        # (`dev_<user>_reference`) is picked up.
+        # Resolve every schema via bundle resource references so dev-mode prefixing
+        # (`dev_<user>_<name>`) is picked up consistently — both for the gold
+        # target and for cross-pipeline reads (gold reads silver via spark.table).
         source_catalog: "${var.catalog}"
-        source_schema: "${var.schema_bronze}"
-        bronze_schema: "${var.schema_bronze}"
-        silver_schema: "${var.schema_silver}"
-        gold_schema: "${var.schema_gold}"
-        quality_schema: "${var.schema_quality}"
+        source_schema: "${resources.schemas.bronze_schema.name}"
+        bronze_schema: "${resources.schemas.bronze_schema.name}"
+        silver_schema: "${resources.schemas.silver_schema.name}"
+        gold_schema: "${resources.schemas.gold_schema.name}"
         reference_schema: "${resources.schemas.reference.name}"
       libraries:
-        - notebook:
-            path: ../../pipelines/gold/transformations/criticas_summary.py
         - notebook:
             path: ../../pipelines/gold/transformations/posicao_mensal.py
         - notebook:

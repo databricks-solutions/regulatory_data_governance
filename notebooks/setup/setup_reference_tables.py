@@ -112,19 +112,42 @@ CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.validation_rules (
 TBLPROPERTIES ('delta.logRetentionDuration' = 'interval 1825 days')
 """)
 
+# NOTE: `dimensao_r18` Roman numerals follow the SPEC's canonical 12 (docs/spec/01_requirements.md §1.2):
+#   I=Acessibilidade, II=Acurácia, III=Adaptabilidade, IV=Clareza, V=Comparabilidade,
+#   VI=Completude, VII=Confiabilidade, VIII=Consistência, IX=Integridade,
+#   X=Rastreabilidade, XI=Relevância, XII=Tempestividade.
+# Every rule's `expressao_sql` is evaluated at runtime by silver.criticas_results
+# against `operacoes_validadas` (3040) or `scr3050_validated` (3050).
+# Columns referenced must exist on those tables.
 spark.sql(f"""
 INSERT INTO {CATALOG}.{SCHEMA}.validation_rules
   (critica_id, documento, leiaute_versao, grupo, descricao, expressao_sql, campo_alvo, severidade, acao_dlt, dimensao_r18, artigo_r18, mensagem_erro, dt_vigencia_ini, is_active, updated_at)
 VALUES
+  -- VI Completude
   ('S10_001', '3040', 'V1', 'sintatica', 'Campo DtContr obrigatório', 'dt_contr IS NOT NULL', 'dt_contr', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'DtContr ausente', '2000-01-01', true, current_timestamp()),
   ('S10_002', '3040', 'V1', 'sintatica', 'CNPJ IF deve ter 8 dígitos', 'LENGTH(cnpj_if) = 8', 'cnpj_if', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'CNPJ IF inválido', '2000-01-01', true, current_timestamp()),
-  ('SEM_014', '3040', 'V1', 'semantica', 'IPOC componentes vs campos da operação', 'ipoc_is_consistent = true', 'ipoc', 'BLOQUEANTE', 'expect', 'II', 'Art.2,§2,II', 'Componentes IPOC divergentes', '2000-01-01', true, current_timestamp()),
-  ('SEM_020', '3040', 'V1', 'semantica', 'DtVencOp >= DtContr', 'dt_venc_op IS NULL OR dt_contr IS NULL OR dt_venc_op >= dt_contr', 'dt_venc_op', 'BLOQUEANTE', 'expect_or_drop', 'VIII', 'Art.2,§2,VIII', 'Vencimento anterior à contratação', '2000-01-01', true, current_timestamp()),
-  ('SEM_001', '3040', 'V1', 'semantica', 'Classificação de risco válida', "class_op IS NULL OR class_op IN ('AA','A','B','C','D','E','F','G','H')", 'class_op', 'ALERTA', 'expect', 'II', 'Art.2,§2,II', 'Classificação inválida', '2000-01-01', true, current_timestamp()),
-  ('INT_001', '3040', 'V1', 'inter_documento', 'Saldo 3040 vs COSIF dentro de 0.1%', 'ABS(vlr_scr - vlr_cosif) / vlr_cosif < 0.001', NULL, 'ALERTA', 'expect', 'VIII', 'Art.2,§2,VIII', 'Divergência 3040 vs COSIF', '2000-01-01', true, current_timestamp()),
   ('CR1_001', '3050', 'V11', 'sintatica', 'Encargo obrigatório', 'encargo IS NOT NULL', 'encargo', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'Encargo ausente', '2025-11-07', true, current_timestamp()),
-  ('CR2_001', '3050', 'V11', 'sintatica', 'Periodicidade válida', "tipo_periodo IN ('diario','mensal')", 'tipo_periodo', 'BLOQUEANTE', 'expect_or_drop', 'XI', 'Art.2,§2,XI', 'Periodicidade inválida', '2025-11-07', true, current_timestamp()),
-  ('CR4_001', '3050', 'V11', 'semantica', 'Valor concessão positivo', 'vlr_concessoes IS NULL OR vlr_concessoes >= 0', 'vlr_concessoes', 'BLOQUEANTE', 'expect_or_drop', 'II', 'Art.2,§2,II', 'Concessão negativa', '2025-11-07', true, current_timestamp())
+  -- II Acurácia
+  ('SEM_014', '3040', 'V1', 'semantica', 'IPOC componentes vs campos da operação', 'ipoc_is_consistent = true', 'ipoc', 'BLOQUEANTE', 'expect', 'II', 'Art.2,§2,II', 'Componentes IPOC divergentes', '2000-01-01', true, current_timestamp()),
+  ('SEM_002', '3040', 'V1', 'semantica', 'PercIndx em faixa válida (0–9999.99)', 'perc_indx IS NULL OR (perc_indx >= 0 AND perc_indx <= 9999.99)', 'perc_indx', 'ALERTA', 'expect', 'II', 'Art.2,§2,II', 'PercIndx fora de faixa', '2000-01-01', true, current_timestamp()),
+  ('CR4_001', '3050', 'V11', 'semantica', 'Valor concessão positivo', 'vlr_concessoes IS NULL OR vlr_concessoes >= 0', 'vlr_concessoes', 'BLOQUEANTE', 'expect_or_drop', 'II', 'Art.2,§2,II', 'Concessão negativa', '2025-11-07', true, current_timestamp()),
+  -- VIII Consistência
+  ('SEM_020', '3040', 'V1', 'semantica', 'DtVencOp >= DtContr', 'dt_venc_op IS NULL OR dt_contr IS NULL OR dt_venc_op >= dt_contr', 'dt_venc_op', 'BLOQUEANTE', 'expect_or_drop', 'VIII', 'Art.2,§2,VIII', 'Vencimento anterior à contratação', '2000-01-01', true, current_timestamp()),
+  ('CR3_018', '3050', 'V11', 'semantica', 'Saldo carteira por faixas consistente com total mensal', "periodicidade <> 'mensal' OR ABS(COALESCE(sld_car_ate14,0)+COALESCE(sld_car_ate60,0)+COALESCE(sld_car_ate90,0)+COALESCE(sld_car_maior90,0)-COALESCE(sld_car_total,0)) < 0.01", 'sld_car_total', 'ALERTA', 'expect', 'VIII', 'Art.2,§2,VIII', 'Faixas de saldo divergem do total', '2025-11-07', true, current_timestamp()),
+  -- III Adaptabilidade — version-aware: only V11 layout currently accepted
+  ('CR_ADAPT_3050', '3050', 'V11', 'metadata', 'Leiaute V11 declarado em cada registro 3050', "leiaute_versao = 'V11'", 'leiaute_versao', 'ALERTA', 'expect', 'III', 'Art.2,§2,III', 'Leiaute 3050 fora da versão vigente', '2025-11-07', true, current_timestamp()),
+  -- V Comparabilidade — every record carries a parseable dt_base for time-series comparison
+  ('CR_COMP_3040', '3040', 'V1', 'metadata', 'Data-base presente para comparabilidade temporal', 'dt_base IS NOT NULL', 'dt_base', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'Data-base ausente', '2000-01-01', true, current_timestamp()),
+  ('CR_COMP_3050', '3050', 'V11', 'metadata', 'dt_referencia presente para comparabilidade temporal', 'dt_referencia IS NOT NULL', 'dt_referencia', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'dt_referencia ausente', '2025-11-07', true, current_timestamp()),
+  -- VII Confiabilidade — append-only validation_run_id stamped by silver
+  ('CR_CONF_3040', '3040', 'V1', 'metadata', 'Validation run ID gravado para auditoria', 'validation_run_id IS NOT NULL', 'validation_run_id', 'ALERTA', 'expect', 'VII', 'Art.2,§2,VII', 'Run ID ausente', '2000-01-01', true, current_timestamp()),
+  -- IX Integridade — referential integrity (cnpj_if = header)
+  ('CR_INT_3040', '3040', 'V1', 'integridade', 'IPOC inicia com cnpj_if do header', 'ipoc_cnpj_if_part = cnpj_if', 'ipoc', 'BLOQUEANTE', 'expect_or_drop', 'IX', 'Art.2,§2,IX', 'CNPJ IF do IPOC difere do header', '2000-01-01', true, current_timestamp()),
+  -- X Rastreabilidade — file-level lineage
+  ('CR_RASTR_3040', '3040', 'V1', 'metadata', 'Cada registro mantém referência ao arquivo de origem', 'file_name IS NOT NULL', 'file_name', 'BLOQUEANTE', 'expect_or_drop', 'X', 'Art.2,§2,X', 'file_name ausente — lineage quebrado', '2000-01-01', true, current_timestamp()),
+  ('CR_RASTR_3050', '3050', 'V11', 'metadata', 'Cada registro mantém referência ao arquivo de origem', 'file_name IS NOT NULL', 'file_name', 'BLOQUEANTE', 'expect_or_drop', 'X', 'Art.2,§2,X', 'file_name ausente — lineage quebrado', '2025-11-07', true, current_timestamp()),
+  -- XII Tempestividade — dt_base recente (próximo do mês de referência da remessa)
+  ('CR_TEMP_3040', '3040', 'V1', 'tempestividade', 'Data-base preenchida no formato AAAA-MM', "dt_base RLIKE '^[0-9]{{4}}-[0-9]{{2}}$'", 'dt_base', 'ALERTA', 'expect', 'XII', 'Art.2,§2,XII', 'Formato de dt_base inválido', '2000-01-01', true, current_timestamp())
 """)
 
 # COMMAND ----------
@@ -271,20 +294,21 @@ CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.dimensoes_r18 (
 )
 """)
 
+# Canonical 12 dimensions from R.18 Art. 2, §2 — see docs/spec/01_requirements.md §1.2.
 spark.sql(f"""
 INSERT INTO {CATALOG}.{SCHEMA}.dimensoes_r18 VALUES
-  ('I', 'Acessibilidade', 'Condições para obter informações, incluindo local, forma, prazos e tratamento PcD', 'Art.2,§2,I', 'SLA de atendimento + cobertura catálogo', 95.00, 'UC catálogo + AI/BI Dashboards', 'Governance', 'acess_', 'gauge_sla', true),
-  ('II', 'Acurácia', 'Medida em que a informação reflete a realidade de forma precisa', 'Art.2,§2,II', 'Taxa rejeição BCB + reconciliação pré-envio', 95.00, 'DLT Expectations + reconciliação gold', 'Silver', 'acur_', 'gauge_accuracy', true),
-  ('III', 'Atualidade', 'Intervalo entre a ocorrência e a disponibilização da informação', 'Art.2,§2,III', 'Latência média CDC fonte→bronze', 95.00, 'Auto Loader + Lakeflow Connect', 'Bronze', 'atual_', 'gauge_latency', true),
-  ('IV', 'Completude', 'Abrangência dos dados em relação ao esperado', 'Art.2,§2,IV', 'Campos obrigatórios preenchidos', 95.00, 'DLT Expectations NOT NULL', 'Silver', 'compl_', 'gauge_completeness', true),
-  ('V', 'Confidencialidade', 'Controle de acesso segundo autorizações e legislação vigente', 'Art.2,§2,V', 'Acessos não autorizados = 0', 100.00, 'UC ACLs + Row/Column Security + Audit Logs', 'Governance', 'conf_', 'gauge_security', true),
-  ('VI', 'Conformidade', 'Aderência a regras, padrões e leiautes normativos', 'Art.2,§2,VI', 'Taxa de conformidade com críticas BCB', 95.00, 'DLT Expectations parametrizadas', 'Silver', 'conform_', 'gauge_compliance', true),
-  ('VII', 'Confiabilidade', 'Nível de confiança nos dados em função de processos e controles', 'Art.2,§2,VII', 'Uptime pipeline + taxa sucesso', 90.00, 'DLT monitoring + Job alerts', 'Bronze', 'confiab_', 'gauge_reliability', true),
-  ('VIII', 'Consistência', 'Coerência entre dados de diferentes fontes e documentos', 'Art.2,§2,VIII', 'Reconciliação 3040 vs 3050 vs COSIF', 90.00, 'Gold reconciliation tables', 'Gold', 'consist_', 'gauge_consistency', true),
-  ('IX', 'Efetividade', 'Capacidade da informação de produzir resultados pretendidos', 'Art.2,§2,IX', 'Utilização dos dados + KPIs processo', 85.00, 'AI/BI Dashboards + usage tracking', 'Governance', 'efet_', 'gauge_effectiveness', false),
-  ('X', 'Rastreabilidade', 'Capacidade de rastrear origem, transformações e destino do dado', 'Art.2,§2,X', 'Cobertura de lineage UC + external', 90.00, 'UC System Tables + External Lineage API', 'Governance', 'rastr_', 'gauge_traceability', true),
-  ('XI', 'Tempestividade', 'Disponibilização dentro dos prazos estabelecidos', 'Art.2,§2,XI', 'Envios no prazo BCB', 95.00, 'BCB calendar + submission tracking', 'Gold', 'temp_', 'gauge_timeliness', true),
-  ('XII', 'Unicidade', 'Ausência de registros duplicados ou redundantes', 'Art.2,§2,XII', 'Taxa de duplicatas (IPOC + dt_base)', 95.00, 'DLT Expectations DISTINCT + dedup', 'Silver', 'unic_', 'gauge_uniqueness', true)
+  ('I', 'Acessibilidade', 'Condições para obter informações, incluindo local, forma, prazos e tratamento PcD', 'Art.2,§2,I', 'SLA de atendimento BCB + catálogo acessível a não-técnicos', 95.00, 'UC Data Catalog + AI/BI Dashboards', 'Governance', 'acess_', 'gauge_sla', true),
+  ('II', 'Acurácia', 'Medida em que a informação reflete a realidade de forma precisa, conforme metodologia', 'Art.2,§2,II', 'Taxa rejeição BCB ≤ 5%; reconciliação pré-envio aprovada', 95.00, 'DLT Expectations + reconciliação gold', 'Silver', 'acur_', 'gauge_accuracy', true),
+  ('III', 'Adaptabilidade', 'Capacidade de gerar informações em formato que atenda diversas demandas e mudanças regulamentares', 'Art.2,§2,III', 'Adaptação V10→V11 dentro do prazo; plano de contingência testado', 90.00, 'SCD Tipo 2 leiaute_versoes + DR test logs', 'Reference', 'adapt_', 'gauge_adaptability', true),
+  ('IV', 'Clareza', 'Apresentação concisa, compreensível, atendendo às necessidades do usuário', 'Art.2,§2,IV', 'Dicionário com descrições em linguagem de negócio; onboarding ≤ 2 sem.', 95.00, 'UC COMMENT ON COLUMN coverage', 'Governance', 'clar_', 'gauge_clarity', true),
+  ('V', 'Comparabilidade', 'Capacidade de identificar semelhanças e diferenças entre períodos ou domínios', 'Art.2,§2,V', 'Histórico de leiautes versionado; metadados de versão em cada registro', 95.00, 'Delta Time Travel + SCD Tipo 2', 'Silver', 'comp_', 'gauge_comparability', true),
+  ('VI', 'Completude', 'Capacidade de atender integralmente os aspectos requeridos', 'Art.2,§2,VI', 'Zero rejeições por campos obrigatórios; reconciliação de universo', 95.00, 'DLT expect_or_drop + universe count checks', 'Silver', 'compl_', 'gauge_completeness', true),
+  ('VII', 'Confiabilidade', 'Ausência de desvio relevante nos dados revisados vs valor inicial', 'Art.2,§2,VII', 'Dados intermediários imutáveis; taxa de retrabalho < 10%', 90.00, 'Delta ACID + append-only audit', 'Silver', 'confiab_', 'gauge_reliability', true),
+  ('VIII', 'Consistência', 'Informações padronizadas e livres de contradições, mesmo de fontes diferentes', 'Art.2,§2,VIII', 'Reconciliação 3040 vs 3050 vs COSIF; divergências bloqueiam envio', 90.00, 'Gold reconciliation tables', 'Gold', 'consist_', 'gauge_consistency', true),
+  ('IX', 'Integridade', 'Garantia de autenticidade e ausência de modificação não autorizada', 'Art.2,§2,IX', 'RBAC com menor privilégio; audit log inalterável; segregação gerar/aprovar', 100.00, 'UC RBAC + Audit Logs + SoD matrix', 'Governance', 'integr_', 'gauge_integrity', true),
+  ('X', 'Rastreabilidade', 'Condições para rastrear a informação desde a origem até a disponibilização ao usuário final', 'Art.2,§2,X', 'Lineage end-to-end ≥ 95%; demonstração em auditoria em < 30 min', 90.00, 'UC System Tables + External Lineage API', 'Governance', 'rastr_', 'gauge_traceability', true),
+  ('XI', 'Relevância', 'Capacidade de fornecer informações úteis que influenciem tomada de decisões', 'Art.2,§2,XI', 'Relatório semestral apresentado ao CA com ata; indicadores revisados pela diretoria', 85.00, 'Semi-annual report + CA meeting evidence', 'Governance', 'relev_', 'gauge_relevance', false),
+  ('XII', 'Tempestividade', 'Fornecimento em tempo hábil, no prazo estabelecido', 'Art.2,§2,XII', 'Histórico de cumprimento ≥ 95%; envio com ≥ 2 dias úteis de antecedência', 95.00, 'BCB calendar + submission tracking', 'Gold', 'temp_', 'gauge_timeliness', true)
 """)
 
 # COMMAND ----------

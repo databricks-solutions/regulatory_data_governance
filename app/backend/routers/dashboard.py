@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
 
-from db import CATALOG, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, USE_MOCK, execute_query
 from models import (
     Alert,
     DashboardEmbed,
@@ -24,19 +24,20 @@ router = APIRouter()
 
 # --- Mock data ---
 
+# Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2.
 _MOCK_DIMENSIONS = [
     DimensionScore(id=1, name="Acessibilidade", score=95.0, status="conforme"),
-    DimensionScore(id=2, name="Acuracia", score=92.5, status="atencao"),
-    DimensionScore(id=3, name="Atualidade", score=98.0, status="conforme"),
-    DimensionScore(id=4, name="Completude", score=88.0, status="atencao"),
-    DimensionScore(id=5, name="Confidencialidade", score=100.0, status="conforme"),
-    DimensionScore(id=6, name="Conformidade", score=91.0, status="conforme"),
+    DimensionScore(id=2, name="Acurácia", score=92.5, status="atencao"),
+    DimensionScore(id=3, name="Adaptabilidade", score=98.0, status="conforme"),
+    DimensionScore(id=4, name="Clareza", score=88.0, status="atencao"),
+    DimensionScore(id=5, name="Comparabilidade", score=100.0, status="conforme"),
+    DimensionScore(id=6, name="Completude", score=91.0, status="conforme"),
     DimensionScore(id=7, name="Confiabilidade", score=89.5, status="atencao"),
-    DimensionScore(id=8, name="Consistencia", score=85.0, status="atencao"),
-    DimensionScore(id=9, name="Efetividade", score=78.0, status="nao_conforme"),
+    DimensionScore(id=8, name="Consistência", score=85.0, status="atencao"),
+    DimensionScore(id=9, name="Integridade", score=78.0, status="nao_conforme"),
     DimensionScore(id=10, name="Rastreabilidade", score=90.0, status="conforme"),
-    DimensionScore(id=11, name="Tempestividade", score=93.0, status="conforme"),
-    DimensionScore(id=12, name="Unicidade", score=97.0, status="conforme"),
+    DimensionScore(id=11, name="Relevância", score=93.0, status="conforme"),
+    DimensionScore(id=12, name="Tempestividade", score=97.0, status="conforme"),
 ]
 
 
@@ -84,12 +85,21 @@ async def get_dashboard_kpis(data_base: str = Query("2026-03", description="Refe
 
     dim_rows = await execute_query(
         "SELECT dimensao_id, dimensao_nome, score_pct, meta_pct, status, documento "
-        f"FROM {CATALOG}.gold.qualidade_dimensoes_mensal "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
         "WHERE dt_base = :data_base ORDER BY dimensao_id",
         {"data_base": data_base},
     )
+    # gold.qualidade_dimensoes_mensal.dimensao_id is Roman ('I'..'XII'); the
+    # frontend's DimensionScore.id is int — translate.
+    _ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+                     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
     dimensions = [
-        DimensionScore(id=r["dimensao_id"], name=r["dimensao_nome"], score=r["score_pct"], status=r["status"])
+        DimensionScore(
+            id=_ROMAN_TO_INT.get(r["dimensao_id"], 0) if isinstance(r["dimensao_id"], str) else r["dimensao_id"],
+            name=r["dimensao_nome"] or "",
+            score=float(r["score_pct"] or 0),
+            status=r["status"] or "",
+        )
         for r in dim_rows
     ]
     scores = [d.score for d in dimensions] or [0]
@@ -116,11 +126,20 @@ async def get_dashboard_alerts(limit: int = Query(10, ge=1, le=50)):
 
     rows = await execute_query(
         "SELECT severidade, expectation_name, log_timestamp "
-        f"FROM {CATALOG}.gold.violacoes_log WHERE status_resolucao = 'ABERTA' "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.violacoes_log WHERE status_resolucao = 'ABERTA' "
         "ORDER BY log_timestamp DESC LIMIT :limit",
         {"limit": limit},
     )
-    return [Alert(severity=r["severidade"], message=r["expectation_name"], created_at=str(r["log_timestamp"])) for r in rows]
+    # Normalize Portuguese pipeline severity vocabulary to the UI-facing one.
+    _SEV_MAP = {"BLOQUEANTE": "error", "ALERTA": "warning", "INFO": "info"}
+    return [
+        Alert(
+            severity=_SEV_MAP.get(r["severidade"], "info"),
+            message=r["expectation_name"] or "",
+            created_at=str(r["log_timestamp"]) if r["log_timestamp"] else "",
+        )
+        for r in rows
+    ]
 
 
 @router.get("/timeline")

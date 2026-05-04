@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, SCHEMA_REFERENCE, USE_MOCK, execute_query
 
 # Roman → int mapping for the R.18 dimension key stored in
-# `gold.governance_violacoes_log.dimension_r18` (matches `reference.dimensoes_r18.dimensao_id`).
+# `gold.violacoes_log.dimension_r18` (matches `reference.dimensoes_r18.dimensao_id`).
 _DIM_ROMAN_TO_INT = {
     "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12,
 }
 
-# `gold.governance_violacoes_log.severidade` ∈ {BLOQUEANTE, ALERTA}
-# `gold.governance_violacoes_log.status_resolucao` ∈ {ABERTA, EM_ANDAMENTO, RESOLVIDA, ESCALADA}
+# `gold.violacoes_log.severidade` ∈ {BLOQUEANTE, ALERTA}
+# `gold.violacoes_log.status_resolucao` ∈ {ABERTA, EM_ANDAMENTO, RESOLVIDA, ESCALADA}
 _SEVERITY_MAP = {"BLOQUEANTE": "high", "ALERTA": "medium", "INFO": "low"}
 _STATUS_MAP = {
     "ABERTA": "open",
@@ -48,7 +48,7 @@ router = APIRouter()
 _MOCK_IRREGULARITIES = [
     Irregularity(
         id="IRR-2026-0042", detected_at="2026-03-15T14:00:00Z", data_base="2026-02", document="3040",
-        dimension_r18=8, dimension_name="Consistência", severity="high", status="resolved",
+        dimension_r18=8, dimension_name="Consistência", severity="high", status="resolved",  # Consistência (VIII) per spec §1.2
         description="Divergência 3040 vs 3050 acima da tolerância para modalidade crédito imobiliário (0.7% > 0.5%)",
         root_cause="Operações de cessão imobiliária não mapeadas na tabela de equivalência V11",
         impact="Bloqueio de envio do 3040 e 3050 por 2 dias úteis",
@@ -102,13 +102,13 @@ _MOCK_IRREGULARITIES = [
     ),
     Irregularity(
         id="IRR-2026-0051", detected_at="2026-04-01T09:00:00Z", data_base="2026-03", document="3050",
-        dimension_r18=9, dimension_name="Efetividade", severity="low", status="open",
-        description="Dashboard de efetividade sem dados para dimensão 9 (métrica de utilização pendente)",
-        owner="bi.team@bankcorp.com",
+        dimension_r18=9, dimension_name="Integridade", severity="low", status="open",
+        description="Permissões de escrita encontradas em perfil 'consulta' no schema gold — viola segregação gerar/aprovar exigida pelo Art. 2, §2, IX",
+        owner="seguranca.dados@bankcorp.com",
         detected_by="auditoria.interna@bankcorp.com",
         timeline=[
             IncidentEvent(timestamp="2026-04-01T09:00:00Z", event_type="detected", actor="auditoria.interna@bankcorp.com",
-                          description="Auditoria interna identificou ausência de métricas de efetividade no dashboard R.18"),
+                          description="Auditoria interna identificou perfil 'consulta' com permissão de modificação no Unity Catalog (gold.qualidade_dimensoes_mensal)"),
         ],
     ),
 ]
@@ -140,12 +140,12 @@ _MOCK_ACTION_PLANS = [
     ),
     ActionPlan(
         id="AP-2026-004", irregularity_id="IRR-2026-0051",
-        title="Implementar métrica de efetividade dimensão 9",
-        description="Desenvolver e integrar métricas de utilização dos dados reportados para dashboard de efetividade R.18",
-        owner="bi.team@bankcorp.com", created_at="2026-04-01T10:00:00Z",
+        title="Aplicar segregação de funções no schema gold (Integridade)",
+        description="Revogar privilégios de modificação do perfil 'consulta' em gold.qualidade_dimensoes_mensal e demais tabelas gold; manter apenas acesso de leitura conforme matriz de SoD do Art. 2, §2, IX (R.18)",
+        owner="seguranca.dados@bankcorp.com", created_at="2026-04-01T10:00:00Z",
         deadline="2026-05-15", status="pending", progress_pct=0.0,
-        dimension_r18=9, dimension_name="Efetividade",
-        auditor_caveat="R8 - Completar métricas para relatório semestral conforme ressalva",
+        dimension_r18=9, dimension_name="Integridade",
+        auditor_caveat="R8 - Completar matriz de segregação para relatório semestral conforme ressalva",
         updates=[],
     ),
 ]
@@ -184,7 +184,7 @@ async def get_irregularities(
                 by_dimension=[
                     IrregularityDimensionSummary(dimension_id=2, name="Acurácia", count=1),
                     IrregularityDimensionSummary(dimension_id=8, name="Consistência", count=2),
-                    IrregularityDimensionSummary(dimension_id=9, name="Efetividade", count=1),
+                    IrregularityDimensionSummary(dimension_id=9, name="Integridade", count=1),
                 ],
             ),
             pagination=Pagination(page=page, page_size=page_size, total_results=total, total_pages=max(1, (total + page_size - 1) // page_size)),
@@ -209,8 +209,8 @@ async def get_irregularities(
         "v.taxa_violacao_pct, v.acao_tomada, v.status_resolucao, "
         "v.responsavel_resolucao, v.dt_resolucao, v.log_timestamp, "
         "d.nome AS dimensao_nome "
-        f"FROM {CATALOG}.gold.violacoes_log v "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.{SCHEMA_REFERENCE}.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
         f"WHERE {where_sql} "
         "ORDER BY v.log_timestamp DESC LIMIT :page_size OFFSET :offset",
         {
@@ -251,8 +251,8 @@ async def get_irregularities(
     # Aggregations across the full filtered result set (not just the current page).
     summary_rows = await execute_query(
         "SELECT v.status_resolucao, v.dimension_r18, v.dt_resolucao, v.log_timestamp, d.nome "
-        f"FROM {CATALOG}.gold.violacoes_log v "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.{SCHEMA_REFERENCE}.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
         f"WHERE {where_sql}",
         {
             "status_resolucao": status_filter, "severidade": severity_filter, "dim_roman": dim_roman_filter,
@@ -306,21 +306,23 @@ async def get_irregularity_detail(irregularity_id: str):
         plans = [p for p in _MOCK_ACTION_PLANS if p.irregularity_id == irregularity_id]
         return IrregularityDetailResponse(irregularity=item, action_plans=plans)
 
-    # Real DB: ID format is "IRR-<critica_id>-<dt_base>" (see get_irregularities).
-    if not irregularity_id.startswith("IRR-"):
+    # Real DB: ID format is "IRR-<critica_id>-<dt_base>" where dt_base is "YYYY-MM"
+    # (see get_irregularities). Since both critica_id and dt_base may contain '-', we
+    # peel the trailing 7-char "YYYY-MM" off the end.
+    if not irregularity_id.startswith("IRR-") or len(irregularity_id) < 12:
         raise HTTPException(status_code=404, detail="Irregularity not found")
-    parts = irregularity_id.removeprefix("IRR-").rsplit("-", 1)
-    if len(parts) != 2:
+    body = irregularity_id.removeprefix("IRR-")
+    if len(body) < 8 or body[-8] != "-":
         raise HTTPException(status_code=404, detail="Irregularity not found")
-    critica_id, dt_base = parts
+    critica_id, dt_base = body[:-8], body[-7:]
 
     rows = await execute_query(
         "SELECT v.dt_base, v.documento, v.expectation_name, v.critica_id, "
         "v.dimension_r18, v.severidade, v.registros_afetados, v.total_registros, "
         "v.taxa_violacao_pct, v.status_resolucao, v.responsavel_resolucao, "
         "v.dt_resolucao, v.log_timestamp, d.nome AS dimensao_nome "
-        f"FROM {CATALOG}.gold.violacoes_log v "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        f"FROM {CATALOG}.{SCHEMA_GOLD}.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.{SCHEMA_REFERENCE}.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
         "WHERE v.critica_id = :critica_id AND v.dt_base = :dt_base LIMIT 1",
         {"critica_id": critica_id, "dt_base": dt_base},
     )

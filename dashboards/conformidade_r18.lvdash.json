@@ -12,8 +12,8 @@
         "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
         "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
         "       ELSE 'CRITICO' END AS status ",
-        "FROM rc18_catalog.quality.quality_scorecard ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "FROM rc18_catalog.gold.qualidade_dimensoes_mensal ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.qualidade_dimensoes_mensal) ",
         "GROUP BY dimensao_id"
       ]
     },
@@ -24,7 +24,7 @@
         "SELECT dt_base, ",
         "  MAX(dimensao_nome) AS dimensao, ",
         "  AVG(score_pct) AS score ",
-        "FROM rc18_catalog.quality.quality_scorecard ",
+        "FROM rc18_catalog.gold.qualidade_dimensoes_mensal ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
         "GROUP BY dt_base, dimensao_id ",
         "ORDER BY dt_base, dimensao_id"
@@ -40,8 +40,8 @@
         "  COUNT(*) AS total_dims ",
         "FROM ( ",
         "  SELECT dimensao_id, AVG(score_pct) AS score_pct, AVG(meta_pct) AS meta_pct ",
-        "  FROM rc18_catalog.quality.quality_scorecard ",
-        "  WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "  FROM rc18_catalog.gold.qualidade_dimensoes_mensal ",
+        "  WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.qualidade_dimensoes_mensal) ",
         "  GROUP BY dimensao_id ",
         ")"
       ]
@@ -66,8 +66,8 @@
         "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
         "       ELSE 'CRITICO' END AS status, ",
         "  MAX(dt_base) AS dt_base ",
-        "FROM rc18_catalog.quality.quality_scorecard ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.quality.quality_scorecard) ",
+        "FROM rc18_catalog.gold.qualidade_dimensoes_mensal ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM rc18_catalog.gold.qualidade_dimensoes_mensal) ",
         "GROUP BY dimensao_id ",
         "ORDER BY dimensao_id"
       ]

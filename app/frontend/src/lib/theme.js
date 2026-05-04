@@ -17,8 +17,10 @@ export const statusColors = {
   blocked: { bg: '#FDECEA', color: '#D32F2F', label: 'Bloqueado' }
 };
 
+// Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2
+// (Resolução Conjunta CMN+BCB nº 18/2025, Art. 2, §2). Index 0..11 corresponds to ids I..XII.
 export const dimensionNames = [
-  'Acessibilidade', 'Acurácia', 'Adaptabilidade', 'Atualidade',
-  'Completude', 'Consistência', 'Confidencialidade', 'Disponibilidade',
-  'Granularidade', 'Rastreabilidade', 'Relevância', 'Conformidade'
+  'Acessibilidade', 'Acurácia', 'Adaptabilidade', 'Clareza',
+  'Comparabilidade', 'Completude', 'Confiabilidade', 'Consistência',
+  'Integridade', 'Rastreabilidade', 'Relevância', 'Tempestividade'
 ];

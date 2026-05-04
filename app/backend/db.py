@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "true").lower() == "true"
 CATALOG = os.getenv("DATABRICKS_CATALOG", "rc18_catalog")
+SCHEMA_BRONZE = os.getenv("SCHEMA_BRONZE", "bronze")
 SCHEMA_GOLD = os.getenv("SCHEMA_GOLD", "gold")
 SCHEMA_SILVER = os.getenv("SCHEMA_SILVER", "silver")
 SCHEMA_QUALITY = os.getenv("SCHEMA_QUALITY", "quality")

@@ -2,13 +2,17 @@
 # MAGIC %md
 # MAGIC # Gold — Posição Mensal SCR 3040 e Posição 3050
 # MAGIC
-# MAGIC Builds two gold-layer "position" tables ready for the Databricks App, dashboards
+# MAGIC Two gold-layer "position" tables ready for the Databricks App, dashboards
 # MAGIC and downstream consumers:
 # MAGIC
 # MAGIC | Table | Source | One row per |
 # MAGIC |---|---|---|
 # MAGIC | `posicao_mensal_3040` | silver `operacoes_validadas` ⨝ `scr3040_cont_4966` ⨝ `scr3040_vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
-# MAGIC | `posicao_3050` | silver `scr3050_diario` ∪ `scr3050_mensal` | `(cnpj_if, dt_base, dt_referencia, periodo, carteira, segmento, encargo, modalidade)` |
+# MAGIC | `posicao_3050` | silver `scr3050_validated` (passthrough + `_gold_timestamp`) | `(cnpj_if, dt_base, dt_referencia, periodicidade, carteira, segmento, encargo, modalidade)` |
+# MAGIC
+# MAGIC Note: `posicao_3050` is a deliberately thin passthrough — the silver table
+# MAGIC already carries diário+mensal in a unified schema (column `periodicidade`),
+# MAGIC so gold only adds the timestamp columns required for downstream audit.
 
 # COMMAND ----------
 
@@ -78,11 +82,11 @@ def posicao_mensal_3040():
     )
 
 
-# ── Posição SCR 3050 (diário + mensal unificados) ────────────────────────────
+# ── Posição SCR 3050 (passthrough do silver unificado) ───────────────────────
 
 @dlt.table(
     name="posicao_3050",
-    comment="Posição SCR 3050 unificada — diário e mensal num mesmo schema, prontos para dashboard",
+    comment="Posição SCR 3050 — passthrough de silver.scr3050_validated (diário+mensal já unificados via periodicidade) com timestamp de gold",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
@@ -90,44 +94,7 @@ def posicao_mensal_3040():
     partition_cols=["dt_referencia"],
 )
 def posicao_3050():
-    diario = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_diario")
-        .select(
-            "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
-            F.lit("diario").alias("periodo"),
-            "carteira", "segmento", "encargo", "modalidade",
-            "vlr_concessoes", "tx_med_juros",
-            "tx_med_enc_fiscais", "tx_med_enc_operacionais",
-            "prz_dec_med_concessoes", "sld_car_ativa",
-            F.lit(None).cast("decimal(18,0)").alias("sld_bai_prejuizo"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate14"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate60"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_ate90"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_maior90"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_total"),
-            F.lit(None).cast("integer").alias("prz_med_carteira"),
-            "leiaute_versao",
-        )
-    )
-    mensal = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_mensal")
-        .select(
-            "cnpj_if", "dt_base", "dt_referencia", "ind_remessa",
-            F.lit("mensal").alias("periodo"),
-            "carteira", "segmento", "encargo", "modalidade",
-            F.lit(None).cast("decimal(18,0)").alias("vlr_concessoes"),
-            F.lit(None).cast("decimal(8,2)").alias("tx_med_juros"),
-            F.lit(None).cast("decimal(8,2)").alias("tx_med_enc_fiscais"),
-            F.lit(None).cast("decimal(8,2)").alias("tx_med_enc_operacionais"),
-            F.lit(None).cast("integer").alias("prz_dec_med_concessoes"),
-            F.lit(None).cast("decimal(18,0)").alias("sld_car_ativa"),
-            "sld_bai_prejuizo", "sld_car_ate14", "sld_car_ate60",
-            "sld_car_ate90", "sld_car_maior90", "sld_car_total",
-            "prz_med_carteira", "leiaute_versao",
-        )
-    )
-
     return (
-        diario.unionByName(mensal)
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_validated")
         .withColumn("_gold_timestamp", F.current_timestamp())
     )
