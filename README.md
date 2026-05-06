@@ -22,7 +22,7 @@ databricks bundle deploy -t dev --profile <seu-profile>      # cria catálogo, w
 databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>   # orquestra setup → bronze → silver → gold
 ```
 
-> Prefere rodar passo a passo? Veja a [sequência canônica](#sequência-canônica) abaixo, que dispara cada job/pipeline individualmente.
+> Prefere rodar passo a passo? Veja [Passo a passo](#passo-a-passo) abaixo, que dispara cada job/pipeline individualmente.
 
 - **Nenhum dado sintético é envolvido.** O bundle na raiz (`databricks.yml`, nome `rc18-starter-kit`) entrega só o framework — nenhum gerador, nenhum loader fictício. Os XMLs de `sample/` são apenas duas amostras canônicas (uma 3040, uma 3050) que o `setup_reference_tables` copia para `landing.scr_xml` para o `bundle deploy` ser auto-suficiente fim-a-fim.
 - **Pode deletar `demo/`** sem medo: nada do bundle do acelerador depende daquela pasta.
@@ -198,7 +198,7 @@ Abrir http://localhost:5173.
 - `databricks` CLI autenticada com um profile apontando para o workspace destino
 - `DATABRICKS_BUNDLE_ENGINE=direct` exportado no shell (o bundle declara `catalogs:` e exige o direct deployment engine — sem isso o `bundle deploy` aborta na primeira linha)
 
-### Sequência canônica
+### Passo a passo
 
 ```bash
 # 0. (Opcional) Rebuild do frontend se o código Svelte mudou
