@@ -24,11 +24,7 @@ databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>   # orquest
 
 > Prefere rodar passo a passo? Veja [Passo a passo](#passo-a-passo) abaixo, que dispara cada job/pipeline individualmente.
 
-- **Nenhum dado sintético é envolvido.** O bundle na raiz (`databricks.yml`, nome `rc18-starter-kit`) entrega só o framework — nenhum gerador, nenhum loader fictício. Os XMLs de `sample/` são apenas duas amostras canônicas (uma 3040, uma 3050) que o `setup_reference_tables` copia para `landing.scr_xml` para o `bundle deploy` ser auto-suficiente fim-a-fim.
-- **Pode deletar `demo/`** sem medo: nada do bundle do acelerador depende daquela pasta.
-- O bundle provisiona um catálogo (`rc18_catalog`) e um SQL warehouse serverless (`rc18-warehouse-<target>`) por padrão. Para reutilizar assets existentes, sobreponha `--var catalog=<nome>` e `--var warehouse_id=<id>` E comente `resources/catalog.yml` / `resources/warehouse.yml` para o bundle não tentar gerenciar o ciclo de vida deles.
-- ⚠️ **Após `bundle destroy`**, o primeiro `bundle deploy` apenas inicia o compute do app sem publicar o código (bug conhecido do `lifecycle.started: true` no DABs). Sintoma: app fica em `UNAVAILABLE` apesar do compute `ACTIVE`. Recupere com `bundle deploy` uma segunda vez ou `databricks bundle run r18_compliance_app -t <target>`.
-- Próximos passos: conectar as pipelines às suas fontes reais (Oracle/DB2/VSAM/etc.) substituindo os XMLs de `sample/`, e adaptar o app à identidade visual/domínio da sua IF.
+Como padrão, são implementados pipelines utilizando dois arquivos de exemplo (CADOCs 3040 e 3050) disponibilizados no diretório [sample](/sample/). Estes arquivos foram gerados sinteticamente e já validados com o Validador Oficial do BACEN.
 
 ### 2. Ver o acelerador em ação (modo demo)
 
