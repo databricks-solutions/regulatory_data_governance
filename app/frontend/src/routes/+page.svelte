@@ -10,30 +10,14 @@
   import { onMount } from 'svelte';
 
   let kpis = $state({
-    compliance_score: 87.5,
-    pending_validations: { scr3040: 3, scr3050: 1 },
-    last_submission: { document: 'SCR 3050', data_base: '2026-03-28', status: 'aceito', submitted_at: '2026-03-30T14:22:00Z' },
-    alerts: [
-      { severity: 'info', message: 'Nova versão de leiaute V11 em vigor desde 07/11/2025', created_at: '2026-03-28T08:00:00Z' },
-      { severity: 'error', message: 'IPOC componentes divergentes em 127 operações', created_at: '2026-03-27T16:00:00Z' }
-    ],
-    deadline: { date: '2026-12-31', days_remaining: 274, phase: 'Fase 1 - Fundação' }
+    compliance_score: 0,
+    pending_validations: { scr3040: 0, scr3050: 0 },
+    last_submission: { document: '', data_base: '', status: '', submitted_at: '' },
+    alerts: [],
+    deadline: { date: '2026-12-31', days_remaining: 0, phase: '' }
   });
 
-  let dimensions = $state([
-    { id: 1, name: 'Acessibilidade', score: 95.0, target: 90, status: 'conforme', trend: [{month:'2025-10',score:80},{month:'2025-11',score:85},{month:'2025-12',score:88},{month:'2026-01',score:90},{month:'2026-02',score:92},{month:'2026-03',score:95}] },
-    { id: 2, name: 'Acurácia', score: 92.5, target: 95, status: 'atencao', trend: [{month:'2025-10',score:85},{month:'2025-11',score:87},{month:'2025-12',score:89},{month:'2026-01',score:90},{month:'2026-02',score:91},{month:'2026-03',score:92.5}] },
-    { id: 3, name: 'Adaptabilidade', score: 88.0, target: 85, status: 'conforme', trend: [{month:'2025-10',score:75},{month:'2025-11',score:78},{month:'2025-12',score:80},{month:'2026-01',score:83},{month:'2026-02',score:85},{month:'2026-03',score:88}] },
-    { id: 4, name: 'Atualidade', score: 91.0, target: 90, status: 'conforme', trend: [{month:'2025-10',score:82},{month:'2025-11',score:84},{month:'2025-12',score:86},{month:'2026-01',score:88},{month:'2026-02',score:90},{month:'2026-03',score:91}] },
-    { id: 5, name: 'Completude', score: 94.0, target: 90, status: 'conforme', trend: [{month:'2025-10',score:88},{month:'2025-11',score:89},{month:'2025-12',score:90},{month:'2026-01',score:91},{month:'2026-02',score:93},{month:'2026-03',score:94}] },
-    { id: 6, name: 'Consistência', score: 89.5, target: 90, status: 'atencao', trend: [{month:'2025-10',score:78},{month:'2025-11',score:80},{month:'2025-12',score:83},{month:'2026-01',score:85},{month:'2026-02',score:87},{month:'2026-03',score:89.5}] },
-    { id: 7, name: 'Confidencialidade', score: 97.0, target: 95, status: 'conforme', trend: [{month:'2025-10',score:93},{month:'2025-11',score:94},{month:'2025-12',score:95},{month:'2026-01',score:96},{month:'2026-02',score:96.5},{month:'2026-03',score:97}] },
-    { id: 8, name: 'Disponibilidade', score: 96.0, target: 95, status: 'conforme', trend: [{month:'2025-10',score:90},{month:'2025-11',score:91},{month:'2025-12',score:93},{month:'2026-01',score:94},{month:'2026-02',score:95},{month:'2026-03',score:96}] },
-    { id: 9, name: 'Granularidade', score: 85.0, target: 85, status: 'conforme', trend: [{month:'2025-10',score:70},{month:'2025-11',score:73},{month:'2025-12',score:76},{month:'2026-01',score:79},{month:'2026-02',score:82},{month:'2026-03',score:85}] },
-    { id: 10, name: 'Rastreabilidade', score: 78.0, target: 85, status: 'nao_conforme', trend: [{month:'2025-10',score:60},{month:'2025-11',score:63},{month:'2025-12',score:67},{month:'2026-01',score:70},{month:'2026-02',score:74},{month:'2026-03',score:78}] },
-    { id: 11, name: 'Relevância', score: 90.0, target: 85, status: 'conforme', trend: [{month:'2025-10',score:82},{month:'2025-11',score:84},{month:'2025-12',score:86},{month:'2026-01',score:87},{month:'2026-02',score:88},{month:'2026-03',score:90}] },
-    { id: 12, name: 'Conformidade', score: 86.0, target: 90, status: 'atencao', trend: [{month:'2025-10',score:72},{month:'2025-11',score:75},{month:'2025-12',score:78},{month:'2026-01',score:81},{month:'2026-02',score:84},{month:'2026-03',score:86}] }
-  ]);
+  let dimensions = $state([]);
 
   let overallTrend = $derived(
     dimensions[0]?.trend?.map(t => ({
@@ -46,11 +30,11 @@
     try {
       const data = await getDashboardKpis(appState.dataBase);
       if (data) kpis = { ...kpis, ...data };
-    } catch { /* use mock data */ }
+    } catch {}
     try {
       const data = await getQualityDimensions(appState.dataBase);
       if (data?.dimensions) dimensions = data.dimensions;
-    } catch { /* use mock data */ }
+    } catch {}
   });
 
   function getAlertIcon(severity) {

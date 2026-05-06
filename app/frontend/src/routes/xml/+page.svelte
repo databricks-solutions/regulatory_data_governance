@@ -12,51 +12,6 @@
   let validating = $state(false);
   let validationResult = $state(null);
 
-  // Mock tree data
-  const mockTree = {
-    tag: 'Doc3040',
-    attrs: { CNPJ: '99999999000104', DtBase: '2026-03-31' },
-    children: [
-      {
-        tag: 'Cli',
-        attrs: { Cd: '12345678901', Tp: '1' },
-        childCount: 3,
-        children: [
-          {
-            tag: 'Op',
-            attrs: { IPOC: '99999999020112345678901CONTR001', Mod: '0201', VlrContabil: '150000.00' },
-            childCount: 3,
-            children: [
-              { tag: 'Venc', attrs: { Qtd: '31' }, childCount: 31, children: [] },
-              { tag: 'Gar', attrs: { Qtd: '2' }, childCount: 2, children: [] },
-              { tag: 'Inf', attrs: { Qtd: '3' }, childCount: 3, children: [] }
-            ],
-            validation: { IPOC: 'pass', Mod: 'pass', DtVencOp: 'error', VlrContabil: 'pass' }
-          },
-          {
-            tag: 'Op',
-            attrs: { IPOC: '99999999040198765432100CONTR002', Mod: '0401' },
-            childCount: 2,
-            children: [],
-            validation: { IPOC: 'pass', Mod: 'pass' }
-          }
-        ]
-      },
-      {
-        tag: 'Cli',
-        attrs: { Cd: '98765432100', Tp: '1' },
-        childCount: 5,
-        children: []
-      },
-      {
-        tag: 'Agreg',
-        attrs: { Qtd: '1100000' },
-        childCount: 0,
-        children: []
-      }
-    ]
-  };
-
   let expandedPaths = $state(new Set(['', '0', '0.0']));
 
   function toggleNode(path) {
@@ -87,9 +42,7 @@
       const tree = await getXmlTree(fileId);
       treeData = tree;
     } catch {
-      // Use mock
-      fileId = 'mock_file_001';
-      treeData = mockTree;
+      treeData = null;
     }
     uploading = false;
   }
@@ -100,7 +53,7 @@
     try {
       validationResult = await validateXml(fileId);
     } catch {
-      validationResult = { status: 'completed', errors: 3, warnings: 1, total_fields: 245 };
+      validationResult = null;
     }
     validating = false;
   }

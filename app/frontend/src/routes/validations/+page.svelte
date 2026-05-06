@@ -4,10 +4,8 @@
   import FilterBar from '$lib/components/data/FilterBar.svelte';
   import DataTable from '$lib/components/data/DataTable.svelte';
   import Pagination from '$lib/components/data/Pagination.svelte';
-  import Modal from '$lib/components/ui/Modal.svelte';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
   import { appState } from '$lib/stores.svelte.js';
-  import { getValidationResults, triggerValidation, getValidationRun } from '$lib/api.js';
+  import { getValidationResults } from '$lib/api.js';
   import { onMount } from 'svelte';
 
   let activeTab = $state('3040');
@@ -22,16 +20,14 @@
     3: { label: 'Nível 3', subtitle: 'Regras negociais', desc: 'Definidas pelo Curador de Dados / Gestor da Informação', color: 'var(--error)' },
   };
 
-  let runSummary = $state({ run_id: 'run_20260330_142200', run_completed_at: '2026-03-30T14:45:00Z', total_rules: 145, passed: 132, failed: 8, warnings: 5, pass_rate_pct: 91.0 });
+  let runSummary = $state({ run_id: '', run_completed_at: '', total_rules: 0, passed: 0, failed: 0, warnings: 0, pass_rate_pct: 0 });
   let results = $state([]);
   let activeNivel = $state(null); // null = all levels
 
   let filterValues = $state({});
   let currentPage = $state(1);
-  let totalPages = $state(3);
+  let totalPages = $state(1);
   let expandedRow = $state(null);
-  let showTriggerModal = $state(false);
-  let triggerRunning = $state(false);
 
   const filterDefs = [
     { key: 'severity', label: 'Severidade', type: 'select', options: [{ value: 'error', label: 'Error' }, { value: 'warning', label: 'Warning' }, { value: 'info', label: 'Info' }] },
@@ -83,21 +79,12 @@
     filterValues = {};
   }
 
-  async function handleTrigger() {
-    showTriggerModal = true;
-    triggerRunning = true;
-    try {
-      await triggerValidation({ document: activeTab, data_base: appState.dataBase, scope: 'full' });
-    } catch { /* mock: simulate completion */ }
-    setTimeout(() => { triggerRunning = false; }, 2000);
-  }
-
   async function loadResults() {
     try {
       const data = await getValidationResults(activeTab, appState.dataBase, filterValues);
       if (data?.results) results = data.results;
       if (data?.summary) runSummary = { ...runSummary, ...data.summary };
-    } catch { /* use mock */ }
+    } catch {}
   }
 
   onMount(loadResults);
@@ -114,6 +101,8 @@
   <!-- Run Summary -->
   <div class="card run-summary">
     <div class="run-info">
+      <span class="run-source">Resultados da pipeline DLT</span>
+      <span class="run-sep">|</span>
       <span class="run-id">Run: {runSummary.run_id}</span>
       <span class="run-sep">|</span>
       <span>Concluído: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ')}</span>
@@ -129,7 +118,6 @@
       <span class="run-sep">|</span>
       Pass Rate: <strong>{runSummary.pass_rate_pct}%</strong>
     </div>
-    <button class="trigger-btn" onclick={handleTrigger}>Executar Validação</button>
   </div>
 
   <!-- Verification Levels Pyramid -->
@@ -191,18 +179,6 @@
     </DataTable>
     <Pagination page={currentPage} {totalPages} onchange={(p) => currentPage = p} />
   </div>
-
-  <!-- Trigger Modal -->
-  <Modal open={showTriggerModal} title="Executar Validação" onclose={() => showTriggerModal = false}>
-    {#if triggerRunning}
-      <Spinner message="Executando validação SCR {activeTab}..." />
-    {:else}
-      <div class="trigger-done">
-        <p>Validação concluída com sucesso.</p>
-        <button class="close-btn" onclick={() => showTriggerModal = false}>Fechar</button>
-      </div>
-    {/if}
-  </Modal>
 </div>
 
 <style>
@@ -210,23 +186,14 @@
   .run-summary {
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);
   }
-  .run-info { font-size: var(--font-size-sm); color: var(--gray-500); }
+  .run-info { font-size: var(--font-size-sm); color: var(--gray-500); display: flex; align-items: center; flex-wrap: wrap; }
+  .run-source { color: var(--primary); font-weight: 600; }
   .run-id { font-family: var(--font-mono); }
   .run-sep { color: var(--gray-300); margin: 0 var(--space-2); }
   .run-stats { font-size: var(--font-size-sm); color: var(--gray-700); }
   .stat-pass { color: var(--success); font-weight: 600; }
   .stat-warn { color: var(--warning); font-weight: 600; }
   .stat-fail { color: var(--error); font-weight: 600; }
-  .trigger-btn {
-    padding: var(--space-2) var(--space-5);
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: var(--radius-sm);
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-  }
-  .trigger-btn:hover { background: var(--blue-500); }
 
   /* Nivel Cards (Pyramid layout - N3 on top, N1 on bottom) */
   .nivel-cards {
@@ -322,17 +289,6 @@
   .expand-detail { padding: var(--space-2) 0; }
   .expand-desc { font-size: var(--font-size-sm); color: var(--gray-700); margin: var(--space-2) 0; }
   .expand-meta { font-size: var(--font-size-xs); color: var(--gray-500); display: flex; align-items: center; gap: var(--space-2); }
-
-  .trigger-done { text-align: center; padding: var(--space-4); }
-  .close-btn {
-    margin-top: var(--space-4);
-    padding: var(--space-2) var(--space-6);
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: var(--radius-sm);
-    font-weight: 600;
-  }
 
   :global(.sev-error) { color: var(--error); font-weight: 600; }
   :global(.sev-warning) { color: var(--warning); font-weight: 600; }

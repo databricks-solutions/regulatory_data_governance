@@ -69,15 +69,7 @@
         results = data.results || [];
         summary = data.summary || summary;
       }
-    } catch {
-      // Fallback mock
-      summary = { total_rules: 6, passed: 4, failed: 2, warnings: 0, pass_rate_pct: 66.7, total_records: 1500000, total_exceptions: 57 };
-      results = [
-        { result_id: 'res_001', rule_name: 'NOT NULL — dt_contr', status: 'fail', total_records: 1500000, passed_records: 1499958, failed_records: 42, pass_rate_pct: 100.0, severity: 'error', dimension_r18: 6, execution_time_ms: 3200, expression_used: 'dt_contr IS NOT NULL' },
-        { result_id: 'res_002', rule_name: 'NOT NULL — mod', status: 'pass', total_records: 1500000, passed_records: 1500000, failed_records: 0, pass_rate_pct: 100.0, severity: 'error', dimension_r18: 6, execution_time_ms: 2800 },
-        { result_id: 'res_004', rule_name: 'dt_venc_op >= dt_contr', status: 'fail', total_records: 1500000, passed_records: 1499985, failed_records: 15, pass_rate_pct: 100.0, severity: 'error', dimension_r18: 8, execution_time_ms: 4100, expression_used: 'dt_venc_op >= dt_contr' }
-      ];
-    }
+    } catch {}
   });
 </script>
 

@@ -35,28 +35,12 @@
   });
 
   // --- Dados state ---
-  let datasets = $state([
-    { dataset_id: 'ds_001', name: 'Operações Validadas (Silver)', source_path: 'rc18_catalog.silver.operacoes_validadas', tipo: 'table', data_base: '2026-03', row_count_approx: 1500000, bindings_count: 5, last_run_status: 'completed' },
-    { dataset_id: 'ds_002', name: 'SCR 3050 Diário (Silver)', source_path: 'rc18_catalog.silver.scr3050_diario', tipo: 'table', data_base: '2026-03', row_count_approx: 210000, bindings_count: 1, last_run_status: 'completed' },
-    { dataset_id: 'ds_003', name: 'Operações Raw (Bronze)', source_path: 'rc18_catalog.bronze.operacoes_raw', tipo: 'table', data_base: '2026-03', row_count_approx: 1500000, bindings_count: 0, last_run_status: null },
-    { dataset_id: 'ds_004', name: 'Clientes Validados (Silver)', source_path: 'rc18_catalog.silver.scr3040_clientes', tipo: 'table', data_base: '2026-03', row_count_approx: 750000, bindings_count: 0, last_run_status: null }
-  ]);
+  let datasets = $state([]);
   let showAddDataset = $state(false);
   let newDataset = $state({ name: '', source_path: '', tipo: 'table', data_base: appState.dataBase || '2026-03' });
 
   // --- Regras state ---
-  let rules = $state([
-    { rule_id: 're_001', name: 'Campo obrigatório (NOT NULL)', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 6, severity: 'error', authoring_mode: 'structured', is_seeded: true, tags: ['S10_001'] },
-    { rule_id: 're_002', name: 'Tamanho de campo fixo', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 6, severity: 'error', authoring_mode: 'structured', is_seeded: true, tags: ['S10_002'] },
-    { rule_id: 're_003', name: 'Componentes IPOC consistentes', nivel_verificacao: 1, rule_type: 'semantic', dimension_r18: 2, severity: 'error', authoring_mode: 'expression', is_seeded: true, tags: ['SEM_014'] },
-    { rule_id: 're_004', name: 'Data vencimento posterior a contratação', nivel_verificacao: 2, rule_type: 'semantic', dimension_r18: 8, severity: 'error', authoring_mode: 'structured', is_seeded: true, tags: ['SEM_020'] },
-    { rule_id: 're_005', name: 'Valor dentro do domínio', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 6, severity: 'error', authoring_mode: 'structured', is_seeded: false, tags: [] },
-    { rule_id: 're_006', name: 'Valor positivo', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 2, severity: 'warning', authoring_mode: 'structured', is_seeded: false, tags: [] },
-    { rule_id: 're_007', name: 'Formato CEP válido', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 6, severity: 'warning', authoring_mode: 'structured', is_seeded: false, tags: [] },
-    { rule_id: 're_008', name: 'Unicidade de chave', nivel_verificacao: 1, rule_type: 'syntactic', dimension_r18: 12, severity: 'error', authoring_mode: 'structured', is_seeded: false, tags: [] },
-    { rule_id: 're_009', name: 'Faixa de taxa efetiva', nivel_verificacao: 2, rule_type: 'semantic', dimension_r18: 2, severity: 'warning', authoring_mode: 'structured', is_seeded: false, tags: [] },
-    { rule_id: 're_010', name: 'Valor concessão positivo', nivel_verificacao: 3, rule_type: 'business', dimension_r18: 2, severity: 'error', authoring_mode: 'expression', is_seeded: true, tags: ['CR4_001'] }
-  ]);
+  let rules = $state([]);
 
   let ruleFilters = $state({});
   let expandedRule = $state(null);
@@ -128,7 +112,7 @@
     try {
       const created = await createRuleEngineRule(rule);
       if (created) rules = [...rules, created];
-    } catch { /* mock */ }
+    } catch {}
     showRuleBuilder = false;
   }
 
@@ -136,7 +120,7 @@
     try {
       const created = await createRuleEngineDataset(newDataset);
       if (created) datasets = [...datasets, { ...created, bindings_count: 0, last_run_status: null }];
-    } catch { /* mock */ }
+    } catch {}
     showAddDataset = false;
     newDataset = { name: '', source_path: '', tipo: 'table', data_base: appState.dataBase || '2026-03' };
   }
@@ -149,7 +133,7 @@
       ]);
       if (dsData?.datasets) datasets = dsData.datasets;
       if (rulesData?.rules) rules = rulesData.rules;
-    } catch { /* use mock */ }
+    } catch {}
   });
 </script>
 

@@ -4,10 +4,26 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, USE_MOCK as _DB_USE_MOCK, execute_query
+from db import CATALOG, USE_MOCK, execute_query
 
-# governance tables are not yet provisioned; always serve mock data
-USE_MOCK = True
+# Roman → int mapping for the R.18 dimension key stored in
+# `gold.governance_violacoes_log.dimension_r18` (matches `reference.dimensoes_r18.dimensao_id`).
+_DIM_ROMAN_TO_INT = {
+    "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+    "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12,
+}
+
+# `gold.governance_violacoes_log.severidade` ∈ {BLOQUEANTE, ALERTA}
+# `gold.governance_violacoes_log.status_resolucao` ∈ {ABERTA, EM_ANDAMENTO, RESOLVIDA, ESCALADA}
+_SEVERITY_MAP = {"BLOQUEANTE": "high", "ALERTA": "medium", "INFO": "low"}
+_STATUS_MAP = {
+    "ABERTA": "open",
+    "EM_ANDAMENTO": "in_progress",
+    "RESOLVIDA": "resolved",
+    "ESCALADA": "escalated",
+    "VALIDADA": "validated",
+}
+
 from models import (
     ActionPlan,
     ActionPlansResponse,
@@ -174,29 +190,109 @@ async def get_irregularities(
             pagination=Pagination(page=page, page_size=page_size, total_results=total, total_pages=max(1, (total + page_size - 1) // page_size)),
         )
 
-    rows = await execute_query(
-        "SELECT violacao_sk, dt_base, documento, expectation_name, critica_id, "
-        "dimension_r18, severidade, registros_afetados, total_registros, taxa_violacao_pct, "
-        "acao_tomada, status_resolucao, responsavel_resolucao, dt_resolucao, log_timestamp "
-        f"FROM {CATALOG}.gold.violacoes_log "
-        "WHERE (:status_resolucao IS NULL OR status_resolucao = :status_resolucao) "
-        "AND log_timestamp >= :data_base_from AND log_timestamp <= :data_base_to "
-        "ORDER BY log_timestamp DESC LIMIT :page_size OFFSET :offset",
-        {"status_resolucao": status, "data_base_from": data_base_from, "data_base_to": data_base_to, "page_size": page_size, "offset": (page - 1) * page_size},
-    )
-    items = [
-        Irregularity(
-            id=str(r["violacao_sk"]), detected_at=str(r["log_timestamp"]),
-            data_base=r["dt_base"], document=r["documento"],
-            dimension_r18=r["dimension_r18"], dimension_name="", severity=r["severidade"],
-            status=r.get("status_resolucao", "open"), description=r.get("expectation_name", ""),
-        )
-        for r in rows
+    # Map UI-facing filter values back to the storage vocabulary used by the pipeline.
+    status_filter = next((k for k, v in _STATUS_MAP.items() if v == status), None) if status else None
+    severity_filter = next((k for k, v in _SEVERITY_MAP.items() if v == severity), None) if severity else None
+    dim_roman_filter = next((k for k, v in _DIM_ROMAN_TO_INT.items() if v == dimension_r18), None) if dimension_r18 else None
+
+    where_parts = [
+        "(:status_resolucao IS NULL OR v.status_resolucao = :status_resolucao)",
+        "(:severidade IS NULL OR v.severidade = :severidade)",
+        "(:dim_roman IS NULL OR v.dimension_r18 = :dim_roman)",
+        "v.dt_base >= :data_base_from AND v.dt_base <= :data_base_to",
     ]
+    where_sql = " AND ".join(where_parts)
+
+    rows = await execute_query(
+        "SELECT v.dt_base, v.documento, v.expectation_name, v.critica_id, "
+        "v.dimension_r18, v.severidade, v.registros_afetados, v.total_registros, "
+        "v.taxa_violacao_pct, v.acao_tomada, v.status_resolucao, "
+        "v.responsavel_resolucao, v.dt_resolucao, v.log_timestamp, "
+        "d.nome AS dimensao_nome "
+        f"FROM {CATALOG}.gold.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        f"WHERE {where_sql} "
+        "ORDER BY v.log_timestamp DESC LIMIT :page_size OFFSET :offset",
+        {
+            "status_resolucao": status_filter, "severidade": severity_filter, "dim_roman": dim_roman_filter,
+            "data_base_from": data_base_from, "data_base_to": data_base_to,
+            "page_size": page_size, "offset": (page - 1) * page_size,
+        },
+    )
+
+    items: list[Irregularity] = []
+    for r in rows:
+        dim_int = _DIM_ROMAN_TO_INT.get(r["dimension_r18"], 0)
+        detected_at = r["log_timestamp"]
+        resolved_at = r["dt_resolucao"]
+        resolution_days = None
+        if detected_at and resolved_at:
+            resolution_days = max(0, int((resolved_at - detected_at).days)) if hasattr(resolved_at, "days") or hasattr((resolved_at - detected_at), "days") else None
+        items.append(Irregularity(
+            id=f"IRR-{r['critica_id']}-{r['dt_base']}",
+            detected_at=str(detected_at),
+            data_base=r["dt_base"],
+            document=r["documento"],
+            dimension_r18=dim_int,
+            dimension_name=r.get("dimensao_nome") or "",
+            severity=_SEVERITY_MAP.get(r["severidade"], "medium"),
+            status=_STATUS_MAP.get(r["status_resolucao"], "open"),
+            description=f"{r['expectation_name']} — {r['registros_afetados']} registros afetados ({r['taxa_violacao_pct']:.2f}%)",
+            owner=r.get("responsavel_resolucao"),
+            resolved_at=str(resolved_at) if resolved_at else None,
+            resolution_days=resolution_days,
+            detected_by="dlt-pipeline",
+            timeline=[IncidentEvent(
+                timestamp=str(detected_at), event_type="detected", actor="dlt-pipeline",
+                description=f"Violação detectada automaticamente pelo pipeline DLT (crítica {r['critica_id']})",
+            )],
+        ))
+
+    # Aggregations across the full filtered result set (not just the current page).
+    summary_rows = await execute_query(
+        "SELECT v.status_resolucao, v.dimension_r18, v.dt_resolucao, v.log_timestamp, d.nome "
+        f"FROM {CATALOG}.gold.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        f"WHERE {where_sql}",
+        {
+            "status_resolucao": status_filter, "severidade": severity_filter, "dim_roman": dim_roman_filter,
+            "data_base_from": data_base_from, "data_base_to": data_base_to,
+        },
+    )
+    total = len(summary_rows)
+    counts = {"open": 0, "in_progress": 0, "resolved": 0}
+    resolution_days_sum = 0
+    resolution_days_count = 0
+    by_dim: dict[int, dict] = {}
+    for s in summary_rows:
+        st = _STATUS_MAP.get(s["status_resolucao"], "open")
+        if st in counts:
+            counts[st] += 1
+        if s["dt_resolucao"] and s["log_timestamp"]:
+            delta = s["dt_resolucao"] - s["log_timestamp"]
+            resolution_days_sum += delta.days
+            resolution_days_count += 1
+        d_int = _DIM_ROMAN_TO_INT.get(s["dimension_r18"], 0)
+        if d_int:
+            entry = by_dim.setdefault(d_int, {"name": s["nome"] or "", "count": 0})
+            entry["count"] += 1
+
+    summary = IrregularitySummary(
+        total_open=counts["open"],
+        total_in_progress=counts["in_progress"],
+        total_resolved=counts["resolved"],
+        avg_resolution_days=round(resolution_days_sum / resolution_days_count, 2) if resolution_days_count else 0.0,
+        by_dimension=[IrregularityDimensionSummary(dimension_id=k, name=v["name"], count=v["count"]) for k, v in sorted(by_dim.items())],
+    )
+
     return IrregularitiesResponse(
-        total=len(items), irregularities=items,
-        summary=IrregularitySummary(total_open=0, total_in_progress=0, total_resolved=0, avg_resolution_days=0, by_dimension=[]),
-        pagination=Pagination(page=page, page_size=page_size),
+        total=total,
+        irregularities=items,
+        summary=summary,
+        pagination=Pagination(
+            page=page, page_size=page_size, total_results=total,
+            total_pages=max(1, (total + page_size - 1) // page_size),
+        ),
     )
 
 
@@ -209,7 +305,58 @@ async def get_irregularity_detail(irregularity_id: str):
             raise HTTPException(status_code=404, detail="Irregularity not found")
         plans = [p for p in _MOCK_ACTION_PLANS if p.irregularity_id == irregularity_id]
         return IrregularityDetailResponse(irregularity=item, action_plans=plans)
-    raise HTTPException(status_code=404, detail="Not implemented for real DB yet")
+
+    # Real DB: ID format is "IRR-<critica_id>-<dt_base>" (see get_irregularities).
+    if not irregularity_id.startswith("IRR-"):
+        raise HTTPException(status_code=404, detail="Irregularity not found")
+    parts = irregularity_id.removeprefix("IRR-").rsplit("-", 1)
+    if len(parts) != 2:
+        raise HTTPException(status_code=404, detail="Irregularity not found")
+    critica_id, dt_base = parts
+
+    rows = await execute_query(
+        "SELECT v.dt_base, v.documento, v.expectation_name, v.critica_id, "
+        "v.dimension_r18, v.severidade, v.registros_afetados, v.total_registros, "
+        "v.taxa_violacao_pct, v.status_resolucao, v.responsavel_resolucao, "
+        "v.dt_resolucao, v.log_timestamp, d.nome AS dimensao_nome "
+        f"FROM {CATALOG}.gold.violacoes_log v "
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = v.dimension_r18 "
+        "WHERE v.critica_id = :critica_id AND v.dt_base = :dt_base LIMIT 1",
+        {"critica_id": critica_id, "dt_base": dt_base},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Irregularity not found")
+    r = rows[0]
+    detected_at = r["log_timestamp"]
+    resolved_at = r["dt_resolucao"]
+    resolution_days = (resolved_at - detected_at).days if (detected_at and resolved_at) else None
+    timeline = [IncidentEvent(
+        timestamp=str(detected_at), event_type="detected", actor="dlt-pipeline",
+        description=f"Violação detectada automaticamente pelo pipeline DLT (crítica {r['critica_id']})",
+    )]
+    if resolved_at:
+        timeline.append(IncidentEvent(
+            timestamp=str(resolved_at), event_type="resolved",
+            actor=r.get("responsavel_resolucao") or "system",
+            description="Violação marcada como resolvida no log de governança.",
+        ))
+    item = Irregularity(
+        id=irregularity_id,
+        detected_at=str(detected_at),
+        data_base=r["dt_base"],
+        document=r["documento"],
+        dimension_r18=_DIM_ROMAN_TO_INT.get(r["dimension_r18"], 0),
+        dimension_name=r.get("dimensao_nome") or "",
+        severity=_SEVERITY_MAP.get(r["severidade"], "medium"),
+        status=_STATUS_MAP.get(r["status_resolucao"], "open"),
+        description=f"{r['expectation_name']} — {r['registros_afetados']} registros afetados ({r['taxa_violacao_pct']:.2f}%)",
+        owner=r.get("responsavel_resolucao"),
+        resolved_at=str(resolved_at) if resolved_at else None,
+        resolution_days=resolution_days,
+        detected_by="dlt-pipeline",
+        timeline=timeline,
+    )
+    return IrregularityDetailResponse(irregularity=item, action_plans=[])
 
 
 @router.get("/action-plans", response_model=ActionPlansResponse)

@@ -1,0 +1,52 @@
+# End-to-end orchestration job for the RC18 accelerator.
+#
+# Chains the existing assets in dependency order so a single
+# `databricks bundle run rc18_end_to_end` brings the whole stack
+# from a fresh deploy to populated gold tables:
+#
+#   setup_reference  →  load_sample_xmls  →  bronze  →  silver  →  gold
+#
+# Each step waits for its predecessor to complete successfully. The
+# DLT pipelines are referenced through bundle resource IDs so dev-mode
+# name prefixing is picked up automatically.
+
+resources:
+  jobs:
+    rc18_end_to_end:
+      name: "r18-end-to-end-${bundle.target}"
+      description: "Runs the full RC18 stack in order: reference seed + sample XML load, then bronze → silver → gold DLT pipelines."
+      tasks:
+        - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_reference_tables.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}
+
+        - task_key: "load_sample_xmls"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/load_sample_xmls.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              source_dir: ${workspace.file_path}/sample
+
+        - task_key: "bronze"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.bronze.id}
+
+        - task_key: "silver"
+          depends_on:
+            - task_key: "bronze"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver.id}
+
+        - task_key: "gold"
+          depends_on:
+            - task_key: "silver"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gold.id}
