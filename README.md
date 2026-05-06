@@ -28,7 +28,7 @@ Como padrão, são implementados pipelines utilizando dois arquivos de exemplo (
 
 ### 2. Ver o acelerador em ação (modo demo)
 
-Quer experimentar o acelerador fim-a-fim com dados fictícios — Doc 3040 sendo gerado, agregado em 3050 e exibido nos dashboards.
+Quer experimentar o acelerador fim-a-fim simulando a geração de dados fictícios — Doc 3040 sendo gerado, agregado em 3050 e exibido nos dashboards.
 
 ```bash
 cd demo
@@ -44,26 +44,24 @@ databricks bundle deploy -t dev    # sobe acelerador + geradores sintéticos + l
 
 | Cenário | Como configura |
 |---------|----------------|
-| **Deploy do bundle** (Databricks Apps + pipelines) | O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env` em [resources/app.yml](resources/app.yml#L18-L36) — usando referências `${resources.*}` que resolvem em deploy time. **Não é preciso preencher `.env`** para o deploy funcionar. Para reutilizar assets existentes, ver `--var catalog=...` / `--var warehouse_id=...` na seção de deploy. |
-| **Devloop local** (`./run_local.sh`) | `app/backend/main.py` carrega `.env` via `python-dotenv` no startup. Copie `.env.example` → `.env` e ajuste se for testar contra um workspace real. Para mock data (default), `USE_MOCK_BACKEND=true` já basta. |
+| **Deploy do bundle** (Databricks Apps + pipelines) | O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env` em [resources/app.yml](resources/app.yml#L18-L36) — usando referências `${resources.*}` que resolvem em deploy time. **Preencha o arquivo `.env`** para o deploy funcionar corretamente no seu próprio ambiente.|
+| **Dev local** (`./run_local.sh`) | `app/backend/main.py` carrega `.env` via `python-dotenv` no startup. Copie `.env.example` → `.env` e ajuste se for testar em um workspace real. Para dados mockados (default), `USE_MOCK_BACKEND=true`, neste caso não é utilizado dados reais do ambiente. |
 | **Frontend** | Não lê `.env` direto — recebe URLs/IDs via API do backend. |
 
 Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 
 | Variável | Descrição |
 |----------|-----------|
-| `DATABRICKS_HOST` | Host do workspace (`adb-<id>.<n>.azuredatabricks.net`) — apenas para devloop local contra workspace real |
-| `DATABRICKS_WAREHOUSE_ID` | Apenas para devloop local; em deploy de produção o bundle aponta o app para o warehouse provisionado |
-| `DATABRICKS_CATALOG` | Apenas para devloop local; em deploy o bundle define via `${var.catalog}` |
-| `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para devloop local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
+| `DATABRICKS_HOST` | Host do workspace (`adb-<id>.<n>.azuredatabricks.net`) — apenas para dev local contra workspace real |
+| `DATABRICKS_WAREHOUSE_ID` | Apenas para dev local; em deploy de produção o bundle aponta o app para o warehouse provisionado |
+| `DATABRICKS_CATALOG` | Apenas para dev local; em deploy o bundle define via `${var.catalog}` |
+| `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para dev local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
 | `GENIE_SPACE_ID` | Set quando houver um Genie Room provisionado externamente |
-| `USE_MOCK_BACKEND` | `true` no devloop para servir fixtures sem Databricks |
+| `USE_MOCK_BACKEND` | `true` no dev para servir fixtures sem Databricks |
 
 ---
 
 ## Estrutura do repositório
-
-Cada pasta de topo representa um artefato independente. A separação entre o **acelerador** (raiz) e o **demo** (`demo/`) é física e total — o cliente pode `rm -rf demo/` a qualquer momento.
 
 ```
 regulatory-data-governance/
@@ -72,7 +70,7 @@ regulatory-data-governance/
 ├── README.md                      # Este arquivo
 ├── CLAUDE.md                      # Guia de contexto para Claude Code
 ├── .env.example                   # Template de configuração (copie para .env)
-├── run_local.sh                   # Devloop local (sobe app + frontend)
+├── run_local.sh                   # Dev local (sobe app + frontend localmente)
 │
 ├── app/                           # Aplicação (FastAPI + SvelteKit)
 │   ├── backend/                   # API FastAPI servida pelo Databricks Apps
@@ -120,16 +118,6 @@ regulatory-data-governance/
 ├── scripts/                       # Utilitários de dev (não deploy)
 │   └── gen_doc3040_pdf.py
 │
-├── docs/                          # Especificações, requisitos e referência BACEN
-│   ├── spec/                      # 6 specs canônicos (fonte da verdade)
-│   ├── scr3040/                   # Layout + críticas + validador Doc 3040
-│   ├── scr3050/                   # Layout + críticas + validador Doc 3050
-│   ├── roundtable/                # Saídas da debate de 9 agentes
-│   ├── generated/                 # Documentos gerados (PDFs)
-│   ├── bacen_r18_requirements_architecture.md
-│   ├── resolucao_conjunta_n18.pdf
-│   └── index.md
-│
 └── demo/                          # Modo demo — dados sintéticos para experimentar o acelerador
     ├── README.md                  # Como rodar as demos
     ├── databricks.yml             # Bundle rc18-demo (acelerador + geradores)
@@ -162,7 +150,7 @@ regulatory-data-governance/
 
 ---
 
-## Devloop local (app)
+## Dev local (app)
 
 ```bash
 # Atalho (sobe backend :8000 + frontend :5173 com mock data)
@@ -231,20 +219,4 @@ databricks bundle deploy -t dev --profile <seu-profile> \
 
 Adicionalmente, comente os blocos em [resources/catalog.yml](resources/catalog.yml) e [resources/warehouse.yml](resources/warehouse.yml) para o bundle não tentar gerenciar o ciclo de vida desses recursos externos.
 
-### Caveats
-
-- **App em "Unavailable" após `bundle destroy` + `bundle deploy`**. O `lifecycle.started: true` do app inicia o compute mas não publica o código no primeiro deploy depois de uma destruição. Recupere com mais um `bundle deploy` (segundo run publica o código) ou rodando `databricks bundle run r18_compliance_app -t dev --profile <seu-profile>` para forçar a publicação.
-- **Re-deploy do app é automático**: alterar código em `app/backend/` e rodar `bundle deploy` novamente já republica o container — não é preciso comando separado.
-- **Genie Room** não é provisionado pelo bundle. Para habilitar a aba Genie, crie a sala manualmente, pegue o ID e re-adicione `GENIE_SPACE_ID` em `resources/app.yml` ou rode `databricks apps update <app-name> --env GENIE_SPACE_ID=<id>` post-deploy.
-
 ---
-
-## Domínio
-
-- **R.18**: resolução conjunta BACEN que exige política formal de qualidade para todo dado reportado ao BCB. 12 dimensões obrigatórias, governança no nível de board. Prazo: 31/12/2026.
-- **SCR Doc 3040**: dados detalhados de operações de crédito (130+ campos, IPOC, cessão/FIDC). Submissão em XML.
-- **SCR Doc 3050**: dados agregados (TXB/XML, layouts versionados — V11 atual). Periodicidade semanal/mensal seguindo calendário BCB.
-- **Equivalência**: mapeamento entre modalidades 3040 ↔ 3050 — exposto no silver como `mod_3050_equiv` para consumo dos dashboards.
-- **Críticas**: regras de validação (sintáticas, semânticas e inter-documentais).
-
-Detalhes completos em [docs/spec/](docs/spec/) e [docs/bacen_r18_requirements_architecture.md](docs/bacen_r18_requirements_architecture.md).
