@@ -177,10 +177,10 @@ Databricks App. See [.env.example](.env.example) for the full list of variables.
 |--------|--------|---------|
 | `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
 | `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
-| `silver` | 8 | Validated (operacoes_validadas, scr3040_clientes/garantias/vencimentos/cont_4966, scr3050_diario/mensal, quarantine) |
-| `gold` | 4 | Curated (posicao_mensal_3040, posicao_3050, governance_status_qualidade_mensal, governance_violacoes_log) |
+| `silver` | 11 | Validated (operacoes_validadas, scr3040_clientes/garantias/vencimentos/cont_4966/quarantine, scr3050_diario/mensal/quarantine) + quality outputs (quality_scorecard, criticas_results) — all written by the silver DLT pipeline (DLT writes to a single schema) |
+| `gold` | 6 | Curated (posicao_mensal_3040, posicao_3050, governance_status_qualidade_mensal, governance_violacoes_log, qualidade_dimensoes_mensal, violacoes_log) |
 | `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
-| `quality` | 4 | quality_scorecard, criticas_results, qualidade_dimensoes_mensal, violacoes_log |
+| `quality` | 7 | Rule engine state (re_datasets, re_dataset_columns, re_rules, re_bindings, re_runs, re_run_results, re_exceptions) — managed by the app's Rule Engine UI, not by DLT |
 
 ## Key Links
 

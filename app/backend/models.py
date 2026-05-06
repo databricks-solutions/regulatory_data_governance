@@ -247,6 +247,7 @@ class LineageNode(BaseModel):
     type: str
     layer: str
     system: str | None = None
+    system_type: str | None = None
     catalog: str | None = None
     schema_name: str | None = Field(None, alias="schema")
     metadata: LineageNodeMetadata | None = None
@@ -263,6 +264,7 @@ class LineageEdge(BaseModel):
     source: str
     target: str
     type: str
+    label: str | None = None
     pipeline: str | None = None
     audit_ref: str | None = None
     column_mappings: list[ColumnMapping] | None = None
