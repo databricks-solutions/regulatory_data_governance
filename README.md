@@ -20,6 +20,7 @@ cd regulatory-data-governance
 export DATABRICKS_BUNDLE_ENGINE=direct                       # obrigatório (bundle declara `catalogs:`)
 databricks bundle deploy -t dev --profile <seu-profile>      # cria catálogo, warehouse, schemas, app, pipelines, dashboards
 databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>   # orquestra setup → bronze → silver → gold
+databricks bundle run r18_compliance_app -t dev --profile <seu-profile> # Disponibilizando o app após o deployment
 ```
 
 > Prefere rodar passo a passo? Veja [Passo a passo](#passo-a-passo) abaixo, que dispara cada job/pipeline individualmente.
@@ -205,6 +206,14 @@ databricks bundle run setup_reference_tables -t dev --profile <seu-profile>   # 
 databricks bundle run bronze -t dev --profile <seu-profile>
 databricks bundle run silver -t dev --profile <seu-profile>
 databricks bundle run gold   -t dev --profile <seu-profile>
+```
+
+### Disponibilizando o app após o deployment
+
+Publica o código no compute e deixa o app acessível:
+
+```bash
+databricks bundle run r18_compliance_app -t dev --profile <seu-profile>
 ```
 
 ### Bring-your-own (BYOC) catálogo / warehouse
