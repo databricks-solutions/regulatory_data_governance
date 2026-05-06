@@ -61,7 +61,6 @@ variables:
 targets:
   dev:
     default: true
-    mode: development
     workspace:
       # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
