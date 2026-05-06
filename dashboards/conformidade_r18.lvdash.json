@@ -12,9 +12,22 @@
         "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
         "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
         "       ELSE 'CRITICO' END AS status ",
-        "FROM classic_stable_hj897w_catalog.silver.quality_scorecard ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.quality_scorecard) ",
+        "FROM IDENTIFIER(:catalog || '.silver.quality_scorecard') ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.quality_scorecard')) ",
         "GROUP BY dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -24,10 +37,23 @@
         "SELECT dt_base, ",
         "  MAX(dimensao_nome) AS dimensao, ",
         "  AVG(score_pct) AS score ",
-        "FROM classic_stable_hj897w_catalog.silver.quality_scorecard ",
+        "FROM IDENTIFIER(:catalog || '.silver.quality_scorecard') ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
         "GROUP BY dt_base, dimensao_id ",
         "ORDER BY dt_base, dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -40,10 +66,23 @@
         "  COUNT(*) AS total_dims ",
         "FROM ( ",
         "  SELECT dimensao_id, AVG(score_pct) AS score_pct, AVG(meta_pct) AS meta_pct ",
-        "  FROM classic_stable_hj897w_catalog.silver.quality_scorecard ",
-        "  WHERE dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.quality_scorecard) ",
+        "  FROM IDENTIFIER(:catalog || '.silver.quality_scorecard') ",
+        "  WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.quality_scorecard')) ",
         "  GROUP BY dimensao_id ",
         ")"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -66,10 +105,23 @@
         "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
         "       ELSE 'CRITICO' END AS status, ",
         "  MAX(dt_base) AS dt_base ",
-        "FROM classic_stable_hj897w_catalog.silver.quality_scorecard ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.quality_scorecard) ",
+        "FROM IDENTIFIER(:catalog || '.silver.quality_scorecard') ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.quality_scorecard')) ",
         "GROUP BY dimensao_id ",
         "ORDER BY dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     }
   ],

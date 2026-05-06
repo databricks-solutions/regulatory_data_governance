@@ -6,9 +6,22 @@
       "queryLines": [
         "SELECT documento, dt_base, status, ",
         "  COUNT(*) AS qtd_criticas ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -3), 'yyyy-MM') ",
         "GROUP BY documento, dt_base, status"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -18,9 +31,22 @@
         "SELECT severidade, ",
         "  COUNT(*) AS total, ",
         "  SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS reprovadas ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results) ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
+        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results')) ",
         "GROUP BY severidade"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -32,12 +58,25 @@
         "  documento, ",
         "  MAX(severidade) AS severidade, ",
         "  COUNT(*) AS ocorrencias ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE status = 'FAIL' ",
         "  AND dt_base >= DATE_FORMAT(add_months(current_date(), -1), 'yyyy-MM') ",
         "GROUP BY critica_id, documento ",
         "ORDER BY ocorrencias DESC ",
         "LIMIT 20"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -46,9 +85,22 @@
       "queryLines": [
         "SELECT documento, dt_base AS mes, ",
         "  ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
         "GROUP BY documento, dt_base"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -56,9 +108,22 @@
       "displayName": "KPI Taxa Aprovacao 3040",
       "queryLines": [
         "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE documento = '3040' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results WHERE documento = '3040')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results') WHERE documento = '3040')"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -66,9 +131,22 @@
       "displayName": "KPI Taxa Aprovacao 3050",
       "queryLines": [
         "SELECT ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE documento = '3050' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results WHERE documento = '3050')"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results') WHERE documento = '3050')"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     },
     {
@@ -76,9 +154,22 @@
       "displayName": "KPI Criticas Bloqueantes Abertas",
       "queryLines": [
         "SELECT COUNT(*) AS criticas_bloqueantes ",
-        "FROM classic_stable_hj897w_catalog.silver.criticas_results ",
+        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
         "WHERE severidade = 'BLOQUEANTE' AND status = 'FAIL' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM classic_stable_hj897w_catalog.silver.criticas_results)"
+        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results'))"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
       ]
     }
   ],

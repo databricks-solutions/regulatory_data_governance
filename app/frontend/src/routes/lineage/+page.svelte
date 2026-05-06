@@ -85,7 +85,7 @@
   }
 
   // ---- Initial mock data (matches backend _build_mock topology) ----
-  const CATALOG = 'classic_stable_hj897w_catalog';
+  const CATALOG = 'rc18_catalog';
 
   const initialApiNodes = [
     // Origin systems
