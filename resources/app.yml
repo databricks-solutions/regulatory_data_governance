@@ -25,15 +25,13 @@ resources:
             value: ${var.catalog}
           - name: DATABRICKS_WAREHOUSE_ID
             value: ${var.warehouse_id}
-          # Schema names are sourced from the schema RESOURCES (not raw vars) so
-          # that DABs `mode: development` prefixing (`dev_<user>_<schema>`) is
-          # honored consistently across the pipeline targets AND the app's env.
-          # Without this, the deployed app reads bare `gold`/`silver` while the
-          # pipeline writes to `dev_<user>_gold` — TABLE_OR_VIEW_NOT_FOUND.
-          # Customers using bring-your-own-catalog (commenting out
-          # resources/uc_assets.yml) must replace these resource refs with
-          # ${var.schema_*} (defaults to bronze/silver/gold) and also set
-          # SCHEMA_REFERENCE to their existing reference schema.
+          # Schema names sourced from the schema RESOURCES (not raw vars) so
+          # the app's env stays in sync with whatever the bundle deployed —
+          # currently literal `bronze`/`silver`/`gold`/`quality`/`reference`
+          # since `mode: development` is not used. If a customer brings their
+          # own catalog (commenting out resources/uc_assets.yml), replace
+          # these resource refs with ${var.schema_*} and set SCHEMA_REFERENCE
+          # to point at their existing reference schema.
           - name: SCHEMA_BRONZE
             value: ${resources.schemas.bronze_schema.name}
           - name: SCHEMA_SILVER
@@ -53,6 +51,15 @@ resources:
           # without one. To enable the Genie tab, set it post-deploy with:
           #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
           # or re-add this block once you have a non-empty default for the var.
+
+          # DQX_STUDIO_URL intentionally omitted for the same reason — set it
+          # post-deploy once you've deployed the DQX Studio app
+          # (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/) and
+          # know its public URL:
+          #   databricks apps update <app-name> --env DQX_STUDIO_URL=https://<dqx-studio-app>.databricksapps.com
+          # When unset, the "Motor de Regras" page shows an empty state with
+          # deploy instructions. The app code's `os.getenv("DQX_STUDIO_URL", "")`
+          # fallback covers absence cleanly.
 
       permissions:
         - level: CAN_USE

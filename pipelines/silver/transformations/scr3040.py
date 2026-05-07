@@ -1,44 +1,53 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver — SCR 3040 Validated (XML-derived)
+# MAGIC # Silver — SCR 3040 (XML-derived)
 # MAGIC
 # MAGIC Reads `bronze.raw_3040_doc` (one row per XML file with parsed nested structs)
-# MAGIC and explodes it into normalized tables that mirror the BACEN wire format:
+# MAGIC and explodes it into 5 normalized silver tables. Pure ELT — bronze→silver
+# MAGIC transforms (explode, IPOC decomposition, natureza-derived flags, modalidade
+# MAGIC equivalence join). Não há mais quality logic embutida no pipeline silver:
+# MAGIC quality é gerenciada externamente pelo DQX Studio (Databricks App externa
+# MAGIC embarcada via iframe na rota `/rules` do app RC18).
 # MAGIC
 # MAGIC | Silver table | Source array | One row per |
 # MAGIC |---|---|---|
-# MAGIC | `operacoes_validadas` | `operacoes` | `<Op>` (joined with parent `<Cli>` and `<Doc3040>` header) |
-# MAGIC | `scr3040_clientes` | `clientes` | `<Cli>` |
-# MAGIC | `scr3040_garantias` | `garantias` | `<Gar>` |
-# MAGIC | `scr3040_vencimentos` | `vencimentos` | `<Venc>` (one per Op, vertices as columns) |
-# MAGIC | `scr3040_cont_4966` | `cont4966` | `<ContInstFinRes4966>` + `<Estagio>` |
-# MAGIC | `scr3040_quarantine` | (rejected) | failed blocking expectations |
-# MAGIC
-# MAGIC Operations enrich with `mod_3050_equiv` from `reference.modalidades_equivalencia`
-# MAGIC (`mod_3050_equiv`) for downstream consumers. Expectations are mapped to R.18
-# MAGIC quality dimensions and recorded in DLT event log.
+# MAGIC | `operacoes`     | `operacoes`   | `<Op>` joined com `<Cli>` e header                          |
+# MAGIC | `clientes`      | `clientes`    | `<Cli>`                                                      |
+# MAGIC | `garantias`     | `garantias`   | `<Gar>`                                                      |
+# MAGIC | `vencimentos`   | `vencimentos` | `<Venc>` (vértices como colunas)                             |
+# MAGIC | `cont_4966`     | `cont4966`    | `<ContInstFinRes4966>` + `<Estagio>`                         |
 
 # COMMAND ----------
 
 
+import uuid
+
 import dlt
 from pyspark.sql import functions as F
+
 
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
 BRONZE_SCHEMA = spark.conf.get("source_schema", "bronze")
 REFERENCE_SCHEMA = spark.conf.get("reference_schema", "reference")
 
-# IPOC layout (30 chars): CNPJ_IF(8) + Mod(4) + TpCli(1) + CodCli(8) + Contrt(9)
-IPOC_REGEX = r"^\d{8}\d{4}[1-6]\d{8}\d{9}$"
+# UUID logical-run identifier carimbado em cada linha das tabelas silver via
+# `pipeline_run_id`. Útil para customers correlacionarem qual execução do
+# pipeline produziu um lote específico de registros (debug + auditoria). O
+# módulo é carregado uma única vez por sessão DLT, então as 5 tabelas 3040
+# deste módulo compartilham o mesmo valor.
+_PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
+
+
+# ── Helpers de explode ───────────────────────────────────────────────────────
 
 
 def _bronze():
     return dlt.read(f"{SOURCE_CATALOG}.{BRONZE_SCHEMA}.raw_3040_doc")
 
 
-def _explode(array_col: str, extra_cols: list[str] | None = None):
+def _explode(array_col: str):
     """Explode a bronze array column into rows, propagating header attrs."""
-    base = (
+    return (
         _bronze()
         .select(
             F.col("file_name"),
@@ -50,29 +59,17 @@ def _explode(array_col: str, extra_cols: list[str] | None = None):
             F.explode(F.col(array_col)).alias("rec"),
         )
     )
-    return base
 
 
-# ── Operações validadas ───────────────────────────────────────────────────────
+# ── Operações ────────────────────────────────────────────────────────────────
+# IPOC layout (30 chars): CNPJ_IF(8) + Mod(4) + TpCli(1) + CodCli(8) + Contrt(9)
+IPOC_REGEX = r"^\d{8}\d{4}[1-6]\d{8}\d{9}$"
 
-@dlt.table(
-    name="operacoes_validadas",
-    comment="Operações SCR 3040 — uma linha por <Op>, com cabeçalho propagado, validação IPOC e mapeamento 3040→3050",
-    table_properties={
-        "quality": "silver",
-        "delta.logRetentionDuration": "interval 1825 days",
-    },
-    partition_cols=["dt_base"],
-)
-@dlt.expect_or_drop("valid_cnpj_if_length", "LENGTH(cnpj_if) = 8")
-@dlt.expect_or_drop("valid_ipoc_format", f"ipoc RLIKE '{IPOC_REGEX}'")
-@dlt.expect_or_drop("campos_obrigatorios_s10", "contrt IS NOT NULL AND natu_op IS NOT NULL AND mod IS NOT NULL")
-@dlt.expect_or_drop("modalidade_valid_domain", "LENGTH(mod) = 4")
-@dlt.expect("date_vencimento_after_contrato", "dt_venc_op IS NULL OR dt_contr IS NULL OR dt_venc_op >= dt_contr")
-@dlt.expect("ipoc_components_consistent", "ipoc_is_consistent = true")
-@dlt.expect("dia_atraso_nao_negativo", "dia_atraso IS NULL OR dia_atraso >= 0")
-@dlt.expect("perc_indx_in_range", "perc_indx IS NULL OR (perc_indx >= 0 AND perc_indx <= 9999.99)")
-def operacoes_validadas():
+
+def _build_operacoes_df():
+    """Constrói o DataFrame enriquecido de operações 3040 (decomposição IPOC,
+    flags de natureza, lista de `carac_especial`, join com
+    `modalidades_equivalencia`)."""
     ops = _explode("operacoes")
 
     enriched = (
@@ -125,7 +122,7 @@ def operacoes_validadas():
             F.when(F.col("carac_especial").isNotNull(), F.split(F.col("carac_especial"), ";"))
             .otherwise(F.array().cast("array<string>")),
         )
-        .withColumn("validation_run_id", F.lit("dlt_pipeline"))
+        .withColumn("pipeline_run_id", F.lit(_PIPELINE_RUN_ID))
         .withColumn("_silver_timestamp", F.current_timestamp())
     )
 
@@ -146,19 +143,26 @@ def operacoes_validadas():
     )
 
 
-# ── Clientes ──────────────────────────────────────────────────────────────────
-
 @dlt.table(
-    name="scr3040_clientes",
-    comment="Clientes SCR 3040 — uma linha por <Cli>, validados",
-    table_properties={"quality": "silver"},
+    name="operacoes",
+    comment=(
+        "Operações SCR 3040 — 1 linha por <Op>, com cabeçalho propagado, validação "
+        "IPOC e mapeamento 3040→3050."
+    ),
+    table_properties={
+        "quality": "silver",
+        "delta.logRetentionDuration": "interval 1825 days",
+    },
     partition_cols=["dt_base"],
 )
-@dlt.expect_or_drop("cli_cd_not_null", "cli_cd IS NOT NULL")
-@dlt.expect_or_drop("cli_tp_valid", "cli_tp IN ('1','2','3','4','5','6')")
-@dlt.expect("porte_cli_valid", "porte_cli IS NULL OR porte_cli IN ('0','1','2','3','4','5','6','7','8','9')")
-@dlt.expect("autorzc_valid", "autorzc IS NULL OR autorzc IN ('S','N')")
-def scr3040_clientes():
+def operacoes():
+    return _build_operacoes_df()
+
+
+# ── Clientes ──────────────────────────────────────────────────────────────────
+
+
+def _build_clientes_df():
     return (
         _explode("clientes")
         .select(
@@ -173,26 +177,25 @@ def scr3040_clientes():
         )
         .withColumn("is_pf", F.col("cli_tp") == "1")
         .withColumn("is_pj", F.col("cli_tp").isin("2", "5"))
-        .withColumn("validation_run_id", F.lit("dlt_pipeline"))
+        .withColumn("pipeline_run_id", F.lit(_PIPELINE_RUN_ID))
         .withColumn("_silver_timestamp", F.current_timestamp())
     )
 
 
-# ── Garantias ─────────────────────────────────────────────────────────────────
-
 @dlt.table(
-    name="scr3040_garantias",
-    comment="Garantias SCR 3040 — uma linha por <Gar>, classificadas em fidejussórias (Ident+PercGar) vs reais (VlrOrig/VlrData/DtReav)",
+    name="clientes",
+    comment="Clientes SCR 3040 — 1 linha por <Cli>.",
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-@dlt.expect_or_drop("gar_tp_not_null", "gar_tp IS NOT NULL")
-@dlt.expect("gar_categoria_consistent",
-    "(gar_categoria='fidejussoria' AND ident IS NOT NULL AND vlr_orig IS NULL) OR "
-    "(gar_categoria='real' AND ident IS NULL AND vlr_orig IS NOT NULL)")
-@dlt.expect("perc_gar_in_range", "perc_gar IS NULL OR (perc_gar > 0 AND perc_gar <= 100)")
-@dlt.expect("garantidor_diferente_cliente", "ident IS NULL OR ident != cli_cd")
-def scr3040_garantias():
+def clientes():
+    return _build_clientes_df()
+
+
+# ── Garantias ─────────────────────────────────────────────────────────────────
+
+
+def _build_garantias_df():
     return (
         _explode("garantias")
         .select(
@@ -210,22 +213,28 @@ def scr3040_garantias():
             F.col("rec.gar_categoria").alias("gar_categoria"),
         )
         .withColumn("is_fidejussoria", F.col("gar_categoria") == "fidejussoria")
-        .withColumn("validation_run_id", F.lit("dlt_pipeline"))
+        .withColumn("pipeline_run_id", F.lit(_PIPELINE_RUN_ID))
         .withColumn("_silver_timestamp", F.current_timestamp())
     )
 
 
-# ── Vencimentos (vértices) ────────────────────────────────────────────────────
-
 @dlt.table(
-    name="scr3040_vencimentos",
-    comment="Vértices SCR 3040 — uma linha por <Op>, com vértices v110…v330 + limites/coobrigações como colunas; total_saldo agregado",
+    name="garantias",
+    comment=(
+        "Garantias SCR 3040 — 1 linha por <Gar>, classificadas em fidejussórias "
+        "(Ident+PercGar) vs reais (VlrOrig/VlrData/DtReav)."
+    ),
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-@dlt.expect("total_saldo_positive", "total_saldo IS NULL OR total_saldo >= 0")
-@dlt.expect("vertice_unico_por_op", "vertice_count >= 1")
-def scr3040_vencimentos():
+def garantias():
+    return _build_garantias_df()
+
+
+# ── Vencimentos (vértices) ────────────────────────────────────────────────────
+
+
+def _build_vencimentos_df():
     a_vencer_cols = ["v110", "v120", "v130", "v140", "v150", "v160", "v165", "v170", "v175", "v180", "v190", "v199"]
     vencido_cols = ["v205", "v210", "v220", "v230", "v240", "v250", "v260", "v270", "v280", "v290"]
     prejuizo_cols = ["v310", "v320", "v330"]
@@ -266,25 +275,28 @@ def scr3040_vencimentos():
                 for c in a_vencer_cols + vencido_cols + prejuizo_cols
             ),
         )
-        .withColumn("validation_run_id", F.lit("dlt_pipeline"))
+        .withColumn("pipeline_run_id", F.lit(_PIPELINE_RUN_ID))
         .withColumn("_silver_timestamp", F.current_timestamp())
     )
 
 
-# ── ContInstFinRes 4966 + Estágio ─────────────────────────────────────────────
-
 @dlt.table(
-    name="scr3040_cont_4966",
-    comment="Contabilização Res. 4966 — uma linha por <ContInstFinRes4966> com estágio aninhado (Motivo, DtAlocacao)",
+    name="vencimentos",
+    comment=(
+        "Vértices SCR 3040 — 1 linha por <Op>, com vértices v110…v330 + "
+        "limites/coobrigações como colunas; total_saldo agregado."
+    ),
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-@dlt.expect_or_drop("vlr_cont_br_positive", "vlr_cont_br IS NOT NULL AND vlr_cont_br >= 0")
-@dlt.expect("clas_at_fin_valid", "clas_at_fin IN ('1','2','3')")
-@dlt.expect("est_inst_fin_valid", "est_inst_fin IN ('1','2','3')")
-@dlt.expect("cart_prov_min_valid", "cart_prov_min IN ('C1','C2','C3','C4')")
-@dlt.expect("estagio_motivo_valid", "estagio_motivo IS NULL OR LENGTH(estagio_motivo) = 3")
-def scr3040_cont_4966():
+def vencimentos():
+    return _build_vencimentos_df()
+
+
+# ── ContInstFinRes 4966 + Estágio ─────────────────────────────────────────────
+
+
+def _build_cont_4966_df():
     return (
         _explode("cont4966")
         .select(
@@ -302,47 +314,19 @@ def scr3040_cont_4966():
             F.col("rec.estagio_motivo").alias("estagio_motivo"),
             F.col("rec.estagio_dt_alocacao").alias("estagio_dt_alocacao"),
         )
-        .withColumn("validation_run_id", F.lit("dlt_pipeline"))
+        .withColumn("pipeline_run_id", F.lit(_PIPELINE_RUN_ID))
         .withColumn("_silver_timestamp", F.current_timestamp())
     )
 
 
-# ── Quarentena ────────────────────────────────────────────────────────────────
-
 @dlt.table(
-    name="scr3040_quarantine",
-    comment="Operações SCR 3040 rejeitadas pelas regras bloqueantes (expect_or_drop) — para drill-down e remediação",
-    table_properties={"quality": "quarantine"},
+    name="cont_4966",
+    comment=(
+        "Contabilização Res. 4966 — 1 linha por <ContInstFinRes4966> com estágio "
+        "aninhado (Motivo, DtAlocacao)."
+    ),
+    table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-def scr3040_quarantine():
-    ops = _explode("operacoes").select(
-        "file_name", "dt_base", "cnpj_if",
-        F.col("rec.cli_cd").alias("cli_cd"),
-        F.col("rec.contrt").alias("contrt"),
-        F.col("rec.ipoc").alias("ipoc"),
-        F.col("rec.natu_op").alias("natu_op"),
-        F.col("rec.mod").alias("mod"),
-        "rec",
-    )
-    return (
-        ops
-        .filter(
-            (F.length("cnpj_if") != 8)
-            | (~F.col("ipoc").rlike(IPOC_REGEX))
-            | F.col("contrt").isNull()
-            | F.col("natu_op").isNull()
-            | F.col("mod").isNull()
-            | (F.length(F.col("mod")) != 4)
-        )
-        .select(
-            "file_name", "cnpj_if", "dt_base", "cli_cd", "contrt", "ipoc",
-            F.to_json("rec").alias("raw_record"),
-            F.array(F.lit("blocking_rule")).alias("failed_expectations"),
-            F.lit("Falhou em uma ou mais regras bloqueantes do silver").alias("failure_reason"),
-            F.lit(None).cast("array<string>").alias("critica_ids"),
-            F.lit(None).cast("array<string>").alias("dimension_r18"),
-            F.lit("dlt_pipeline").alias("validation_run_id"),
-            F.current_timestamp().alias("quarantine_timestamp"),
-        )
-    )
+def cont_4966():
+    return _build_cont_4966_df()

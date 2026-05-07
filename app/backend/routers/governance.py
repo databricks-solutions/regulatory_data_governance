@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, SCHEMA_GOLD, SCHEMA_REFERENCE, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, SCHEMA_REFERENCE, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when gold/reference tables haven't been populated yet.
+from db import execute_query_or_empty as execute_query
 
 # Roman → int mapping for the R.18 dimension key stored in
 # `gold.violacoes_log.dimension_r18` (matches `reference.dimensoes_r18.dimensao_id`).

@@ -26,7 +26,8 @@ Critical invariants:
 |-------|-----------|----------|
 | Frontend | SvelteKit 5, Svelte Flow, LayerCake, d3 | `app/frontend/` |
 | Backend | FastAPI, Pydantic v2, databricks-sdk | `app/backend/` |
-| Pipelines | DLT/SDP with Expectations | `pipelines/` |
+| Pipelines | DLT/SDP (pure ELT bronze→silver→gold) | `pipelines/` |
+| Quality (rule authoring + execution) | DQX Studio (external Databricks App, embedded via iframe) | env var `DQX_STUDIO_URL` → `/rules` page |
 | Dashboards | Lakeview (AI/BI) JSON definitions | `dashboards/` |
 | Deployment | Databricks Asset Bundles (DABs) | `databricks.yml`, `resources/` |
 | Data | Unity Catalog, catalog `rc18_catalog` | Workspace `latam-ssa` |
@@ -48,7 +49,7 @@ regulatory-data-governance/
 │
 ├── pipelines/                     # DLT skeletons (bronze/silver/gold) for CADOC 3040/3050
 │   ├── bronze/transformations/
-│   ├── silver/transformations/
+│   ├── silver/transformations/    # Pure ELT — no quality logic (lives in DQX Studio)
 │   └── gold/transformations/
 │
 ├── notebooks/                     # Accelerator utility notebooks
@@ -64,7 +65,7 @@ regulatory-data-governance/
 │   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
 │   ├── catalog.yml                # ${var.catalog} (default rc18_catalog)
 │   ├── warehouse.yml              # Serverless 2X-Small warehouse, default for ${var.warehouse_id}
-│   ├── setup_job.yml              # 2 tasks: setup_reference + load_sample_xmls
+│   ├── setup_job.yml              # 3 tasks: setup_reference + load_sample_xmls + setup_byol_lineage
 │   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
 │   ├── pipelines/{bronze,silver,gold}.yml
 │   └── analytics/dashboard_*.yml
@@ -136,8 +137,8 @@ databricks bundle deploy -t dev --profile <p>                                  #
 #   databricks bundle run r18_compliance_app -t dev --profile <p>              # manual code push
 databricks bundle run setup_reference_tables -t dev --profile <p>              # seeds reference + loads sample XMLs into landing
 databricks bundle run bronze -t dev --profile <p>                              # ingests sample XMLs
-databricks bundle run silver -t dev --profile <p>                              # validate + DLT expectations
-databricks bundle run gold -t dev --profile <p>                                # curated tables + governance scorecard
+databricks bundle run silver -t dev --profile <p>                              # bronze→silver ELT
+databricks bundle run gold -t dev --profile <p>                                # curated position tables
 
 # Bring-your-own catalog / warehouse: override the vars AND comment out the corresponding
 # resources/catalog.yml / resources/warehouse.yml so the bundle doesn't manage them.
@@ -177,10 +178,9 @@ Databricks App. See [.env.example](.env.example) for the full list of variables.
 |--------|--------|---------|
 | `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
 | `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
-| `silver` | 11 | Validated (operacoes_validadas, scr3040_clientes/garantias/vencimentos/cont_4966/quarantine, scr3050_diario/mensal/quarantine) + quality outputs (quality_scorecard, criticas_results) — all written by the silver DLT pipeline (DLT writes to a single schema) |
-| `gold` | 6 | Curated (posicao_mensal_3040, posicao_3050, governance_status_qualidade_mensal, governance_violacoes_log, qualidade_dimensoes_mensal, violacoes_log) |
+| `silver` | 6 | Normalized SCR tables (pure ELT, no quality columns): `operacoes`, `clientes`, `garantias`, `vencimentos`, `cont_4966` (3040) + `scr3050`. Written by the silver DLT pipeline (DLT writes to a single schema). |
+| `gold` | 2 | Curated (posicao_mensal_3040, posicao_3050) |
 | `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
-| `quality` | 7 | Rule engine state (re_datasets, re_dataset_columns, re_rules, re_bindings, re_runs, re_run_results, re_exceptions) — managed by the app's Rule Engine UI, not by DLT |
 
 ## Key Links
 
@@ -204,16 +204,16 @@ See [docs/gdocs_notes.md](docs/gdocs_notes.md) for meeting notes and project con
 ## Architecture
 
 ```
-SCR XML files → Bronze (parsed structs) → Silver (validated, R.18 expectations) → Gold (curated)
-                                                                                      ↓
-                                                                              Lakeview Dashboards
-                                                                              Genie Room (NL→SQL)
-                                                                              Svelte App (FastAPI)
+SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (curated)
+                                                                       ↓
+                                                               Lakeview Dashboards
+                                                               Genie Room (NL→SQL)
+                                                               Svelte App (FastAPI)
 ```
 
 - **Frontend**: SvelteKit 5 SPA with custom theme, Svelte Flow lineage DAG, LayerCake charts
 - **Backend**: FastAPI with mock mode (USE_MOCK_BACKEND=true) and real Databricks SQL mode
-- **Pipelines**: DLT with Expectations mapped to 12 R.18 quality dimensions
+- **Pipelines**: DLT/SDP — pure ELT bronze→silver→gold; no quality logic embedded. Quality (rule authoring + execution) is delegated to **DQX Studio** (external Databricks App from Databricks Labs DQX), embedded via iframe on the app's `/rules` page when `DQX_STUDIO_URL` is set.
 - **Lineage**: UC system tables + External Lineage API (BYOL) for external systems
 
 ## Conventions
@@ -250,3 +250,4 @@ SCR XML files → Bronze (parsed structs) → Silver (validated, R.18 expectatio
 - Mock mode enables local development without Databricks connectivity
 - Synthetic data has intentional quality issues (3% nulls, 2% out-of-domain, 5% cross-doc divergences)
 - Quality trend improves over 3 months (Jan 82% → Feb 91% → Mar 96%) for compelling demo
+- **Quality (rule authoring + execution) is delegated to DQX Studio**, an external Databricks App from the Databricks Labs DQX project (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/). The RC18 app embeds it via iframe on `/rules` when `DQX_STUDIO_URL` is set; falls back to a link-out empty state otherwise. Pipelines silver/gold are pure ELT — no DQX dependency, no `_errors`/`_warnings` columns, no `quality.dqx_checks` table.

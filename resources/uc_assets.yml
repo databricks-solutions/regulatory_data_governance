@@ -1,19 +1,18 @@
 # Unity Catalog schemas and volumes that the RC18 pipelines depend on.
 #
-# All schemas are declared here so DABs `mode: development` prefixing
-# (`dev_<user>_<name>`) is applied consistently across:
-#   - the schema CREATE itself,
-#   - each DLT pipeline's `schema:` target, and
-#   - each pipeline's `configuration` block where downstream pipelines need the
-#     schema name (gold reads silver via spark.table, etc.).
+# Schema names são literais (`bronze`, `silver`, `gold`, `reference`, `landing`)
+# — o `dev` target NÃO usa `mode: development`, então não há prefixo
+# `dev_<user>_` aplicado pelo DABs. Pipelines DLT e o app leem esses mesmos
+# nomes via `${var.schema_*}` ou via referência direta ao recurso
+# (`${resources.schemas.<name>.name}`).
 #
-# Without this, in dev mode the silver pipeline target gets prefixed to
-# `dev_<user>_silver` while a config value of `${var.schema_silver}` = `silver`
-# still resolves to plain `silver` — which makes gold read an empty schema.
+# O catálogo em si NÃO é declarado no core. Para demos ele vive em
+# `demo/resources/catalog.yml`; clientes fornecem um catálogo existente
+# via `${var.catalog}`.
 #
-# The catalog itself is NOT declared in core. For demos it lives in
-# `demo/resources/catalog.yml`; for customer deployments the customer
-# provides an existing catalog via `${var.catalog}`.
+# Quality lifecycle (autoria de regras + execução) vive fora deste bundle, no
+# DQX Studio (Databricks App externa do Databricks Labs DQX) — embarcado via
+# iframe na rota `/rules` do app RC18 quando `DQX_STUDIO_URL` está setado.
 
 resources:
   schemas:
@@ -35,12 +34,12 @@ resources:
     silver_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_silver}
-      comment: "Silver — validated/normalized SCR tables (operacoes_validadas, scr3040_*, scr3050_validated, quarantine) + per-run quality_scorecard / criticas_results."
+      comment: "Silver — normalized SCR tables (operacoes, clientes, garantias, vencimentos, cont_4966 for 3040; scr3050 unified). Pure ELT — quality runs externally in DQX Studio."
 
     gold_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_gold}
-      comment: "Gold — curated tables for App + dashboards (posicao_mensal_3040, posicao_3050, qualidade_dimensoes_mensal, violacoes_log)."
+      comment: "Gold — curated tables for App + dashboards (posicao_mensal_3040, posicao_3050)."
 
   volumes:
     scr_xml:

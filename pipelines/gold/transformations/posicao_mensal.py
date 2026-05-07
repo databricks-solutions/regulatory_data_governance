@@ -7,8 +7,8 @@
 # MAGIC
 # MAGIC | Table | Source | One row per |
 # MAGIC |---|---|---|
-# MAGIC | `posicao_mensal_3040` | silver `operacoes_validadas` ⨝ `scr3040_cont_4966` ⨝ `scr3040_vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
-# MAGIC | `posicao_3050` | silver `scr3050_validated` (passthrough + `_gold_timestamp`) | `(cnpj_if, dt_base, dt_referencia, periodicidade, carteira, segmento, encargo, modalidade)` |
+# MAGIC | `posicao_mensal_3040` | silver `operacoes` ⨝ `cont_4966` ⨝ `vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
+# MAGIC | `posicao_3050` | silver `scr3050` (passthrough + `_gold_timestamp`) | `(cnpj_if, dt_base, dt_referencia, periodicidade, carteira, segmento, encargo, modalidade)` |
 # MAGIC
 # MAGIC Note: `posicao_3050` is a deliberately thin passthrough — the silver table
 # MAGIC already carries diário+mensal in a unified schema (column `periodicidade`),
@@ -38,9 +38,12 @@ GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
     partition_cols=["dt_base"],
 )
 def posicao_mensal_3040():
-    ops = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes_validadas")
+    # Pure ELT passthrough — silver é puro normalizado (sem DQX inline). Quality
+    # é gerenciada externamente pelo DQX Studio; gold simplesmente promove os
+    # registros silver para as posições mensais que App/dashboards consomem.
+    ops = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes")
     cont = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_cont_4966")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.cont_4966")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             "clas_at_fin", "est_inst_fin", "cart_prov_min",
@@ -49,7 +52,7 @@ def posicao_mensal_3040():
         )
     )
     venc = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.vencimentos")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             F.col("total_saldo").alias("total_saldo_vencimentos"),
@@ -76,7 +79,7 @@ def posicao_mensal_3040():
             # Vértices
             "total_saldo_vencimentos", "total_a_vencer", "total_vencido",
             "total_prejuizo", "total_limites", "total_coobrigacoes",
-            F.col("validation_run_id").alias("pipeline_run_id"),
+            "pipeline_run_id",
             F.current_timestamp().alias("_gold_timestamp"),
         )
     )
@@ -86,7 +89,7 @@ def posicao_mensal_3040():
 
 @dlt.table(
     name="posicao_3050",
-    comment="Posição SCR 3050 — passthrough de silver.scr3050_validated (diário+mensal já unificados via periodicidade) com timestamp de gold",
+    comment="Posição SCR 3050 — passthrough de silver.scr3050 (diário+mensal já unificados via periodicidade), adicionando timestamp de gold",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
@@ -95,6 +98,6 @@ def posicao_mensal_3040():
 )
 def posicao_3050():
     return (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050_validated")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050")
         .withColumn("_gold_timestamp", F.current_timestamp())
     )

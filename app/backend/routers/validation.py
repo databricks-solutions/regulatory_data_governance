@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, SCHEMA_SILVER, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_SILVER, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when silver tables haven't been populated yet (pipeline not run).
+from db import execute_query_or_empty as execute_query
 from models import (
     Pagination,
     RunProgress,

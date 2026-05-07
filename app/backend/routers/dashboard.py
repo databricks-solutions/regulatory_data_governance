@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
 
-from db import CATALOG, SCHEMA_GOLD, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when gold/silver tables haven't been populated yet (pipelines not run).
+from db import execute_query_or_empty as execute_query
 from models import (
     Alert,
     DashboardEmbed,

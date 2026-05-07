@@ -10,6 +10,30 @@ Entrega uma aplicação Databricks (FastAPI + Svelte) de monitoramento de qualid
 
 Dois caminhos:
 
+> **Sobre o motor de qualidade (DQX) — leia antes de usar em produção**
+>
+> A camada de qualidade do RC18 é construída sobre **[Databricks Labs DQX](https://github.com/databrickslabs/dqx)**,
+> uma biblioteca **oficial Databricks Labs em estágio pré-1.0** (versão fixada
+> aqui: `databricks-labs-dqx==0.13.0`). Bibliotecas Labs são suportadas pela
+> comunidade Databricks, **não** entram nos SLAs de produto comerciais e podem
+> introduzir mudanças incompatíveis em versões menores.
+>
+> Por isso este acelerador **fixa explicitamente a versão da DQX** em três lugares
+> ([`app/backend/requirements.txt`](app/backend/requirements.txt), [`resources/pipelines/silver.yml`](resources/pipelines/silver.yml), este aviso).
+> Antes de promover para um ambiente produtivo:
+>
+> 1. Faça fork deste repositório.
+> 2. Mantenha a versão fixa congelada — atualize só dentro do seu ciclo de
+>    recertificação (ler [CHANGELOG da DQX](https://github.com/databrickslabs/dqx/releases)
+>    primeiro).
+> 3. Versionar e migrar `rc18_catalog.quality.dqx_checks` é responsabilidade
+>    sua — o seed do setup_job é idempotente, mas não migra schema do DQX.
+>
+> Se a sua organização precisa de garantias contratuais de suporte ao motor de
+> qualidade, considere substituir DQX por uma engine equivalente antes do go-live
+> (a separação em §5/§6 de [docs/spec/07_dqx_migration.md](docs/spec/07_dqx_migration.md) foi
+> desenhada para que essa troca seja contida).
+
 ### 1. Implementar o acelerador no seu ambiente
 
 Você usa o repositório como **atalho** para construir sua própria solução de conformidade com a RC18 no seu ambiente Databricks. Estende a app, pluga seus dados reais nos pipelines 3040/3050 (e outros CADOCs), customiza dashboards.

@@ -22,7 +22,7 @@
 # MAGIC
 # MAGIC Output table `raw_3050_doc` carries one row per XML file with `header` + nested
 # MAGIC arrays `diario` and `mensal`. Silver explodes both arrays into a single
-# MAGIC `scr3050_validated` table with a `periodicidade` column.
+# MAGIC `scr3050` table with a `periodicidade` column.
 
 # COMMAND ----------
 

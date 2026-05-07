@@ -134,116 +134,13 @@ export function getGovernanceReports() {
   return apiFetch('/governance/reports');
 }
 
-// Rule Engine — Datasets
-export function getRuleEngineDatasets(search) {
-  const params = search ? `?search=${encodeURIComponent(search)}` : '';
-  return apiFetch(`/rules/datasets${params}`);
-}
+// =============================================================================
+// Branding + embed config
+//
+// Returns brand-related fields plus runtime URLs for embedded external apps
+// (currently `dqx_studio_url` — empty string when not configured).
+// =============================================================================
 
-export function createRuleEngineDataset(body) {
-  return apiFetch('/rules/datasets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function getRuleEngineDataset(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}`);
-}
-
-export function getRuleEngineDatasetColumns(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/columns`);
-}
-
-export function deleteRuleEngineDataset(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}`, { method: 'DELETE' });
-}
-
-// Rule Engine — Rules
-export function getRuleEngineRules(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/${qs ? '?' + qs : ''}`);
-}
-
-export function createRuleEngineRule(body) {
-  return apiFetch('/rules/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function getRuleEngineRule(ruleId) {
-  return apiFetch(`/rules/${ruleId}`);
-}
-
-export function updateRuleEngineRule(ruleId, body) {
-  return apiFetch(`/rules/${ruleId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function deleteRuleEngineRule(ruleId) {
-  return apiFetch(`/rules/${ruleId}`, { method: 'DELETE' });
-}
-
-export function validateExpression(expression) {
-  return apiFetch('/rules/validate-expression', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expression })
-  });
-}
-
-// Rule Engine — Bindings
-export function getDatasetBindings(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings`);
-}
-
-export function createBinding(datasetId, body) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function deleteBinding(datasetId, bindingId) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings/${bindingId}`, { method: 'DELETE' });
-}
-
-// Rule Engine — Execution
-export function triggerRuleEngineRun(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/run`, { method: 'POST' });
-}
-
-export function getRuleEngineRunStatus(runId) {
-  return apiFetch(`/rules/runs/${runId}`);
-}
-
-export function getRuleEngineRunResults(runId) {
-  return apiFetch(`/rules/runs/${runId}/results`);
-}
-
-export function getRuleEngineExceptions(runId, filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/runs/${runId}/exceptions${qs ? '?' + qs : ''}`);
-}
-
-export function getRuleEngineRuns(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/runs${qs ? '?' + qs : ''}`);
-}
-
-export function seedRuleEngineRules() {
-  return apiFetch('/rules/seed', { method: 'POST' });
+export function getBrandConfig() {
+  return apiFetch('/brand/config');
 }

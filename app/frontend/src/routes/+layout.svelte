@@ -84,8 +84,12 @@
   let currentTitle = $derived.by(() => {
     const path = $page.url.pathname;
     if (pageTitles[path]) return pageTitles[path];
-    if (path.startsWith('/rules/results/')) return 'Resultados da Execucao';
-    if (path.startsWith('/rules/datasets/')) return 'Detalhe do Dataset';
+    if (path.startsWith('/rules/catalogo/') && path.endsWith('/editar')) return 'Editar Regra';
+    if (path.startsWith('/rules/catalogo')) return 'Catálogo de Regras';
+    if (path.startsWith('/rules/criar/tabela-unica')) return 'Criar Regra';
+    if (path.startsWith('/rules/criar')) return 'Criar Regra';
+    if (path.startsWith('/rules/execucoes/')) return 'Detalhe da Execução';
+    if (path.startsWith('/rules/execucoes')) return 'Execuções';
     if (path.startsWith('/rules')) return 'Motor de Regras';
     if (path.startsWith('/quality/')) return 'Dimensao R.18';
     return 'R.18 Compliance';

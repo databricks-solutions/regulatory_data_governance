@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from db import CATALOG, SCHEMA_REFERENCE, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_REFERENCE, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when reference tables haven't been seeded yet (setup_job not run).
+from db import execute_query_or_empty as execute_query
 from models import (
     CalendarioDay,
     CalendarioResponse,

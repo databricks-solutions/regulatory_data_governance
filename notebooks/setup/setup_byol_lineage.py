@@ -14,7 +14,7 @@
 # MAGIC Oracle TB_GARANTIAS         ─┤
 # MAGIC Oracle TB_CONTRATANTES      ─┤─→ Informatica ETL SCR3040 ─→ bronze.raw_3040_doc
 # MAGIC Oracle TB_CESSOES_FIDC      ─┤                               ↓ (DLT Silver/Gold auto)
-# MAGIC DB2   CLIENTES_CREDITO      ─┘                          silver.operacoes_validadas
+# MAGIC DB2   CLIENTES_CREDITO      ─┘                          silver.operacoes
 # MAGIC                                                               ↓
 # MAGIC DB2   HISTORICO_SCR    ─┐                              gold.posicao_mensal_3040
 # MAGIC DB2   PLANO_CONTAS_COSIF─┤─→ Informatica ETL SCR3050 ─→ bronze.raw_3050_doc      ─→ Validador3040 → STA/CADIP
@@ -356,8 +356,7 @@ OBJECTS = [
         description=(
             "Validador oficial BACEN para SCR Doc 3040 (Validador3040). "
             "Aplica criticas sintaticas, semanticas e inter-documentais conforme "
-            "Manual de Criticas BCB. Resultado auditado pelo Databricks em "
-            "silver.criticas_results."
+            "Manual de Criticas BCB."
         ),
         url="https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040",
         columns=["arquivo_xml", "resultado", "cnt_criticas", "criticas_detalhes", "dt_validacao", "versao_validador"],

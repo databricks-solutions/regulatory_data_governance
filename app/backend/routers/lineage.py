@@ -104,9 +104,9 @@ def _build_mock(catalog: str) -> LineageGraphResponse:
                     metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T23:15:00Z")),
         LineageNode(id=f"{catalog}.bronze.raw_3050_doc", label="raw_3050_doc", type="table", layer="bronze", catalog=catalog,
                     metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T23:15:00Z")),
-        LineageNode(id=f"{catalog}.silver.operacoes_validadas", label="operacoes_validadas", type="table", layer="silver", catalog=catalog,
+        LineageNode(id=f"{catalog}.silver.operacoes", label="operacoes", type="table", layer="silver", catalog=catalog,
                     metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T01:30:00Z", expectations_pass_rate=99.9)),
-        LineageNode(id=f"{catalog}.silver.scr3040_clientes", label="scr3040_clientes", type="table", layer="silver", catalog=catalog,
+        LineageNode(id=f"{catalog}.silver.clientes", label="clientes", type="table", layer="silver", catalog=catalog,
                     metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T01:30:00Z")),
         LineageNode(id=f"{catalog}.silver.quality_scorecard", label="quality_scorecard", type="table", layer="silver", catalog=catalog,
                     metadata=LineageNodeMetadata(row_count=15, last_updated="2026-03-31T02:00:00Z")),
@@ -143,9 +143,9 @@ def _build_mock(catalog: str) -> LineageGraphResponse:
         LineageEdge(source="rc18_etl_scr3040_extractor",  target=f"{catalog}.bronze.raw_3040_doc", type="external_lineage", label="XML -> Auto Loader",
                     column_mappings=[ColumnMapping(source="ipoc", target="header.CD_IPOC"), ColumnMapping(source="vlr_contabil", target="operacoes[0].VLR_CONTABIL")]),
         LineageEdge(source="rc18_etl_scr3050_aggregator", target=f"{catalog}.bronze.raw_3050_doc", type="external_lineage", label="TXB/XML -> Auto Loader"),
-        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.operacoes_validadas", type="uc_automatic", label="DLT silver pipeline"),
-        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.scr3040_clientes",    type="uc_automatic", label="DLT silver pipeline"),
-        LineageEdge(source=f"{catalog}.silver.operacoes_validadas", target=f"{catalog}.gold.posicao_mensal_3040", type="uc_automatic", label="DLT gold pipeline"),
+        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.operacoes", type="uc_automatic", label="DLT silver pipeline"),
+        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.clientes",  type="uc_automatic", label="DLT silver pipeline"),
+        LineageEdge(source=f"{catalog}.silver.operacoes", target=f"{catalog}.gold.posicao_mensal_3040", type="uc_automatic", label="DLT gold pipeline"),
         LineageEdge(source=f"{catalog}.bronze.raw_3050_doc",        target=f"{catalog}.gold.posicao_3050",        type="uc_automatic", label="DLT gold pipeline"),
         LineageEdge(source=f"{catalog}.silver.quality_scorecard",   target=f"{catalog}.gold.posicao_mensal_3040", type="uc_automatic", label="quality gate"),
         LineageEdge(source=f"{catalog}.gold.posicao_mensal_3040", target="rc18_bacen_validador_scr3040", type="external_lineage", label="export XML"),
@@ -166,7 +166,7 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
         ExternalLineageObject, ExternalLineageTable,
         ExternalLineageExternalMetadata, LineageDirection,
     )
-    from db import execute_query
+    from db import execute_query_or_empty as execute_query
 
     w = WorkspaceClient()
     nodes: dict[str, LineageNode] = {}
@@ -338,7 +338,7 @@ async def get_column_lineage(table_name: str, column_name: str):
             return ColumnLineageResponse(
                 target_column=f"{table_name}.{column_name}",
                 upstream_columns=[
-                    UpstreamColumn(table=f"{CATALOG}.silver.operacoes_validadas", column="ipoc", transformation="passthrough"),
+                    UpstreamColumn(table=f"{CATALOG}.silver.operacoes", column="ipoc", transformation="passthrough"),
                     UpstreamColumn(table=f"{CATALOG}.bronze.raw_3040_doc", column="header.CD_IPOC", transformation="XML parse — cloudFiles native reader"),
                     UpstreamColumn(table=f"{CATALOG}.bronze.raw_3040_doc", column="header.CD_CNPJ_IF", transformation="component of IPOC"),
                     UpstreamColumn(table=f"{CATALOG}.bronze.raw_3040_doc", column="header.CD_MODALIDADE", transformation="component of IPOC"),
@@ -359,7 +359,7 @@ async def get_column_lineage(table_name: str, column_name: str):
             ],
         )
 
-    from db import execute_query
+    from db import execute_query_or_empty as execute_query
     upstream = []
     try:
         rows = await execute_query(

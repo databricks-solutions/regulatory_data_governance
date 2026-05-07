@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, SCHEMA_GOLD, USE_MOCK, execute_query
+from db import CATALOG, SCHEMA_GOLD, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when gold/silver tables haven't been populated yet (pipelines not run).
+from db import execute_query_or_empty as execute_query
 from models import (
     DimensionDetail,
     DimensionDetailResponse,
@@ -16,8 +19,8 @@ from models import (
 router = APIRouter()
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2 (Art. 2, §2 of Joint Resolution 18).
-# Aligned with the Roman-numeral seed in `notebooks/setup/setup_reference_tables.py` and the
-# scorecard emitted by `pipelines/silver/transformations/quality_metrics.py`.
+# Aligned with the Roman-numeral seed in `notebooks/setup/setup_reference_tables.py`.
+# Quality scorecards (when present) are produced externally by DQX Studio.
 _R18_DIMENSIONS = [
     {"id": 1, "code": "acessibilidade", "name": "Acessibilidade", "description": "Condicoes para obter informacoes, incluindo local, forma, prazos e tratamento PcD", "article": "Art. 2, par.2, I"},
     {"id": 2, "code": "acuracia", "name": "Acurácia", "description": "Medida em que a informacao reflete a realidade de forma precisa, conforme metodologia", "article": "Art. 2, par.2, II"},

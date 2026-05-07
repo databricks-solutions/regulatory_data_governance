@@ -116,9 +116,9 @@ TBLPROPERTIES ('delta.logRetentionDuration' = 'interval 1825 days')
 #   I=Acessibilidade, II=Acurácia, III=Adaptabilidade, IV=Clareza, V=Comparabilidade,
 #   VI=Completude, VII=Confiabilidade, VIII=Consistência, IX=Integridade,
 #   X=Rastreabilidade, XI=Relevância, XII=Tempestividade.
-# Every rule's `expressao_sql` is evaluated at runtime by silver.criticas_results
-# against `operacoes_validadas` (3040) or `scr3050_validated` (3050).
-# Columns referenced must exist on those tables.
+# Estas regras são o catálogo BACEN canônico — referência consumida pela UI/DQX
+# Studio para autoria. Os pipelines silver não as executam (são puro ELT após a
+# remoção do DQX inline).
 spark.sql(f"""
 INSERT INTO {CATALOG}.{SCHEMA}.validation_rules
   (critica_id, documento, leiaute_versao, grupo, descricao, expressao_sql, campo_alvo, severidade, acao_dlt, dimensao_r18, artigo_r18, mensagem_erro, dt_vigencia_ini, is_active, updated_at)
@@ -139,8 +139,8 @@ VALUES
   -- V Comparabilidade — every record carries a parseable dt_base for time-series comparison
   ('CR_COMP_3040', '3040', 'V1', 'metadata', 'Data-base presente para comparabilidade temporal', 'dt_base IS NOT NULL', 'dt_base', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'Data-base ausente', '2000-01-01', true, current_timestamp()),
   ('CR_COMP_3050', '3050', 'V11', 'metadata', 'dt_referencia presente para comparabilidade temporal', 'dt_referencia IS NOT NULL', 'dt_referencia', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'dt_referencia ausente', '2025-11-07', true, current_timestamp()),
-  -- VII Confiabilidade — append-only validation_run_id stamped by silver
-  ('CR_CONF_3040', '3040', 'V1', 'metadata', 'Validation run ID gravado para auditoria', 'validation_run_id IS NOT NULL', 'validation_run_id', 'ALERTA', 'expect', 'VII', 'Art.2,§2,VII', 'Run ID ausente', '2000-01-01', true, current_timestamp()),
+  -- VII Confiabilidade — append-only pipeline_run_id stamped by silver
+  ('CR_CONF_3040', '3040', 'V1', 'metadata', 'Pipeline run ID gravado para auditoria', 'pipeline_run_id IS NOT NULL', 'pipeline_run_id', 'ALERTA', 'expect', 'VII', 'Art.2,§2,VII', 'Run ID ausente', '2000-01-01', true, current_timestamp()),
   -- IX Integridade — referential integrity (cnpj_if = header)
   ('CR_INT_3040', '3040', 'V1', 'integridade', 'IPOC inicia com cnpj_if do header', 'ipoc_cnpj_if_part = cnpj_if', 'ipoc', 'BLOQUEANTE', 'expect_or_drop', 'IX', 'Art.2,§2,IX', 'CNPJ IF do IPOC difere do header', '2000-01-01', true, current_timestamp()),
   -- X Rastreabilidade — file-level lineage
@@ -182,7 +182,6 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import DateType
 import datetime
 
-# Generate date sequence
 start = datetime.date(2025, 1, 1)
 end = datetime.date(2030, 12, 31)
 dates = []

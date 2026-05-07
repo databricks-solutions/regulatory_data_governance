@@ -1,8 +1,18 @@
-"""Branding configuration API — logo upload and theme settings."""
+"""Branding configuration API — logo upload, theme settings, and embedded
+external app URLs (e.g., DQX Studio).
+
+The `GET /config` endpoint also surfaces runtime-configurable URLs that the
+SPA needs but that the customer overrides per environment via env vars (so
+they never get hardcoded into the bundled frontend). Currently:
+
+- ``dqx_studio_url`` — DQX Studio Databricks App URL. Empty string means the
+  "Motor de Regras" page renders an empty state with deploy instructions.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -45,7 +55,11 @@ def _save(config: dict) -> None:
 
 @router.get("/config")
 def get_brand_config():
-    return _load()
+    config = _load()
+    # Surface runtime-configurable embed URLs alongside branding so the SPA
+    # only needs one fetch on bootstrap. Empty string = unset.
+    config["dqx_studio_url"] = os.getenv("DQX_STUDIO_URL", "")
+    return config
 
 
 @router.post("/config")
