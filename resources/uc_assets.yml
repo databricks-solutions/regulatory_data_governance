@@ -34,12 +34,12 @@ resources:
     silver_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_silver}
-      comment: "Silver — normalized SCR tables (operacoes, clientes, garantias, vencimentos, cont_4966 for 3040; scr3050 unified). Pure ELT — quality runs externally in DQX Studio."
+      comment: "Silver — normalized SCR tables (scr3040_operacoes, scr3040_clientes, scr3040_garantias, scr3040_vencimentos, scr3040_cont_4966; scr3050 unified). Pure ELT — quality runs externally in DQX Studio."
 
     gold_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_gold}
-      comment: "Gold — curated tables for App + dashboards (posicao_mensal_3040, posicao_3050)."
+      comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050)."
 
   volumes:
     scr_xml:

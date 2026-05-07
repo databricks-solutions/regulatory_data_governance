@@ -14,9 +14,9 @@
 # MAGIC Oracle TB_GARANTIAS         ─┤
 # MAGIC Oracle TB_CONTRATANTES      ─┤─→ Informatica ETL SCR3040 ─→ bronze.raw_3040_doc
 # MAGIC Oracle TB_CESSOES_FIDC      ─┤                               ↓ (DLT Silver/Gold auto)
-# MAGIC DB2   CLIENTES_CREDITO      ─┘                          silver.operacoes
+# MAGIC DB2   CLIENTES_CREDITO      ─┘                          silver.scr3040_operacoes
 # MAGIC                                                               ↓
-# MAGIC DB2   HISTORICO_SCR    ─┐                              gold.posicao_mensal_3040
+# MAGIC DB2   HISTORICO_SCR    ─┐                              gold.posicao_3040
 # MAGIC DB2   PLANO_CONTAS_COSIF─┤─→ Informatica ETL SCR3050 ─→ bronze.raw_3050_doc      ─→ Validador3040 → STA/CADIP
 # MAGIC                         ┘                          gold.posicao_3050 ─→ ValidadorMDR → STA/CADIP
 # MAGIC ```
@@ -624,7 +624,7 @@ RELATIONSHIPS = [
     ),
     # Databricks Gold -> BACEN Validators (the other BYOL boundary)
     dict(
-        source=uc_obj(gold_schema, "posicao_mensal_3040"),
+        source=uc_obj(gold_schema, "posicao_3040"),
         target=ext_obj("rc18_bacen_validador_scr3040"),
         columns=[
             col("cnpj_if",       "CD_CNPJ_IF"),
@@ -715,7 +715,7 @@ print("\nLineage relationships for bronze/gold tables:")
 for schema, table in [
     (bronze_schema, "raw_3040_doc"),
     (bronze_schema, "raw_3050_doc"),
-    (gold_schema,   "posicao_mensal_3040"),
+    (gold_schema,   "posicao_3040"),
     (gold_schema,   "posicao_3050"),
 ]:
     obj = ExternalLineageObject(table=ExternalLineageTable(name=fq(schema, table)))

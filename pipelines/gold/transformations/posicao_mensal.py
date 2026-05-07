@@ -1,13 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Gold — Posição Mensal SCR 3040 e Posição 3050
+# MAGIC # Gold — Posição SCR 3040 e Posição 3050
 # MAGIC
 # MAGIC Two gold-layer "position" tables ready for the Databricks App, dashboards
 # MAGIC and downstream consumers:
 # MAGIC
 # MAGIC | Table | Source | One row per |
 # MAGIC |---|---|---|
-# MAGIC | `posicao_mensal_3040` | silver `operacoes` ⨝ `cont_4966` ⨝ `vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
+# MAGIC | `posicao_3040` | silver `scr3040_operacoes` ⨝ `scr3040_cont_4966` ⨝ `scr3040_vencimentos` | `<Op>` per `(cnpj_if, dt_base)` with Res. 4966 contábil + total_saldo |
 # MAGIC | `posicao_3050` | silver `scr3050` (passthrough + `_gold_timestamp`) | `(cnpj_if, dt_base, dt_referencia, periodicidade, carteira, segmento, encargo, modalidade)` |
 # MAGIC
 # MAGIC Note: `posicao_3050` is a deliberately thin passthrough — the silver table
@@ -25,11 +25,11 @@ SILVER_SCHEMA = spark.conf.get("silver_schema", "silver")
 GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
 
 
-# ── Posição Mensal SCR 3040 ───────────────────────────────────────────────────
+# ── Posição SCR 3040 ──────────────────────────────────────────────────────────
 
 @dlt.table(
-    name="posicao_mensal_3040",
-    comment="Posição mensal SCR 3040 — uma linha por <Op> validada, enriquecida com Res. 4966 e total de vértices",
+    name="posicao_3040",
+    comment="Posição SCR 3040 — uma linha por <Op> validada, enriquecida com Res. 4966 e total de vértices",
     table_properties={
         "quality": "gold",
         "delta.logRetentionDuration": "interval 1825 days",
@@ -37,13 +37,13 @@ GOLD_SCHEMA = spark.conf.get("gold_schema", "gold")
     },
     partition_cols=["dt_base"],
 )
-def posicao_mensal_3040():
+def posicao_3040():
     # Pure ELT passthrough — silver é puro normalizado (sem DQX inline). Quality
     # é gerenciada externamente pelo DQX Studio; gold simplesmente promove os
-    # registros silver para as posições mensais que App/dashboards consomem.
-    ops = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.operacoes")
+    # registros silver para as posições que App/dashboards consomem.
+    ops = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_operacoes")
     cont = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.cont_4966")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_cont_4966")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             "clas_at_fin", "est_inst_fin", "cart_prov_min",
@@ -52,7 +52,7 @@ def posicao_mensal_3040():
         )
     )
     venc = (
-        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.vencimentos")
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3040_vencimentos")
         .select(
             "cnpj_if", "dt_base", "ipoc",
             F.col("total_saldo").alias("total_saldo_vencimentos"),

@@ -9,13 +9,13 @@
 # MAGIC quality é gerenciada externamente pelo DQX Studio (Databricks App externa
 # MAGIC embarcada via iframe na rota `/rules` do app RC18).
 # MAGIC
-# MAGIC | Silver table | Source array | One row per |
+# MAGIC | Silver table             | Source array  | One row per |
 # MAGIC |---|---|---|
-# MAGIC | `operacoes`     | `operacoes`   | `<Op>` joined com `<Cli>` e header                          |
-# MAGIC | `clientes`      | `clientes`    | `<Cli>`                                                      |
-# MAGIC | `garantias`     | `garantias`   | `<Gar>`                                                      |
-# MAGIC | `vencimentos`   | `vencimentos` | `<Venc>` (vértices como colunas)                             |
-# MAGIC | `cont_4966`     | `cont4966`    | `<ContInstFinRes4966>` + `<Estagio>`                         |
+# MAGIC | `scr3040_operacoes`      | `operacoes`   | `<Op>` joined com `<Cli>` e header                          |
+# MAGIC | `scr3040_clientes`       | `clientes`    | `<Cli>`                                                      |
+# MAGIC | `scr3040_garantias`      | `garantias`   | `<Gar>`                                                      |
+# MAGIC | `scr3040_vencimentos`    | `vencimentos` | `<Venc>` (vértices como colunas)                             |
+# MAGIC | `scr3040_cont_4966`      | `cont4966`    | `<ContInstFinRes4966>` + `<Estagio>`                         |
 
 # COMMAND ----------
 
@@ -144,7 +144,7 @@ def _build_operacoes_df():
 
 
 @dlt.table(
-    name="operacoes",
+    name="scr3040_operacoes",
     comment=(
         "Operações SCR 3040 — 1 linha por <Op>, com cabeçalho propagado, validação "
         "IPOC e mapeamento 3040→3050."
@@ -155,7 +155,7 @@ def _build_operacoes_df():
     },
     partition_cols=["dt_base"],
 )
-def operacoes():
+def scr3040_operacoes():
     return _build_operacoes_df()
 
 
@@ -183,12 +183,12 @@ def _build_clientes_df():
 
 
 @dlt.table(
-    name="clientes",
+    name="scr3040_clientes",
     comment="Clientes SCR 3040 — 1 linha por <Cli>.",
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-def clientes():
+def scr3040_clientes():
     return _build_clientes_df()
 
 
@@ -219,7 +219,7 @@ def _build_garantias_df():
 
 
 @dlt.table(
-    name="garantias",
+    name="scr3040_garantias",
     comment=(
         "Garantias SCR 3040 — 1 linha por <Gar>, classificadas em fidejussórias "
         "(Ident+PercGar) vs reais (VlrOrig/VlrData/DtReav)."
@@ -227,7 +227,7 @@ def _build_garantias_df():
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-def garantias():
+def scr3040_garantias():
     return _build_garantias_df()
 
 
@@ -281,7 +281,7 @@ def _build_vencimentos_df():
 
 
 @dlt.table(
-    name="vencimentos",
+    name="scr3040_vencimentos",
     comment=(
         "Vértices SCR 3040 — 1 linha por <Op>, com vértices v110…v330 + "
         "limites/coobrigações como colunas; total_saldo agregado."
@@ -289,7 +289,7 @@ def _build_vencimentos_df():
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-def vencimentos():
+def scr3040_vencimentos():
     return _build_vencimentos_df()
 
 
@@ -320,7 +320,7 @@ def _build_cont_4966_df():
 
 
 @dlt.table(
-    name="cont_4966",
+    name="scr3040_cont_4966",
     comment=(
         "Contabilização Res. 4966 — 1 linha por <ContInstFinRes4966> com estágio "
         "aninhado (Motivo, DtAlocacao)."
@@ -328,5 +328,5 @@ def _build_cont_4966_df():
     table_properties={"quality": "silver"},
     partition_cols=["dt_base"],
 )
-def cont_4966():
+def scr3040_cont_4966():
     return _build_cont_4966_df()
