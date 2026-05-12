@@ -12,8 +12,9 @@
    * (no `onerror` event), so the timeout is the primary safety net while the
    * `onerror` covers true network/DNS errors.
    */
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { getBrandConfig } from '$lib/api.js';
+  import { setHeaderAction } from '$lib/stores.svelte.js';
 
   let studioUrl = $state('');
   let configLoaded = $state(false);
@@ -70,6 +71,22 @@
       }, FRAME_TIMEOUT_MS);
     }
   });
+
+  // Register the "Abrir em nova aba" button into the global header whenever
+  // DQX Studio is actually embeddable. Cleared on route exit.
+  $effect(() => {
+    if (configLoaded && studioUrl && !iframeBlocked) {
+      setHeaderAction({
+        label: 'Abrir em nova aba ↗',
+        title: 'Abrir DQX Studio em nova aba',
+        onClick: openInNewTab
+      });
+    } else {
+      setHeaderAction(null);
+    }
+  });
+
+  onDestroy(() => setHeaderAction(null));
 </script>
 
 <div class="rules-page">
@@ -139,11 +156,6 @@
       referrerpolicy="no-referrer-when-downgrade"
       sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-downloads allow-modals"
     ></iframe>
-    <footer class="page-footer">
-      <button type="button" class="btn-ghost" onclick={openInNewTab} title="Abrir DQX Studio em nova aba">
-        Abrir em nova aba ↗
-      </button>
-    </footer>
   {/if}
 </div>
 
@@ -151,15 +163,10 @@
   .rules-page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
-    height: calc(100vh - 140px);
+    gap: var(--space-2);
+    height: calc(100vh - 96px);
     min-height: 500px;
-  }
-
-  .page-footer {
-    display: flex;
-    justify-content: flex-end;
-    flex-shrink: 0;
+    margin-bottom: calc(var(--space-6) * -1);
   }
 
   .loading-pane {
@@ -241,17 +248,4 @@
     text-decoration: none;
   }
   .btn-primary:hover { background: var(--blue-500); }
-
-  .btn-ghost {
-    padding: var(--space-2) var(--space-3);
-    background: transparent;
-    color: var(--primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .btn-ghost:hover { background: var(--blue-50); border-color: var(--primary); }
 </style>

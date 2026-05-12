@@ -19,7 +19,11 @@ export const appState = $state({
     username: '',
     displayName: ''
   },
-  alertCount: 0
+  alertCount: 0,
+  // Optional per-page action button rendered in the global header. Pages
+  // register it via setHeaderAction() onMount and clear it on destroy.
+  // Shape: { label: string, onClick: () => void, title?: string } | null
+  headerAction: null
 });
 
 export function setDataBase(value) {
@@ -47,4 +51,8 @@ export function setUser(user) {
 
 export function setAlertCount(count) {
   appState.alertCount = count;
+}
+
+export function setHeaderAction(action) {
+  appState.headerAction = action;
 }

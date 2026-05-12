@@ -113,6 +113,7 @@
       onOpenBrandSettings={() => showBrandSettings = true}
       theme={appState.theme}
       onToggleTheme={toggleTheme}
+      action={appState.headerAction}
     />
     <main class="content">
       <div class="content-inner">
