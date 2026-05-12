@@ -73,21 +73,6 @@
 </script>
 
 <div class="rules-page">
-  <header class="page-header">
-    <div>
-      <h2>Motor de Regras (DQX Studio)</h2>
-      <p class="page-sub">
-        Authoring e gestão de regras de qualidade DQX rodam diretamente no
-        DQX Studio — a aplicação oficial do projeto Databricks Labs DQX.
-      </p>
-    </div>
-    {#if studioUrl}
-      <button type="button" class="btn-ghost" onclick={openInNewTab} title="Abrir DQX Studio em nova aba">
-        Abrir em nova aba ↗
-      </button>
-    {/if}
-  </header>
-
   {#if !configLoaded}
     <div class="loading-pane">Carregando…</div>
   {:else if showEmptyState}
@@ -154,6 +139,11 @@
       referrerpolicy="no-referrer-when-downgrade"
       sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-downloads allow-modals"
     ></iframe>
+    <footer class="page-footer">
+      <button type="button" class="btn-ghost" onclick={openInNewTab} title="Abrir DQX Studio em nova aba">
+        Abrir em nova aba ↗
+      </button>
+    </footer>
   {/if}
 </div>
 
@@ -166,15 +156,11 @@
     min-height: 500px;
   }
 
-  .page-header {
+  .page-footer {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-4);
+    justify-content: flex-end;
     flex-shrink: 0;
   }
-  .page-header h2 { font-size: var(--font-size-2xl); font-weight: 700; color: var(--gray-900); margin: 0; }
-  .page-sub { font-size: var(--font-size-base); color: var(--gray-500); margin: var(--space-1) 0 0 0; max-width: 720px; }
 
   .loading-pane {
     flex: 1;
