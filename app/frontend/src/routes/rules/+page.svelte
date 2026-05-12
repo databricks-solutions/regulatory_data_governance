@@ -14,13 +14,20 @@
    */
   import { onMount, onDestroy } from 'svelte';
   import { getBrandConfig } from '$lib/api.js';
-  import { setHeaderAction } from '$lib/stores.svelte.js';
+  import { appState, setHeaderAction } from '$lib/stores.svelte.js';
 
   let studioUrl = $state('');
   let configLoaded = $state(false);
   let iframeLoaded = $state(false);
   let iframeBlocked = $state(false);
   let timeoutHandle = null;
+
+  // Bumped whenever the sidebar toggles, used as a key on the iframe so it
+  // remounts at the new width. Cross-origin iframes (DQX Studio) don't always
+  // reflow internally on container resize, so a remount is the reliable fix.
+  let iframeKey = $state(0);
+  let prevSidebarCollapsed = appState.sidebarCollapsed;
+  const SIDEBAR_TRANSITION_MS = 250;
 
   const DOCS_URL = 'https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/';
   const FRAME_TIMEOUT_MS = 5000;
@@ -87,6 +94,14 @@
   });
 
   onDestroy(() => setHeaderAction(null));
+
+  $effect(() => {
+    const collapsed = appState.sidebarCollapsed;
+    if (collapsed === prevSidebarCollapsed) return;
+    prevSidebarCollapsed = collapsed;
+    const id = setTimeout(() => { iframeKey++; }, SIDEBAR_TRANSITION_MS);
+    return () => clearTimeout(id);
+  });
 </script>
 
 <div class="rules-page">
@@ -147,15 +162,19 @@
       </p>
     </section>
   {:else if showIframe}
-    <iframe
-      class="studio-frame"
-      src={studioUrl}
-      title="DQX Studio"
-      onload={handleIframeLoad}
-      onerror={handleIframeError}
-      referrerpolicy="no-referrer-when-downgrade"
-      sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-downloads allow-modals"
-    ></iframe>
+    <div class="studio-frame-wrap">
+      {#key iframeKey}
+        <iframe
+          class="studio-frame"
+          src={studioUrl}
+          title="DQX Studio"
+          onload={handleIframeLoad}
+          onerror={handleIframeError}
+          referrerpolicy="no-referrer-when-downgrade"
+          sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-downloads allow-modals"
+        ></iframe>
+      {/key}
+    </div>
   {/if}
 </div>
 
@@ -226,13 +245,31 @@
   .steps li { margin-bottom: var(--space-2); }
   .hint { font-size: var(--font-size-sm); color: var(--gray-500); margin-top: var(--space-2) !important; }
 
-  .studio-frame {
+  /* Scale-down trick: render DQX Studio at 1/scale of the visible slot
+     (so its layout sees a wider/taller viewport), then transform-scale it
+     back to fit. Eliminates iframe scrollbars at the cost of ~15% smaller
+     text. Tune --dqx-scale to taste. */
+  .studio-frame-wrap {
+    --dqx-scale: 0.85;
     flex: 1;
     width: 100%;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     background: var(--white);
     min-height: 500px;
+    overflow: hidden;
+    position: relative;
+  }
+  .studio-frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% / var(--dqx-scale));
+    height: calc(100% / var(--dqx-scale));
+    border: 0;
+    background: var(--white);
+    transform: scale(var(--dqx-scale));
+    transform-origin: top left;
   }
 
   .btn-primary {
