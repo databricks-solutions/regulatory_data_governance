@@ -286,27 +286,16 @@ display(quarantine_df)
 # MAGIC > _"Reaplicar todas as regras só nas operações de Março/2026 do CNPJ
 # MAGIC > 12345678."_
 # MAGIC
-# MAGIC O caminho ruim é duplicar as N regras com um `filter` hard-coded
-# MAGIC (`dt_base = '2026-03-01' AND cnpj_if = '12345678'`). Você acaba com
-# MAGIC duas cópias de cada regra que precisam ser mantidas em paralelo.
+# MAGIC O caminho ruim é duplicar as N regras com um `filter` hard-coded — você
+# MAGIC acaba com duas cópias de cada regra para manter em paralelo.
 # MAGIC
-# MAGIC O caminho bom é manter **uma única definição** e injetar o `filter` em
-# MAGIC tempo de execução usando um template Python (substituição antes do
-# MAGIC `apply_checks`).
-# MAGIC
-# MAGIC > **Nota: DQX Variable Substitution ≠ parametrização de `filter`**
-# MAGIC >
-# MAGIC > A [documentação DQX sobre Variable Substitution](https://databrickslabs.github.io/dqx/docs/guide/quality_checks_definition/#variable-substitution)
-# MAGIC > refere-se ao mecanismo `{{ input_view }}` / `{{ ref_name }}` da
-# MAGIC > check function `sql_query` — que permite referenciar DataFrames
-# MAGIC > (input e referência via `ref_dfs`) dentro de queries SQL completas.
-# MAGIC > Isso é útil para validações cross-table (ver §2), mas **não se
-# MAGIC > aplica ao campo `filter`**.
-# MAGIC >
-# MAGIC > O `filter` é avaliado como `F.expr(filter_str)` pelo DQX engine.
-# MAGIC > Não há mecanismo nativo de substituição de variáveis nele. A
-# MAGIC > abordagem abaixo (template Python com `.replace()`) é uma
-# MAGIC > **convenção do projeto**, não um recurso DQX.
+# MAGIC O caminho bom é manter **uma única definição** e usar o recurso oficial
+# MAGIC de [**Variable Substitution**](https://databrickslabs.github.io/dqx/docs/guide/quality_checks_definition/#variable-substitution)
+# MAGIC do DQX: você coloca um placeholder `{{ nome_da_variavel }}` em qualquer
+# MAGIC **campo string** da regra (`filter`, `expression`, `ref_table`, etc.) e
+# MAGIC passa os valores em runtime via o argumento `variables=` do
+# MAGIC `DQEngine.load_checks(...)`. O único campo que **não** aceita
+# MAGIC substituição é `criticality` (precisa ser literal `error` ou `warn`).
 
 # COMMAND ----------
 
@@ -342,66 +331,66 @@ INSERT INTO operacoes_multi VALUES
 
 # MAGIC %md
 # MAGIC    
-# MAGIC ### 3.3 Template Python — substituição de placeholder no `filter`
+# MAGIC ### 3.3 Definir a regra em YAML com `{{ scope }}`
 # MAGIC
-# MAGIC As regras carregam um placeholder `${scope}` no `filter`. Antes de
-# MAGIC chamar `apply_checks_by_metadata`, fazemos um `.replace("${scope}", predicate)`
-# MAGIC em cada regra. Se `predicate` for `"1=1"`, é run completo; se for
-# MAGIC `"dt_base = '2026-03-01' AND cnpj_if = '12345678'"`, é reprocessamento
-# MAGIC focado.
-# MAGIC
-# MAGIC Repare que **a regra fica idêntica** entre os dois cenários — só o
-# MAGIC parâmetro muda.
+# MAGIC O `filter` carrega um placeholder `{{ scope }}`. Quando o DQX carrega o
+# MAGIC YAML via `load_checks(..., variables={"scope": "<predicate SQL>"})`, o
+# MAGIC valor de `scope` substitui o placeholder antes de a regra entrar no
+# MAGIC engine. A mesma regra serve para o run completo e para o
+# MAGIC reprocessamento focado — só o dict `variables` muda.
 
 # COMMAND ----------
 
-import copy
+CHECKS_PATH = "/tmp/dqx_tutorial_filter_checks.yml"
 
-# Catálogo de regras "abstrato" com placeholder de escopo.
-checks_template = [
-    {
-        "name": "saldo_nao_negativo",
-        "criticality": "error",
-        "run_config_name": "tutorial_operacoes_multi",
-        "filter": "${scope}",
-        "check": {
-            "function": "sql_expression",
-            "arguments": {
-                "expression": "saldo >= 0",
-                "msg": "Saldo da operação não pode ser negativo.",
-            },
-        },
-        "user_metadata": {
-            "dimensao_r18": "IV",
-            "descricao": "Saldo da operação >= 0. Filtro injetado em runtime via ${scope}.",
-        },
-    },
-    # Mais N regras viriam aqui — todas com filter: "${scope}".
-]
+checks_yaml = """
+- name: saldo_nao_negativo
+  criticality: error
+  run_config_name: tutorial_operacoes_multi
+  filter: "{{ scope }}"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo >= 0"
+      msg: "Saldo da operação não pode ser negativo."
+  user_metadata:
+    dimensao_r18: IV
+    descricao: "Saldo >= 0. Escopo de avaliação injetado via {{ scope }}."
+# Mais N regras viriam aqui — todas reutilizam o mesmo {{ scope }}.
+"""
 
+with open(CHECKS_PATH, "w") as f:
+    f.write(checks_yaml)
 
-def resolve_scope(checks, predicate):
-    """Substitui ${scope} por um predicate SQL booleano em todas as regras."""
-    resolved = copy.deepcopy(checks)
-    for c in resolved:
-        if "filter" in c and c["filter"]:
-            c["filter"] = c["filter"].replace("${scope}", predicate)
-    return resolved
+print(f"YAML salvo em: {CHECKS_PATH}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC    
+# MAGIC
+# MAGIC ### 3.4 Carregar e aplicar com variáveis diferentes
+# MAGIC
+# MAGIC `DQEngine.load_checks(config=..., variables=...)` lê o YAML, resolve os
+# MAGIC placeholders e devolve a lista de regras pronta para
+# MAGIC `apply_checks_by_metadata_and_split`.
+# MAGIC
 # MAGIC #### Run 1 — produção normal (escopo total)
 # MAGIC
-# MAGIC `predicate = "1=1"` faz com que o `filter` da regra fique
-# MAGIC `filter: "1=1"`, equivalente a “avalie todas as linhas”.
+# MAGIC Passamos `scope = "dt_base >= DATE'2000-01-01'"` — qualquer registro a
+# MAGIC partir do ano 2000, ou seja, **todo o histórico** da tabela. É o tipo de
+# MAGIC limite inferior que pipelines de produção costumam carregar como default.
 
 # COMMAND ----------
 
+from databricks.labs.dqx.config import FileChecksStorageConfig
+
 df_multi = spark.table("operacoes_multi")
 
-full_run_checks = resolve_scope(checks_template, "1=1")
+full_run_checks = dq.load_checks(
+    config=FileChecksStorageConfig(location=CHECKS_PATH),
+    variables={"scope": "dt_base >= DATE'2000-01-01'"},
+)
+
 good_full, quarantine_full = dq.apply_checks_by_metadata_and_split(df_multi, full_run_checks)
 
 print("Quarentena no run completo:")
@@ -410,27 +399,22 @@ display(quarantine_full.select("operacao_id", "cnpj_if", "dt_base", "saldo"))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC    
+# MAGIC
 # MAGIC Esperado: **4 linhas** na quarentena (OPA02, OPA04, OPA06, OPA08 — todas com `saldo < 0`).
-# MAGIC A regra avalia tudo porque `filter: "1=1"` não restringe nada.
 # MAGIC
 # MAGIC #### Run 2 — reprocessamento focado
 # MAGIC
-# MAGIC Agora aplicamos o **mesmo catálogo de regras** mudando apenas o
-# MAGIC predicate. O `filter` da regra passa a ser
-# MAGIC `dt_base = DATE'2026-03-01' AND cnpj_if = '12345678'`. Linhas fora desse
-# MAGIC escopo simplesmente **não são avaliadas** pela regra — elas
-# MAGIC continuam no `good_df` mesmo que estejam quebradas, porque para esse
-# MAGIC run elas não fazem parte do escopo de reprocessamento.
+# MAGIC Reaproveitamos o **mesmo YAML**. Só muda o dict `variables`. Linhas
+# MAGIC fora do escopo simplesmente **não são avaliadas** pela regra — elas
+# MAGIC continuam no `good_df` mesmo se estiverem quebradas, porque nesse run
+# MAGIC não fazem parte do escopo de reprocessamento.
 
 # COMMAND ----------
 
-reprocess_predicate = "dt_base = DATE'2026-03-01' AND cnpj_if = '12345678'"
-reprocess_checks = resolve_scope(checks_template, reprocess_predicate)
-
-# Inspeciona como a regra ficou após o template
-print("Regra resolvida:")
-print(reprocess_checks[0]["filter"])
+reprocess_checks = dq.load_checks(
+    config=FileChecksStorageConfig(location=CHECKS_PATH),
+    variables={"scope": "dt_base = DATE'2026-03-01' AND cnpj_if = '12345678'"},
+)
 
 good_reproc, quarantine_reproc = dq.apply_checks_by_metadata_and_split(df_multi, reprocess_checks)
 
@@ -440,54 +424,36 @@ display(quarantine_reproc.select("operacao_id", "cnpj_if", "dt_base", "saldo"))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC    
+# MAGIC
 # MAGIC Esperado: **1 linha** na quarentena (OPA04 — única negativa no recorte
 # MAGIC `2026-03-01` + `cnpj_if=12345678`). OPA06 (CNPJ diferente) e OPA08 (mês
-# MAGIC diferente), apesar de terem saldo negativo, ficam de fora do escopo e
-# MAGIC portanto não viram quarentena nesse run.
+# MAGIC diferente), apesar de terem saldo negativo, ficam fora do escopo.
 # MAGIC
-# MAGIC ### 3.4 Quando usar este padrão
+# MAGIC ### 3.5 Outras variáveis úteis do mesmo mecanismo
 # MAGIC
-# MAGIC | Cenário | Como |
+# MAGIC `variables=` resolve placeholders em **qualquer campo string** da regra.
+# MAGIC Alguns casos comuns:
+# MAGIC
+# MAGIC | Variável usada em | Para que serve |
 # MAGIC |---|---|
-# MAGIC | Produção (escopo total) | `predicate = "1=1"` |
-# MAGIC | Reprocessamento focado | `predicate = "<condição SQL>"` |
-# MAGIC | Job parametrizado | `predicate = dbutils.widgets.get("reprocess_predicate")` |
-# MAGIC | Bundle variable | `predicate = spark.conf.get("var.reprocess_predicate", "1=1")` |
+# MAGIC | `filter: "{{ scope }}"` | Escopo de reprocessamento (este §) |
+# MAGIC | `arguments.ref_table: "{{ catalog }}.reference.dominios"` | Mesma regra em dev/prod variando só o catálogo |
+# MAGIC | `arguments.expression: "saldo <= {{ teto_modalidade }}"` | Limites de negócio versionados fora do YAML |
+# MAGIC | `for_each_column: ["{{ partition_col }}"]` | Reaproveitar template entre datasets |
 # MAGIC
-# MAGIC A convenção `${scope}` é do projeto (não do DQX). Documente-a.
-# MAGIC No acelerador RC18, o padrão é usado porque as regras são carregadas
-# MAGIC via DQX Studio / `quality.dqx_checks` e os jobs Python fazem o
-# MAGIC `.replace()` antes de invocar `apply_checks_and_save_in_table`.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC    
-# MAGIC ### 3.5 Relação com o Variable Substitution nativo do DQX
+# MAGIC Em produção, o dict `variables=` costuma vir de:
 # MAGIC
-# MAGIC O DQX oferece [Variable Substitution](https://databrickslabs.github.io/dqx/docs/guide/quality_checks_definition/#variable-substitution)
-# MAGIC **dentro de queries SQL** da check function `sql_query`:
-# MAGIC
-# MAGIC ```yaml
-# MAGIC - name: exemplo_sql_query
-# MAGIC   check:
-# MAGIC     function: sql_query
-# MAGIC     arguments:
-# MAGIC       query: |
-# MAGIC         SELECT operacao_id, (saldo < 0) AS condition
-# MAGIC         FROM {{ input_view }}
-# MAGIC         WHERE cliente_id NOT IN (SELECT cliente_id FROM {{ clientes_vip }})
-# MAGIC       merge_columns: [operacao_id]
+# MAGIC ```python
+# MAGIC variables = {
+# MAGIC     "scope":   dbutils.widgets.get("scope"),                   # widget do notebook
+# MAGIC     "catalog": spark.conf.get("var.catalog", "rc18_catalog"),  # bundle variable
+# MAGIC     # ou via job parameter: {{job.parameters.scope}}
+# MAGIC }
 # MAGIC ```
 # MAGIC
-# MAGIC Neste exemplo:
-# MAGIC - `{{ input_view }}` → substituido automaticamente pelo temp view do DataFrame de entrada.
-# MAGIC - `{{ clientes_vip }}` → substituido pelo temp view do DataFrame passado em `ref_dfs={"clientes_vip": df_vip}`.
-# MAGIC
-# MAGIC **Esse mecanismo não se aplica ao campo `filter`**, que é uma expressão
-# MAGIC SQL pura avaliada via `F.expr()`. Para parametrizar o `filter`, o
-# MAGIC template Python (`.replace()`) é a abordagem recomendada.
+# MAGIC O mesmo argumento `variables=` é aceito por `TableChecksStorageConfig`,
+# MAGIC então as regras podem estar versionadas em `quality.dqx_checks` (como o
+# MAGIC RC18 mantém) e ainda assim ser parametrizadas em runtime.
 
 # COMMAND ----------
 
@@ -500,12 +466,12 @@ display(quarantine_reproc.select("operacao_id", "cnpj_if", "dt_base", "saldo"))
 # MAGIC - Para "valor **não deve** existir em outra tabela", use `sql_expression`
 # MAGIC   com `NOT EXISTS (SELECT 1 FROM <denylist> WHERE ...)`. `foreign_key` só
 # MAGIC   cobre o caso inverso ("deve existir").
-# MAGIC - Para reprocessar um subconjunto sem duplicar regras, parametrize o
-# MAGIC   `filter` com um template Python (`.replace("${scope}", predicate)`).
-# MAGIC   Isso é uma convenção do projeto — DQX não tem substituição nativa no `filter`.
-# MAGIC - O **Variable Substitution** nativo do DQX (`{{ input_view }}`,
-# MAGIC   `{{ ref_name }}`) aplica-se apenas à query SQL da check function
-# MAGIC   `sql_query`, permitindo referenciar DataFrames de entrada e referência.
+# MAGIC - Para reprocessar um subconjunto sem duplicar regras, use o recurso
+# MAGIC   oficial de **Variable Substitution** do DQX: placeholders
+# MAGIC   `{{ nome }}` em qualquer campo string da regra (`filter`, `expression`,
+# MAGIC   `ref_table`, …) são resolvidos por
+# MAGIC   `DQEngine.load_checks(config=..., variables=...)`. O único campo
+# MAGIC   excluído é `criticality`.
 # MAGIC
 # MAGIC ### Próximos passos
 # MAGIC
