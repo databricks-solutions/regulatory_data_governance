@@ -1,0 +1,14 @@
+
+- name: saldo_nao_negativo
+  criticality: error
+  run_config_name: tutorial_operacoes_multi
+  filter: "{{ scope }}"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo >= 0"
+      msg: "Saldo da operação não pode ser negativo."
+  user_metadata:
+    dimensao_r18: IV
+    descricao: "Saldo >= 0. Escopo de avaliação injetado via {{ scope }}."
+# Mais N regras viriam aqui — todas reutilizam o mesmo {{ scope }}.
