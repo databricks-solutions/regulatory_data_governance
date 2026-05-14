@@ -30,14 +30,23 @@
 # MAGIC %md
 # MAGIC ## 0. Pré-requisitos
 # MAGIC
-# MAGIC O notebook usa a versão da DQX fixada pelo acelerador RC18 (`0.13.0`).
-# MAGIC Mantenha o pin para que o comportamento aqui descrito reproduza
-# MAGIC exatamente — DQX é Databricks Labs (pré-1.0), versões menores podem
-# MAGIC quebrar a API.
+# MAGIC Este tutorial usa **DQX `0.14.0`**, uma versão à frente do pin de
+# MAGIC produção do RC18 (que está em `0.13.0`). A diferença é intencional: o
+# MAGIC recurso de **Variable Substitution** usado na §3 foi adicionado em
+# MAGIC `0.14.0` (parâmetro `variables=` em `load_checks(...)`). O notebook é
+# MAGIC didático e standalone — não compartilha runtime com os pipelines silver,
+# MAGIC então o bump aqui não afeta o resto do projeto.
+# MAGIC
+# MAGIC > **Importante:** não atualize o pin de produção (`app/backend/requirements.txt`,
+# MAGIC > `resources/pipelines/silver.yml`) para `0.14.0` sem revisar o changelog
+# MAGIC > — há breaking changes (default save mode mudou de `overwrite` para
+# MAGIC > `append`, ordem de parâmetros alterada em `apply_checks_and_save_in_table`,
+# MAGIC > novos campos no schema do resultado). Veja o
+# MAGIC > [release notes v0.14.0](https://github.com/databrickslabs/dqx/releases/tag/v0.14.0).
 
 # COMMAND ----------
 
-# MAGIC %pip install databricks-labs-dqx==0.13.0
+# MAGIC %pip install databricks-labs-dqx==0.14.0
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
