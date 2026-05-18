@@ -245,12 +245,7 @@
   .steps li { margin-bottom: var(--space-2); }
   .hint { font-size: var(--font-size-sm); color: var(--gray-500); margin-top: var(--space-2) !important; }
 
-  /* Scale-down trick: render DQX Studio at 1/scale of the visible slot
-     (so its layout sees a wider/taller viewport), then transform-scale it
-     back to fit. Eliminates iframe scrollbars at the cost of ~15% smaller
-     text. Tune --dqx-scale to taste. */
   .studio-frame-wrap {
-    --dqx-scale: 0.85;
     flex: 1;
     width: 100%;
     border: 1px solid var(--border-color);
@@ -261,15 +256,10 @@
     position: relative;
   }
   .studio-frame {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: calc(100% / var(--dqx-scale));
-    height: calc(100% / var(--dqx-scale));
+    width: 100%;
+    height: 100%;
     border: 0;
     background: var(--white);
-    transform: scale(var(--dqx-scale));
-    transform-origin: top left;
   }
 
   .btn-primary {

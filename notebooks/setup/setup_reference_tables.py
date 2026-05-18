@@ -112,43 +112,11 @@ CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.validation_rules (
 TBLPROPERTIES ('delta.logRetentionDuration' = 'interval 1825 days')
 """)
 
-# NOTE: `dimensao_r18` Roman numerals follow the SPEC's canonical 12 (docs/spec/01_requirements.md §1.2):
-#   I=Acessibilidade, II=Acurácia, III=Adaptabilidade, IV=Clareza, V=Comparabilidade,
-#   VI=Completude, VII=Confiabilidade, VIII=Consistência, IX=Integridade,
-#   X=Rastreabilidade, XI=Relevância, XII=Tempestividade.
-# Estas regras são o catálogo BACEN canônico — referência consumida pela UI/DQX
-# Studio para autoria. Os pipelines silver não as executam (são puro ELT após a
-# remoção do DQX inline).
-spark.sql(f"""
-INSERT INTO {CATALOG}.{SCHEMA}.validation_rules
-  (critica_id, documento, leiaute_versao, grupo, descricao, expressao_sql, campo_alvo, severidade, acao_dlt, dimensao_r18, artigo_r18, mensagem_erro, dt_vigencia_ini, is_active, updated_at)
-VALUES
-  -- VI Completude
-  ('S10_001', '3040', 'V1', 'sintatica', 'Campo DtContr obrigatório', 'dt_contr IS NOT NULL', 'dt_contr', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'DtContr ausente', '2000-01-01', true, current_timestamp()),
-  ('S10_002', '3040', 'V1', 'sintatica', 'CNPJ IF deve ter 8 dígitos', 'LENGTH(cnpj_if) = 8', 'cnpj_if', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'CNPJ IF inválido', '2000-01-01', true, current_timestamp()),
-  ('CR1_001', '3050', 'V11', 'sintatica', 'Encargo obrigatório', 'encargo IS NOT NULL', 'encargo', 'BLOQUEANTE', 'expect_or_drop', 'VI', 'Art.2,§2,VI', 'Encargo ausente', '2025-11-07', true, current_timestamp()),
-  -- II Acurácia
-  ('SEM_014', '3040', 'V1', 'semantica', 'IPOC componentes vs campos da operação', 'ipoc_is_consistent = true', 'ipoc', 'BLOQUEANTE', 'expect', 'II', 'Art.2,§2,II', 'Componentes IPOC divergentes', '2000-01-01', true, current_timestamp()),
-  ('SEM_002', '3040', 'V1', 'semantica', 'PercIndx em faixa válida (0–9999.99)', 'perc_indx IS NULL OR (perc_indx >= 0 AND perc_indx <= 9999.99)', 'perc_indx', 'ALERTA', 'expect', 'II', 'Art.2,§2,II', 'PercIndx fora de faixa', '2000-01-01', true, current_timestamp()),
-  ('CR4_001', '3050', 'V11', 'semantica', 'Valor concessão positivo', 'vlr_concessoes IS NULL OR vlr_concessoes >= 0', 'vlr_concessoes', 'BLOQUEANTE', 'expect_or_drop', 'II', 'Art.2,§2,II', 'Concessão negativa', '2025-11-07', true, current_timestamp()),
-  -- VIII Consistência
-  ('SEM_020', '3040', 'V1', 'semantica', 'DtVencOp >= DtContr', 'dt_venc_op IS NULL OR dt_contr IS NULL OR dt_venc_op >= dt_contr', 'dt_venc_op', 'BLOQUEANTE', 'expect_or_drop', 'VIII', 'Art.2,§2,VIII', 'Vencimento anterior à contratação', '2000-01-01', true, current_timestamp()),
-  ('CR3_018', '3050', 'V11', 'semantica', 'Saldo carteira por faixas consistente com total mensal', "periodicidade <> 'mensal' OR ABS(COALESCE(sld_car_ate14,0)+COALESCE(sld_car_ate60,0)+COALESCE(sld_car_ate90,0)+COALESCE(sld_car_maior90,0)-COALESCE(sld_car_total,0)) < 0.01", 'sld_car_total', 'ALERTA', 'expect', 'VIII', 'Art.2,§2,VIII', 'Faixas de saldo divergem do total', '2025-11-07', true, current_timestamp()),
-  -- III Adaptabilidade — version-aware: only V11 layout currently accepted
-  ('CR_ADAPT_3050', '3050', 'V11', 'metadata', 'Leiaute V11 declarado em cada registro 3050', "leiaute_versao = 'V11'", 'leiaute_versao', 'ALERTA', 'expect', 'III', 'Art.2,§2,III', 'Leiaute 3050 fora da versão vigente', '2025-11-07', true, current_timestamp()),
-  -- V Comparabilidade — every record carries a parseable dt_base for time-series comparison
-  ('CR_COMP_3040', '3040', 'V1', 'metadata', 'Data-base presente para comparabilidade temporal', 'dt_base IS NOT NULL', 'dt_base', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'Data-base ausente', '2000-01-01', true, current_timestamp()),
-  ('CR_COMP_3050', '3050', 'V11', 'metadata', 'dt_referencia presente para comparabilidade temporal', 'dt_referencia IS NOT NULL', 'dt_referencia', 'BLOQUEANTE', 'expect_or_drop', 'V', 'Art.2,§2,V', 'dt_referencia ausente', '2025-11-07', true, current_timestamp()),
-  -- VII Confiabilidade — append-only pipeline_run_id stamped by silver
-  ('CR_CONF_3040', '3040', 'V1', 'metadata', 'Pipeline run ID gravado para auditoria', 'pipeline_run_id IS NOT NULL', 'pipeline_run_id', 'ALERTA', 'expect', 'VII', 'Art.2,§2,VII', 'Run ID ausente', '2000-01-01', true, current_timestamp()),
-  -- IX Integridade — referential integrity (cnpj_if = header)
-  ('CR_INT_3040', '3040', 'V1', 'integridade', 'IPOC inicia com cnpj_if do header', 'ipoc_cnpj_if_part = cnpj_if', 'ipoc', 'BLOQUEANTE', 'expect_or_drop', 'IX', 'Art.2,§2,IX', 'CNPJ IF do IPOC difere do header', '2000-01-01', true, current_timestamp()),
-  -- X Rastreabilidade — file-level lineage
-  ('CR_RASTR_3040', '3040', 'V1', 'metadata', 'Cada registro mantém referência ao arquivo de origem', 'file_name IS NOT NULL', 'file_name', 'BLOQUEANTE', 'expect_or_drop', 'X', 'Art.2,§2,X', 'file_name ausente — lineage quebrado', '2000-01-01', true, current_timestamp()),
-  ('CR_RASTR_3050', '3050', 'V11', 'metadata', 'Cada registro mantém referência ao arquivo de origem', 'file_name IS NOT NULL', 'file_name', 'BLOQUEANTE', 'expect_or_drop', 'X', 'Art.2,§2,X', 'file_name ausente — lineage quebrado', '2025-11-07', true, current_timestamp()),
-  -- XII Tempestividade — dt_base recente (próximo do mês de referência da remessa)
-  ('CR_TEMP_3040', '3040', 'V1', 'tempestividade', 'Data-base preenchida no formato AAAA-MM', "dt_base RLIKE '^[0-9]{{4}}-[0-9]{{2}}$'", 'dt_base', 'ALERTA', 'expect', 'XII', 'Art.2,§2,XII', 'Formato de dt_base inválido', '2000-01-01', true, current_timestamp())
-""")
+# Tabela `validation_rules` mantida apenas como esqueleto: as regras DQX
+# canônicas vivem em `${catalog}.quality.dqx_checks`, semeada pelo job
+# `seed_dqx_checks` a partir de `pipelines/silver/dqx_checks/*.yml`. Novas
+# regras devem ser criadas via DQX Studio (Motor de Regras). O CREATE acima é
+# preservado para compatibilidade com dashboards/notebooks legados.
 
 # COMMAND ----------
 
@@ -347,3 +315,71 @@ INSERT INTO {CATALOG}.{SCHEMA}.leiaute_versoes (documento, versao, dt_vigencia_i
 # COMMAND ----------
 
 print("Reference tables setup complete.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Governance — Incidents log (R.18 Art.2 §3)
+# MAGIC
+# MAGIC Tabela criada vazia no catálogo RC18 (schema `governance` — declarado em
+# MAGIC `resources/uc_assets.yml`). Populada pelo POST /governance/incidents do
+# MAGIC app + futuro auto-emit job pós-silver (spec 08 §4.1).
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.governance.incidents (
+    incident_id           STRING,
+    critica_id            STRING,
+    run_config_name       STRING,
+    dt_base               DATE,
+    check_name            STRING,
+    rule_fingerprint      STRING,
+    first_seen_run_id     STRING,
+    last_seen_run_id      STRING,
+    affected_records      BIGINT,
+    total_records         BIGINT,
+    taxa_violacao_pct     DOUBLE,
+    documento             STRING,
+    dimensao_r18          STRING,
+    artigo_r18            STRING,
+    nivel_verificacao     STRING,
+    severidade            STRING,
+    mensagem              STRING,
+    status                STRING,
+    owner                 STRING,
+    detected_at           TIMESTAMP,
+    detected_by           STRING,
+    assigned_at           TIMESTAMP,
+    responded_at          TIMESTAMP,
+    responded_by          STRING,
+    escalated_at          TIMESTAMP,
+    escalated_to          STRING,
+    resolved_at           TIMESTAMP,
+    resolved_by           STRING,
+    validated_at          TIMESTAMP,
+    validated_by          STRING,
+    reopened_at           TIMESTAMP,
+    root_cause            STRING,
+    remedial_action       STRING,
+    impact                STRING,
+    bcb_communication_required BOOLEAN,
+    included_in_report    STRING,
+    timeline              ARRAY<STRUCT<
+                            timestamp:   TIMESTAMP,
+                            event_type:  STRING,
+                            actor:       STRING,
+                            description: STRING
+                          >>,
+    created_at            TIMESTAMP,
+    updated_at            TIMESTAMP
+)
+USING DELTA
+PARTITIONED BY (dt_base)
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported',
+    'delta.logRetentionDuration'        = 'interval 1825 days'
+)
+""")
+
+print(f"Governance incidents table ready at {CATALOG}.governance.incidents")

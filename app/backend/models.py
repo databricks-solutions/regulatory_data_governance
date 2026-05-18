@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 # --- Pagination ---
@@ -101,11 +101,17 @@ class DimensionDetail(BaseModel):
     code: str
     name: str
     description: str
-    score: float
+    # `score` é null para dimensões sem regras vinculadas (status='sem_regras').
+    # Um valor `0.0` seria interpretado pela UI como "todas falharam"; queremos
+    # diferenciar "sem dado" de "0% conforme".
+    score: float | None = None
     target: float
     status: str
     metrics: dict[str, float] = {}
     trend: list[TrendPoint] = []
+    # Regras DQX vinculadas a esta dimensão (lista de check_names) — torna o
+    # link regra→dimensão visível no JSON da API e no detalhe da dimensão.
+    rules: list[str] = []
 
 
 class QualityDimensionsResponse(BaseModel):
@@ -124,7 +130,7 @@ class Violation(BaseModel):
 
 class DimensionDetailResponse(BaseModel):
     dimension: dict[str, Any]
-    score: float
+    score: float | None = None  # null quando dimensão não tem regras vinculadas
     target: float
     status: str
     metrics: dict[str, float] = {}
@@ -156,6 +162,13 @@ class ValidationResult(BaseModel):
     description: str
     sample_ipocs: list[str] = []
     nivel_verificacao: int = 1  # 1=Básico, 2=Coerência temporal, 3=Regras negociais
+    # DQX integration (per docs/spec/08_dqx_app_integration.md §3.2):
+    check_name: str | None = None        # dqx_checks.name (expectation_name from view)
+    dqx_check_function: str | None = None # e.g. regex_match, foreign_key, sql_expression
+    dqx_check_url: str | None = None     # linkback to DQX Studio (or None when DQX_STUDIO_URL unset)
+    run_config_name: str | None = None   # silver_3040_operacoes | silver_3050 — dedup key for incidents
+    dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
+    critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
 
 
 class ValidationResultsResponse(BaseModel):
@@ -166,6 +179,8 @@ class ValidationResultsResponse(BaseModel):
     summary: ValidationSummary
     results: list[ValidationResult]
     pagination: Pagination
+    # Linkback to DQX Studio for the whole run (no run_config_name filter applied).
+    studio_url: str | None = None
 
 
 # --- Validation Trigger / Run ---
@@ -591,6 +606,14 @@ class Irregularity(BaseModel):
     timeline: list[IncidentEvent] = []
     bcb_communication_required: bool = False
     included_in_report: str | None = None
+    # DQX traceability (post Phase-7 — see docs/spec/08_dqx_app_integration.md §1.6 / §4)
+    critica_id: str | None = None
+    run_config_name: str | None = None
+    dqx_check_name: str | None = None
+    dqx_check_function: str | None = None
+    studio_url: str | None = None
+    affected_records: int | None = None
+    last_seen_run_id: str | None = None
 
 
 class IrregularitiesResponse(BaseModel):
@@ -598,6 +621,37 @@ class IrregularitiesResponse(BaseModel):
     irregularities: list[Irregularity]
     summary: IrregularitySummary
     pagination: Pagination
+
+
+class IncidentCreateRequest(BaseModel):
+    """Payload for POST /api/v1/governance/incidents (manual creation from
+    Críticas SCR drilldown). See docs/spec/08_dqx_app_integration.md §4.2."""
+    model_config = {"populate_by_name": True}
+
+    critica_id: str | None = None
+    run_config_name: str
+    # Accepts either ``dt_base`` (DB column name in governance.incidents) or
+    # ``data_base`` (app-wide convention used by Críticas SCR + validation router).
+    dt_base: str = Field(alias="data_base", validation_alias=AliasChoices("dt_base", "data_base"))
+    severity: str                             # 'high' | 'medium' | 'low' | 'error' | 'warning' | 'info'
+    description: str
+    affected_records: int | None = None
+    sample_keys: list[str] = []
+    dimension_r18: int | None = None          # 1..12 (already int from Críticas SCR)
+    dqx_check_name: str | None = None
+    dqx_check_function: str | None = None
+    document: str | None = None               # '3040' | '3050' (optional; inferred from run_config_name)
+    owner: str | None = None
+
+
+class IncidentStatusUpdateRequest(BaseModel):
+    """Payload for PATCH /api/v1/governance/incidents/{id}/status. See §4.3."""
+    status: str                               # target FSM state (open|in_progress|resolved|validated|escalated|reopened|assigned)
+    owner: str | None = None
+    comment: str | None = None
+    root_cause: str | None = None
+    remedial_action: str | None = None
+    escalated_to: str | None = None
 
 
 class GovernanceReport(BaseModel):

@@ -14,20 +14,27 @@ Dois caminhos:
 >
 > A camada de qualidade do RC18 é construída sobre **[Databricks Labs DQX](https://github.com/databrickslabs/dqx)**,
 > uma biblioteca **oficial Databricks Labs em estágio pré-1.0** (versão fixada
-> aqui: `databricks-labs-dqx==0.13.0`). Bibliotecas Labs são suportadas pela
+> aqui: `databricks-labs-dqx==0.14.0`). Bibliotecas Labs são suportadas pela
 > comunidade Databricks, **não** entram nos SLAs de produto comerciais e podem
 > introduzir mudanças incompatíveis em versões menores.
 >
-> Por isso este acelerador **fixa explicitamente a versão da DQX** em três lugares
-> ([`app/backend/requirements.txt`](app/backend/requirements.txt), [`resources/pipelines/silver.yml`](resources/pipelines/silver.yml), este aviso).
+> Por isso este acelerador **fixa explicitamente a versão da DQX** nos notebooks
+> que a invocam ([`notebooks/setup/seed_dqx_checks.py`](notebooks/setup/seed_dqx_checks.py),
+> [`notebooks/dqx_tutorial/dqx_basics.py`](notebooks/dqx_tutorial/dqx_basics.py), este aviso).
 > Antes de promover para um ambiente produtivo:
 >
 > 1. Faça fork deste repositório.
 > 2. Mantenha a versão fixa congelada — atualize só dentro do seu ciclo de
 >    recertificação (ler [CHANGELOG da DQX](https://github.com/databrickslabs/dqx/releases)
 >    primeiro).
-> 3. Versionar e migrar `rc18_catalog.quality.dqx_checks` é responsabilidade
->    sua — o seed do setup_job é idempotente, mas não migra schema do DQX.
+> 3. As regras DQX vivem em **`dqx_catalog.dqx_app.dq_quality_rules`** (autoria
+>    via DQX Studio). O seed inicial do RC18 (4 regras CADOC 3040) é executado
+>    pelo task `seed_dqx_checks` do setup job e usa MERGE idempotente — re-rodar
+>    é seguro. **Pré-requisito:** workspace admin precisa rodar
+>    [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql)
+>    UMA vez para conceder os GRANTs cross-catalog ao SP do bundle. Customers
+>    que deployaram a DQX Studio em outro catálogo/schema sobrescrevem
+>    `--var dqx_checks_table=<catalog>.<schema>.dq_quality_rules`.
 >
 > Se a sua organização precisa de garantias contratuais de suporte ao motor de
 > qualidade, considere substituir DQX por uma engine equivalente antes do go-live

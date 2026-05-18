@@ -41,6 +41,15 @@ SCHEMA_REFERENCE = os.getenv("SCHEMA_REFERENCE", "reference")
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 POOL_SIZE = int(os.getenv("DATABRICKS_SQL_POOL_SIZE", "5"))
 
+# FQN da tabela onde a DQX Studio (app databrickslabs/dqx) mantém autoria de
+# regras. Configurada via `var.dqx_checks_table` no bundle (default aponta para
+# a Studio compartilhada do workspace). Fallback assume Studio local ao catálogo
+# RC18 para dev/local sem Studio externa.
+DQX_CHECKS_TABLE = os.getenv(
+    "DQX_CHECKS_TABLE",
+    f"{CATALOG}.{SCHEMA_QUALITY}.dq_quality_rules",
+)
+
 
 def _get_real_connection():
     """Create a real Databricks SQL connection using service principal auth."""

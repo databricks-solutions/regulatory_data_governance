@@ -23,13 +23,18 @@
 # MAGIC    Copiamos tudo para `<volume_out>/validacao/<timestamp>/` para auditoria.
 
 # COMMAND ----------
+import os
+_validator_path = "/Workspace" + os.path.normpath(
+    os.path.dirname(
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    ) + "/../../assets/validators/SCR3040_Validador.bin"
+)
 
 dbutils.widgets.text("dt_base",     "2026-03", "Data-base (YYYY-MM)")
 dbutils.widgets.text("cnpj_if",     "99999999", "CNPJ-base da IF")
 dbutils.widgets.text("volume_out",  "/Volumes/rc18_demo_catalog/reference/scr3040_out",
                      "Dir. do XML gerado em 03 (mesmo volume_out do job)")
-dbutils.widgets.text("validador_zip",
-                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/SCR3040_Validador.bin",
+dbutils.widgets.text("validador_zip", _validator_path,
                      "Caminho do ZIP do validador (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("fail_on_error", "true", "Falhar task se validador reportar erro")
 

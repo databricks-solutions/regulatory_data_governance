@@ -42,6 +42,11 @@ resources:
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
             value: ${resources.schemas.reference.name}
+          # FQN da tabela onde a DQX Studio mantém as regras (autoria + estado).
+          # O backend RC18 lê dessa tabela para popular o catálogo de Críticas SCR,
+          # garantindo bi-direção: regras criadas no Studio aparecem em RC18.
+          - name: DQX_CHECKS_TABLE
+            value: ${var.dqx_checks_table}
           - name: DASHBOARD_ID_CONFORMIDADE
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
@@ -52,14 +57,12 @@ resources:
           #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
           # or re-add this block once you have a non-empty default for the var.
 
-          # DQX_STUDIO_URL intentionally omitted for the same reason — set it
-          # post-deploy once you've deployed the DQX Studio app
-          # (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/) and
-          # know its public URL:
-          #   databricks apps update <app-name> --env DQX_STUDIO_URL=https://<dqx-studio-app>.databricksapps.com
-          # When unset, the "Motor de Regras" page shows an empty state with
-          # deploy instructions. The app code's `os.getenv("DQX_STUDIO_URL", "")`
-          # fallback covers absence cleanly.
+          # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
+          # via `var.dqx_studio_url`. Default aponta pro Studio compartilhado
+          # do workspace `azure`. Override por target setando a var no perfil ou
+          # via --var dqx_studio_url=<url>.
+          - name: DQX_STUDIO_URL
+            value: ${var.dqx_studio_url}
 
       permissions:
         - level: CAN_USE

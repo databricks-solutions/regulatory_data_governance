@@ -14,7 +14,11 @@ async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail || 'Falha na requisicao');
+    const err = new ApiError(res.status, body.detail || 'Falha na requisicao');
+    // Surface the parsed body so callers can read e.g. the `existing_incident_id`
+    // returned with HTTP 409 conflicts (incident dedup) per spec 08 §4.2.
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
@@ -132,6 +136,30 @@ export function getActionPlans(filters = {}) {
 
 export function getGovernanceReports() {
   return apiFetch('/governance/reports');
+}
+
+// Create an incident from a DQX validation row (Críticas SCR "Criar Incidente" button).
+// Dedup key per docs/spec/08_dqx_app_integration.md §4.1:
+//   (critica_id, run_config_name, dt_base) WHERE status NOT IN ('resolved','validated')
+// On dedup hit the backend returns HTTP 409 with body { existing_incident_id, detail }.
+export function createIncident(payload) {
+  return apiFetch('/governance/incidents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+// Transition an incident through the FSM (spec 08 §4.3 / spec 07 §12.4).
+// Body shape: { status, owner?, comment?, root_cause?, remedial_action?, escalated_to? }
+// Allowed target statuses: 'assigned' | 'in_progress' | 'resolved' | 'validated'
+// | 'escalated' | 'reopened' | 'open'. Rejects illegal transitions with HTTP 400.
+export function updateIncidentStatus(incidentId, payload) {
+  return apiFetch(`/governance/incidents/${encodeURIComponent(incidentId)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 }
 
 // =============================================================================

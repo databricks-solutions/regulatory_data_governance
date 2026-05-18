@@ -7,9 +7,16 @@
   import KpiCard from '$lib/components/ui/KpiCard.svelte';
   import Spinner from '$lib/components/ui/Spinner.svelte';
   import { appState } from '$lib/stores.svelte.js';
-  import { getIrregularities, getIrregularityDetail, getActionPlans, getGovernanceReports } from '$lib/api.js';
+  import {
+    getIrregularities,
+    getIrregularityDetail,
+    getActionPlans,
+    getGovernanceReports,
+    updateIncidentStatus,
+  } from '$lib/api.js';
   import { formatDateTime, formatDate } from '$lib/format.js';
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
 
   // --- Tabs ---
   let activeTab = $state('incidentes');
@@ -65,9 +72,38 @@
     { key: 'dimension_r18', label: 'Dimensão R.18', type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
   ];
 
+  // "Detectado por" renders as a compact badge that distinguishes auto-emitted
+  // incidents (post-silver DQX job) from incidents created manually from
+  // Críticas SCR. See docs/spec/08_dqx_app_integration.md §4.1 / §4.2.
+  function renderDetectedBy(v) {
+    if (!v) return '<span class="inline-badge badge-neutral">-</span>';
+    if (v === 'dqx:auto-emit' || v === 'system@dqx-pipeline' || v === 'dlt-pipeline') {
+      return '<span class="inline-badge badge-info" title="Auto-detectado pelo pipeline DQX pós-silver">DQX auto</span>';
+    }
+    if (v.startsWith('manual:')) {
+      const email = v.slice('manual:'.length);
+      return `<span class="inline-badge badge-neutral" title="Criado manualmente por ${email}">Manual · ${email}</span>`;
+    }
+    return `<span class="inline-badge badge-neutral">${v}</span>`;
+  }
+
+  // "Regra DQX" links to DQX Studio when the row carries a check_name + studio_url.
+  function renderDqxCheck(_, row) {
+    const name = row?.dqx_check_name;
+    if (!name) return '<span class="muted-cell">-</span>';
+    const safeName = String(name).replace(/</g, '&lt;');
+    if (row?.studio_url) {
+      const safeUrl = String(row.studio_url).replace(/"/g, '&quot;');
+      return `<a class="dqx-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="Abrir no DQX Studio">${safeName} <span class="dqx-arrow">&#8599;</span></a>`;
+    }
+    return `<span class="muted-cell">${safeName}</span>`;
+  }
+
   const incidentColumns = [
-    { key: 'id', label: 'ID', sortable: true, width: '140px' },
-    { key: 'detected_at', label: 'Detectado', sortable: true, width: '180px', render: (v) => formatDateTime(v) },
+    { key: 'id', label: 'ID', sortable: true, width: '160px' },
+    { key: 'detected_at', label: 'Detectado', sortable: true, width: '160px', render: (v) => formatDateTime(v) },
+    { key: 'detected_by', label: 'Detectado por', sortable: true, width: '180px', render: renderDetectedBy },
+    { key: 'dqx_check_name', label: 'Regra DQX', sortable: true, width: '220px', render: renderDqxCheck },
     { key: 'document', label: 'Doc', sortable: true, width: '60px' },
     { key: 'dimension_name', label: 'Dimensão', sortable: true, width: '120px' },
     { key: 'severity', label: 'Severidade', sortable: true, width: '100px', render: (v) => {
@@ -79,7 +115,6 @@
       return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`;
     }},
     { key: 'owner', label: 'Responsável', sortable: true },
-    { key: 'resolution_days', label: 'Dias', sortable: true, width: '60px' },
   ];
 
   // --- Planos state ---
@@ -161,6 +196,57 @@
     showDetailModal = true;
   }
 
+  async function openDetailById(id) {
+    try {
+      const data = await getIrregularityDetail(id);
+      selectedIncident = data.irregularity;
+      selectedPlans = data.action_plans || [];
+      showDetailModal = true;
+    } catch { /* swallow — bad ID just leaves modal closed */ }
+  }
+
+  // --- FSM transitions (spec 08 §4.3 / spec 07 §12.4) ---
+  // Map UI button → target FSM state. Backend rejects illegal transitions with 400.
+  const FSM_TRANSITIONS = {
+    open:        ['assigned', 'in_progress', 'escalated', 'resolved'],
+    assigned:    ['in_progress', 'escalated', 'resolved'],
+    in_progress: ['escalated', 'resolved'],
+    escalated:   ['in_progress', 'resolved'],
+    resolved:    ['validated', 'reopened'],
+    validated:   ['reopened'],
+    reopened:    ['in_progress', 'escalated', 'resolved'],
+  };
+  const TRANSITION_LABEL = {
+    assigned:    'Assumir',
+    in_progress: 'Iniciar Análise',
+    escalated:   'Escalar',
+    resolved:    'Marcar Resolvido',
+    validated:   'Validar',
+    reopened:    'Reabrir',
+  };
+  let transitionLoading = $state(false);
+  let transitionError = $state('');
+
+  function availableTransitions(status) {
+    return FSM_TRANSITIONS[status] || [];
+  }
+
+  async function transitionIncident(target) {
+    if (!selectedIncident) return;
+    transitionLoading = true;
+    transitionError = '';
+    try {
+      const updated = await updateIncidentStatus(selectedIncident.id, { status: target });
+      selectedIncident = updated;
+      // Refresh the row in the table so the list reflects the new status.
+      irregularities = irregularities.map(r => r.id === updated.id ? updated : r);
+    } catch (err) {
+      transitionError = err?.message || 'Falha ao atualizar status do incidente.';
+    } finally {
+      transitionLoading = false;
+    }
+  }
+
   function handleFilter(key, value) {
     filterValues = { ...filterValues, [key]: value };
   }
@@ -181,6 +267,16 @@
     loadIrregularities();
     loadActionPlans();
     loadReports();
+    // Deep-link: when Críticas SCR teammate redirects here after creating an
+    // incident, auto-open the detail modal for that ID (spec 08 §4.4 linkback).
+    try {
+      const url = new URL(window.location.href);
+      const deepLink = url.searchParams.get('incident');
+      if (deepLink) {
+        activeTab = 'incidentes';
+        openDetailById(deepLink);
+      }
+    } catch { /* SSR / no window — ignore */ }
   });
 
   $effect(() => {
@@ -254,7 +350,7 @@
     {/if}
 
     <!-- Detail Modal -->
-    <Modal open={showDetailModal} title={selectedIncident?.id || ''} onclose={() => showDetailModal = false}>
+    <Modal open={showDetailModal} title={selectedIncident?.id || ''} onclose={() => { showDetailModal = false; transitionError = ''; }}>
       {#if selectedIncident}
         <div class="incident-detail">
           <div class="detail-header">
@@ -265,7 +361,54 @@
               {@html (() => { const s = STATUS_MAP[selectedIncident.status] || { label: selectedIncident.status, variant: 'neutral' }; return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`; })()}
             </div>
           </div>
+
+          {#if selectedIncident.dqx_check_name || selectedIncident.critica_id}
+            <div class="detail-dqx">
+              {#if selectedIncident.critica_id}
+                <span class="dqx-chip"><strong>Crítica:</strong> {selectedIncident.critica_id}</span>
+              {/if}
+              {#if selectedIncident.run_config_name}
+                <span class="dqx-chip"><strong>Run config:</strong> {selectedIncident.run_config_name}</span>
+              {/if}
+              {#if selectedIncident.dqx_check_name}
+                {#if selectedIncident.studio_url}
+                  <a class="dqx-chip-link" href={selectedIncident.studio_url} target="_blank" rel="noopener noreferrer">
+                    <strong>Regra DQX:</strong> {selectedIncident.dqx_check_name} <span class="dqx-arrow">↗</span>
+                  </a>
+                {:else}
+                  <span class="dqx-chip"><strong>Regra DQX:</strong> {selectedIncident.dqx_check_name}</span>
+                {/if}
+              {/if}
+              {#if selectedIncident.affected_records != null}
+                <span class="dqx-chip"><strong>Registros afetados:</strong> {selectedIncident.affected_records}</span>
+              {/if}
+            </div>
+          {/if}
+
           <p class="detail-desc">{selectedIncident.description}</p>
+
+          <!-- FSM transition buttons (spec 08 §4.3) -->
+          {#if availableTransitions(selectedIncident.status).length}
+            <div class="transition-bar">
+              <strong class="transition-label">Ações:</strong>
+              {#each availableTransitions(selectedIncident.status) as target}
+                <button
+                  type="button"
+                  class="btn-transition btn-transition-{target}"
+                  disabled={transitionLoading}
+                  onclick={() => transitionIncident(target)}
+                >
+                  {TRANSITION_LABEL[target] || target}
+                </button>
+              {/each}
+              {#if transitionLoading}
+                <span class="transition-status">Atualizando…</span>
+              {/if}
+            </div>
+            {#if transitionError}
+              <div class="transition-error">{transitionError}</div>
+            {/if}
+          {/if}
 
           {#if selectedIncident.timeline?.length}
             <h4 class="timeline-title">Timeline do Incidente</h4>
@@ -741,5 +884,123 @@
     .kpi-grid {
       grid-template-columns: repeat(2, 1fr);
     }
+  }
+
+  /* DQX / transition UI (post Phase-7) */
+  :global(.dqx-link) {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--font-size-xs);
+  }
+  :global(.dqx-link:hover) { text-decoration: underline; }
+  :global(.dqx-arrow) {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+  }
+  :global(.muted-cell) {
+    color: var(--gray-400);
+    font-size: var(--font-size-xs);
+  }
+
+  .detail-dqx {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    background: var(--gray-50);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+  }
+  .dqx-chip, .dqx-chip-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px var(--space-2);
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+  }
+  .dqx-chip-link {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  .dqx-chip-link:hover { text-decoration: underline; }
+  .dqx-chip strong, .dqx-chip-link strong {
+    color: var(--gray-500);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .transition-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-color);
+  }
+  .transition-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+  }
+  .btn-transition {
+    padding: var(--space-2) var(--space-3);
+    background: var(--white);
+    color: var(--gray-800);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+  }
+  .btn-transition:hover:not(:disabled) {
+    background: var(--gray-50);
+    border-color: var(--primary);
+  }
+  .btn-transition:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-transition-resolved {
+    background: var(--success-light);
+    color: var(--success);
+    border-color: var(--success);
+  }
+  .btn-transition-validated {
+    background: var(--info-light);
+    color: var(--primary);
+    border-color: var(--primary);
+  }
+  .btn-transition-escalated {
+    background: var(--error-light);
+    color: var(--error);
+    border-color: var(--error);
+  }
+  .btn-transition-reopened {
+    background: var(--warning-light);
+    color: var(--orange-900);
+    border-color: var(--warning);
+  }
+  .transition-status {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    font-style: italic;
+  }
+  .transition-error {
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--error-light);
+    color: var(--error);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
   }
 </style>

@@ -1,7 +1,7 @@
 # Unity Catalog schemas and volumes that the RC18 pipelines depend on.
 #
-# Schema names são literais (`bronze`, `silver`, `gold`, `reference`, `landing`)
-# — o `dev` target NÃO usa `mode: development`, então não há prefixo
+# Schema names são literais (`bronze`, `silver`, `gold`, `reference`, `landing`,
+# `quality`) — o `dev` target NÃO usa `mode: development`, então não há prefixo
 # `dev_<user>_` aplicado pelo DABs. Pipelines DLT e o app leem esses mesmos
 # nomes via `${var.schema_*}` ou via referência direta ao recurso
 # (`${resources.schemas.<name>.name}`).
@@ -12,7 +12,10 @@
 #
 # Quality lifecycle (autoria de regras + execução) vive fora deste bundle, no
 # DQX Studio (Databricks App externa do Databricks Labs DQX) — embarcado via
-# iframe na rota `/rules` do app RC18 quando `DQX_STUDIO_URL` está setado.
+# iframe na rota `/rules` do app RC18 quando `DQX_STUDIO_URL` está setado. O
+# schema `quality` (homes para `dqx_checks` + `dqx_summary_metrics`) é
+# provisionado por este bundle e semeado pelo task `seed_dqx_checks` do setup
+# job a partir de `pipelines/silver/dqx_checks/*.yml`.
 
 resources:
   schemas:
@@ -40,6 +43,16 @@ resources:
       catalog_name: ${var.catalog}
       name: ${var.schema_gold}
       comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050)."
+
+    quality:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_quality}
+      comment: "Quality — DQX rule definitions (dqx_checks) + run-level metrics (dqx_summary_metrics). Owned by DQX Studio after the initial seed by the setup job."
+
+    governance:
+      catalog_name: ${var.catalog}
+      name: governance
+      comment: "Governance — incidents (R.18 Art.2 §3 audit log). Written by app's POST /governance/incidents + auto-emit job pós-silver."
 
   volumes:
     scr_xml:

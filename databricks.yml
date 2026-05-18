@@ -58,6 +58,21 @@ variables:
   schema_quality:
     default: "quality"
 
+  dqx_checks_table:
+    description: |
+      FQN da tabela onde a DQX Studio armazena as regras (esquema interno
+      `dq_quality_rules`). Override apenas se você deployou a Studio em outro
+      catálogo/schema (ver env vars `DQX_CATALOG` / `DQX_SCHEMA` no app
+      databrickslabs/dqx).
+    default: "dqx_catalog.dqx_app.dq_quality_rules"
+
+  dqx_studio_url:
+    description: |
+      URL do app DQX Studio (Motor de Regras). Override por workspace.
+      Default vazio → desativa a aba; valor não-vazio embarca o Studio em iframe
+      e popula deep-links de regras na UI de Críticas SCR.
+    default: ""
+
 targets:
   dev:
     default: true
