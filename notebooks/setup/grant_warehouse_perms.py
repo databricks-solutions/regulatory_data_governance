@@ -12,7 +12,12 @@
 # MAGIC
 # MAGIC   1. CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
 # MAGIC   2. USE CATALOG + USE SCHEMA + SELECT/MODIFY em
-# MAGIC      `dqx_catalog.dqx_app.dq_quality_rules` (via SQL GRANT)
+# MAGIC      `dqx_catalog.dqx_app.dq_quality_rules` + SELECT em
+# MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
+# MAGIC   3. USE CATALOG em `rc18_catalog` + SELECT nos schemas de dados
+# MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
+# MAGIC      tabela `governance.incidents` (necessário para criação de
+# MAGIC      incidentes via POST /governance/incidents)
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter MANAGE em
@@ -112,17 +117,23 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 
 # COMMAND ----------
 
-# Mínimo necessário para o backend RC18 (4 grants base):
+# Grants em dqx_catalog (regras + tabelas de execução do DQX Studio):
 #   - USE CATALOG / USE SCHEMA — pré-requisito para qualquer SELECT em dqx_app
 #   - SELECT/MODIFY em dq_quality_rules — catálogo de regras (lido por
 #     /reference/criticas; escrito pelo task seed_dqx_checks)
-# Para os outros endpoints (/validations/scr3040/results e /quality/dimensions)
-# o backend lê das tabelas de execução do DQX Studio (validation_runs, metrics,
-# quarantine_records). Concedemos SELECT em todas para o app conseguir popular
-# Críticas SCR + Qualidade R.18 sem 500.
+#   - SELECT em validation_runs/metrics/quarantine_records — feeds para os
+#     endpoints /validations/*/results e /quality/dimensions
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 
+# Grants em rc18_catalog (catálogo de DADOS — silver/bronze/gold/reference) +
+# tabela mutável governance.incidents. O app SP precisa ler silver/reference
+# (para joins e enriquecimentos no backend) e ler+escrever em governance.
+# Granularidade por TABELA na governance pra não conceder MODIFY ao schema
+# inteiro acidentalmente.
+_RC18_READ_SCHEMAS = ["silver", "reference", "bronze", "gold"]
+
 grants = [
+    # dqx_catalog (DQX Studio) — pré-requisitos + dq_quality_rules
     f"GRANT USE CATALOG ON CATALOG `{DQX_CATALOG}` TO `{sp_client_id}`",
     f"GRANT USE SCHEMA  ON SCHEMA  `{DQX_CATALOG}`.`{DQX_SCHEMA}` TO `{sp_client_id}`",
     f"GRANT SELECT      ON TABLE   {DQX_CHECKS_TABLE} TO `{sp_client_id}`",
@@ -130,6 +141,23 @@ grants = [
 ] + [
     f"GRANT SELECT      ON TABLE   `{DQX_CATALOG}`.`{DQX_SCHEMA}`.`{t}` TO `{sp_client_id}`"
     for t in _DQX_READ_TABLES
+] + [
+    # rc18_catalog — USE CATALOG raiz + read em schemas de dados
+    f"GRANT USE CATALOG ON CATALOG `rc18_catalog` TO `{sp_client_id}`",
+] + [
+    cmd.format(s=s, sp=sp_client_id)
+    for s in _RC18_READ_SCHEMAS
+    for cmd in (
+        "GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+        "GRANT SELECT     ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+    )
+] + [
+    # governance.incidents — SP precisa ler (Gestão de Incidentes) E escrever
+    # (POST /governance/incidents da Críticas SCR drilldown). MODIFY restrito
+    # à TABELA, não ao schema inteiro.
+    f"GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`governance` TO `{sp_client_id}`",
+    f"GRANT SELECT     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
+    f"GRANT MODIFY     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
 ]
 for g in grants:
     spark.sql(g)

@@ -1,5 +1,4 @@
 <script>
-  import Tabs from '$lib/components/ui/Tabs.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import FilterBar from '$lib/components/data/FilterBar.svelte';
   import DataTable from '$lib/components/data/DataTable.svelte';
@@ -10,23 +9,16 @@
   import {
     getIrregularities,
     getIrregularityDetail,
-    getActionPlans,
-    getGovernanceReports,
     updateIncidentStatus,
   } from '$lib/api.js';
   import { formatDateTime, formatDate } from '$lib/format.js';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
 
-  // --- Tabs ---
-  let activeTab = $state('incidentes');
-  const tabs = [
-    { key: 'incidentes', label: 'Incidentes' },
-    { key: 'planos', label: 'Planos de Ação' },
-    { key: 'relatorios', label: 'Relatórios' }
-  ];
-
   // --- Incidentes state ---
+  // Esta página tem APENAS incidentes — as abas "Planos de Ação" e "Relatórios"
+  // foram removidas porque os fluxos não estão implementados (entidades vivem
+  // fora do RC18 — JIRA/Confluence/etc).
   let irregularities = $state([]);
   let summary = $state({ total_open: 0, total_in_progress: 0, total_resolved: 0, avg_resolution_days: 0 });
   let loading = $state(false);
@@ -34,14 +26,12 @@
   let expandedRow = $state(null);
   let showDetailModal = $state(false);
   let selectedIncident = $state(null);
-  let selectedPlans = $state([]);
 
   const STATUS_MAP = {
     open: { label: 'Aberto', variant: 'error' },
     in_progress: { label: 'Em Andamento', variant: 'warning' },
     resolved: { label: 'Resolvido', variant: 'success' },
-    escalated: { label: 'Escalado', variant: 'error' },
-    validated: { label: 'Validado', variant: 'info' },
+    reopened: { label: 'Reaberto', variant: 'error' },
   };
 
   const SEVERITY_MAP = {
@@ -52,11 +42,8 @@
 
   const EVENT_TYPE_MAP = {
     detected: { label: 'Detectado', color: 'var(--primary)' },
-    assigned: { label: 'Atribuído', color: 'var(--gray-500)' },
-    responded: { label: 'Respondido', color: 'var(--warning)' },
-    escalated: { label: 'Escalado', color: 'var(--error)' },
+    in_progress: { label: 'Em Andamento', color: 'var(--warning)' },
     resolved: { label: 'Resolvido', color: 'var(--success)' },
-    validated: { label: 'Validado', color: 'var(--success-dark, var(--success))' },
     reopened: { label: 'Reaberto', color: 'var(--error)' },
     comment: { label: 'Comentário', color: 'var(--gray-400)' },
   };
@@ -64,7 +51,7 @@
   const filterDefs = [
     { key: 'status', label: 'Status', type: 'select', options: [
       { value: 'open', label: 'Aberto' }, { value: 'in_progress', label: 'Em Andamento' },
-      { value: 'resolved', label: 'Resolvido' }, { value: 'escalated', label: 'Escalado' }
+      { value: 'resolved', label: 'Resolvido' }, { value: 'reopened', label: 'Reaberto' }
     ]},
     { key: 'severity', label: 'Severidade', type: 'select', options: [
       { value: 'high', label: 'Alta' }, { value: 'medium', label: 'Média' }, { value: 'low', label: 'Baixa' }
@@ -117,44 +104,6 @@
     { key: 'owner', label: 'Responsável', sortable: true },
   ];
 
-  // --- Planos state ---
-  let actionPlans = $state([]);
-  let plansLoading = $state(false);
-  let planExpandedRow = $state(null);
-
-  const PLAN_STATUS_MAP = {
-    pending: { label: 'Pendente', variant: 'neutral' },
-    in_progress: { label: 'Em Andamento', variant: 'warning' },
-    completed: { label: 'Concluído', variant: 'success' },
-    overdue: { label: 'Atrasado', variant: 'error' },
-  };
-
-  const planColumns = [
-    { key: 'id', label: 'ID', sortable: true, width: '120px' },
-    { key: 'title', label: 'Título', sortable: true },
-    { key: 'owner', label: 'Responsável', sortable: true, width: '180px' },
-    { key: 'status', label: 'Status', sortable: true, width: '120px', render: (v) => {
-      const s = PLAN_STATUS_MAP[v] || { label: v, variant: 'neutral' };
-      return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`;
-    }},
-    { key: 'progress_pct', label: 'Progresso', sortable: true, width: '150px', render: (v) =>
-      `<div class="progress-bar"><div class="progress-fill" style="width:${v}%"></div><span class="progress-text">${v}%</span></div>`
-    },
-    { key: 'deadline', label: 'Prazo', sortable: true, width: '110px', render: (v) => formatDate(v) },
-    { key: 'dimension_name', label: 'Dimensão', sortable: true, width: '120px' },
-  ];
-
-  // --- Relatórios state ---
-  let reports = $state([]);
-  let reportsLoading = $state(false);
-
-  const REPORT_STATUS_MAP = {
-    draft: { label: 'Rascunho', variant: 'neutral' },
-    in_progress: { label: 'Em Elaboração', variant: 'warning' },
-    approved: { label: 'Aprovado', variant: 'success' },
-    distributed: { label: 'Distribuído', variant: 'info' },
-  };
-
   // --- Data loading ---
   async function loadIrregularities() {
     loading = true;
@@ -166,32 +115,12 @@
     loading = false;
   }
 
-  async function loadActionPlans() {
-    plansLoading = true;
-    try {
-      const data = await getActionPlans();
-      if (data?.action_plans) actionPlans = data.action_plans;
-    } catch { /* keep current state */ }
-    plansLoading = false;
-  }
-
-  async function loadReports() {
-    reportsLoading = true;
-    try {
-      const data = await getGovernanceReports();
-      if (data?.reports) reports = data.reports;
-    } catch { /* keep current state */ }
-    reportsLoading = false;
-  }
-
   async function openDetail(row) {
     try {
       const data = await getIrregularityDetail(row.id);
       selectedIncident = data.irregularity;
-      selectedPlans = data.action_plans || [];
     } catch {
       selectedIncident = row;
-      selectedPlans = [];
     }
     showDetailModal = true;
   }
@@ -200,32 +129,50 @@
     try {
       const data = await getIrregularityDetail(id);
       selectedIncident = data.irregularity;
-      selectedPlans = data.action_plans || [];
       showDetailModal = true;
     } catch { /* swallow — bad ID just leaves modal closed */ }
   }
 
-  // --- FSM transitions (spec 08 §4.3 / spec 07 §12.4) ---
-  // Map UI button → target FSM state. Backend rejects illegal transitions with 400.
+  // --- FSM transitions (simplificada) ---
+  // 4 estados: Aberto → Em Andamento → Resolvido (+ Reaberto como escape).
+  // Removidos: assigned, escalated, validated — o fluxo ficou confuso com
+  // tantas opções; melhor um ciclo linear claro com reabertura possível.
   const FSM_TRANSITIONS = {
-    open:        ['assigned', 'in_progress', 'escalated', 'resolved'],
-    assigned:    ['in_progress', 'escalated', 'resolved'],
-    in_progress: ['escalated', 'resolved'],
-    escalated:   ['in_progress', 'resolved'],
-    resolved:    ['validated', 'reopened'],
-    validated:   ['reopened'],
-    reopened:    ['in_progress', 'escalated', 'resolved'],
+    open:        ['in_progress', 'resolved'],
+    in_progress: ['resolved'],
+    resolved:    ['reopened'],
+    reopened:    ['in_progress', 'resolved'],
   };
-  const TRANSITION_LABEL = {
-    assigned:    'Assumir',
-    in_progress: 'Iniciar Análise',
-    escalated:   'Escalar',
-    resolved:    'Marcar Resolvido',
-    validated:   'Validar',
-    reopened:    'Reabrir',
+  // Metadata para cada ação: rótulo PT-BR, ícone (SVG path) e variante de cor.
+  // Usado pra renderizar os botões coloridos do action panel.
+  const TRANSITION_META = {
+    in_progress: {
+      label: 'Assumir',
+      hint:  'Você fica responsável por investigar e resolver',
+      // Person/check icon
+      icon:  'M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
+      variant: 'primary',
+    },
+    resolved: {
+      label: 'Marcar Resolvido',
+      hint:  'Você corrigiu a causa raiz da inconsistência',
+      // Check-circle
+      icon:  'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
+      variant: 'success',
+    },
+    reopened: {
+      label: 'Reabrir',
+      hint:  'A inconsistência voltou ou a resolução estava incompleta',
+      // Refresh arrows
+      icon:  'M17.65 6.35A7.958 7.958 0 0012 4a8 8 0 00-7.93 7H2l3.89 3.89.07.14L10 11H7c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5c-1.92 0-3.58-1.09-4.43-2.67l-1.46 1.49C7.16 17.32 9.39 19 12 19a8 8 0 000-16c-2.21 0-4.21.9-5.65 2.35z',
+      variant: 'warning',
+    },
   };
   let transitionLoading = $state(false);
   let transitionError = $state('');
+  // Comentário compartilhado entre os botões — capturado quando o usuário
+  // clica em qualquer ação. Limpa após sucesso.
+  let actionComment = $state('');
 
   function availableTransitions(status) {
     return FSM_TRANSITIONS[status] || [];
@@ -236,10 +183,14 @@
     transitionLoading = true;
     transitionError = '';
     try {
-      const updated = await updateIncidentStatus(selectedIncident.id, { status: target });
+      const payload = { status: target };
+      const trimmed = (actionComment || '').trim();
+      if (trimmed) payload.comment = trimmed;
+      const updated = await updateIncidentStatus(selectedIncident.id, payload);
       selectedIncident = updated;
       // Refresh the row in the table so the list reflects the new status.
       irregularities = irregularities.map(r => r.id === updated.id ? updated : r);
+      actionComment = '';
     } catch (err) {
       transitionError = err?.message || 'Falha ao atualizar status do incidente.';
     } finally {
@@ -265,32 +216,22 @@
 
   onMount(() => {
     loadIrregularities();
-    loadActionPlans();
-    loadReports();
     // Deep-link: when Críticas SCR teammate redirects here after creating an
     // incident, auto-open the detail modal for that ID (spec 08 §4.4 linkback).
     try {
       const url = new URL(window.location.href);
       const deepLink = url.searchParams.get('incident');
-      if (deepLink) {
-        activeTab = 'incidentes';
-        openDetailById(deepLink);
-      }
+      if (deepLink) openDetailById(deepLink);
     } catch { /* SSR / no window — ignore */ }
   });
 
   $effect(() => {
-    if (activeTab === 'incidentes') {
-      void filterValues;
-      loadIrregularities();
-    }
+    void filterValues;
+    loadIrregularities();
   });
 </script>
 
 <div class="governance-page">
-  <Tabs {tabs} active={activeTab} onchange={(key) => { activeTab = key; expandedRow = null; planExpandedRow = null; }} />
-
-  {#if activeTab === 'incidentes'}
     <!-- KPI Cards -->
     <div class="kpi-grid">
       <KpiCard title="Abertos" value={summary.total_open} status="error" />
@@ -387,27 +328,49 @@
 
           <p class="detail-desc">{selectedIncident.description}</p>
 
-          <!-- FSM transition buttons (spec 08 §4.3) -->
+          <!-- Action panel: comentário + botões de transição com ícones -->
           {#if availableTransitions(selectedIncident.status).length}
-            <div class="transition-bar">
-              <strong class="transition-label">Ações:</strong>
-              {#each availableTransitions(selectedIncident.status) as target}
-                <button
-                  type="button"
-                  class="btn-transition btn-transition-{target}"
-                  disabled={transitionLoading}
-                  onclick={() => transitionIncident(target)}
-                >
-                  {TRANSITION_LABEL[target] || target}
-                </button>
-              {/each}
+            <div class="action-panel">
+              <label class="action-panel-header" for="incident-comment">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                </svg>
+                <span>Comentário <span class="optional-tag">(opcional)</span></span>
+              </label>
+              <textarea
+                id="incident-comment"
+                class="action-comment"
+                placeholder="Descreva o motivo, ação tomada ou contexto desta transição. Vai pro timeline."
+                rows="2"
+                bind:value={actionComment}
+                disabled={transitionLoading}
+              ></textarea>
+              <div class="action-buttons">
+                {#each availableTransitions(selectedIncident.status) as target}
+                  {@const meta = TRANSITION_META[target] || { label: target, hint: '', icon: '', variant: 'primary' }}
+                  <button
+                    type="button"
+                    class="btn-action btn-action-{meta.variant}"
+                    disabled={transitionLoading}
+                    title={meta.hint}
+                    onclick={() => transitionIncident(target)}
+                  >
+                    {#if meta.icon}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d={meta.icon} />
+                      </svg>
+                    {/if}
+                    <span class="btn-action-label">{meta.label}</span>
+                  </button>
+                {/each}
+              </div>
               {#if transitionLoading}
-                <span class="transition-status">Atualizando…</span>
+                <div class="action-status">Atualizando incidente…</div>
+              {/if}
+              {#if transitionError}
+                <div class="action-error">{transitionError}</div>
               {/if}
             </div>
-            {#if transitionError}
-              <div class="transition-error">{transitionError}</div>
-            {/if}
           {/if}
 
           {#if selectedIncident.timeline?.length}
@@ -433,98 +396,9 @@
             </div>
           {/if}
 
-          {#if selectedPlans.length}
-            <h4 class="plans-title">Planos de Ação Vinculados</h4>
-            {#each selectedPlans as plan}
-              <div class="linked-plan">
-                <div class="linked-plan-header">
-                  <strong>{plan.id}</strong> - {plan.title}
-                  {@html (() => { const s = PLAN_STATUS_MAP[plan.status] || { label: plan.status, variant: 'neutral' }; return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`; })()}
-                </div>
-                <div class="progress-bar"><div class="progress-fill" style="width:{plan.progress_pct}%"></div><span class="progress-text">{plan.progress_pct}%</span></div>
-              </div>
-            {/each}
-          {/if}
         </div>
       {/if}
     </Modal>
-
-  {:else if activeTab === 'planos'}
-    {#if plansLoading}
-      <Spinner message="Carregando planos de ação..." />
-    {:else}
-      <div class="card">
-        <DataTable
-          columns={planColumns}
-          data={actionPlans}
-          expandedRow={planExpandedRow}
-          onRowClick={(row, i) => planExpandedRow = planExpandedRow === i ? null : i}
-        >
-          {#snippet expandSnippet(row)}
-            <div class="plan-expand">
-              <p><strong>Descrição:</strong> {row.description}</p>
-              <p><strong>Irregularidade:</strong> {row.irregularity_id}</p>
-              {#if row.auditor_caveat}<p><strong>Ressalva de Auditoria:</strong> {row.auditor_caveat}</p>{/if}
-              {#if row.updates?.length}
-                <div class="plan-updates">
-                  <strong>Histórico de Atualizações:</strong>
-                  {#each row.updates as upd}
-                    <div class="plan-update-item">
-                      <span class="update-date">{formatDate(upd.date)}</span>
-                      <span class="update-author">{upd.author}</span>
-                      <span class="update-note">{upd.note}</span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/snippet}
-        </DataTable>
-      </div>
-    {/if}
-
-  {:else}
-    <!-- Relatórios -->
-    {#if reportsLoading}
-      <Spinner message="Carregando relatórios..." />
-    {:else if reports.length === 0}
-      <div class="empty-state">Nenhum relatório semestral encontrado.</div>
-    {:else}
-      <div class="reports-grid">
-        {#each reports as report}
-          {@const rs = REPORT_STATUS_MAP[report.status] || { label: report.status, variant: 'neutral' }}
-          <div class="card report-card">
-            <div class="report-header">
-              <h3>{report.period}</h3>
-              <Badge label={rs.label} variant={rs.variant} />
-            </div>
-            <div class="report-period">{formatDate(report.period_start)} - {formatDate(report.period_end)}</div>
-            <div class="report-stats">
-              <div class="report-stat">
-                <span class="report-stat-value">{report.irregularities_count}</span>
-                <span class="report-stat-label">Irregularidades</span>
-              </div>
-              <div class="report-stat">
-                <span class="report-stat-value report-stat-success">{report.resolved_count}</span>
-                <span class="report-stat-label">Resolvidas</span>
-              </div>
-              <div class="report-stat">
-                <span class="report-stat-value report-stat-warning">{report.pending_count}</span>
-                <span class="report-stat-label">Pendentes</span>
-              </div>
-              <div class="report-stat">
-                <span class="report-stat-value">{report.dimensions_covered}</span>
-                <span class="report-stat-label">Dimensões</span>
-              </div>
-            </div>
-            {#if report.approved_at}
-              <div class="report-approval">Aprovado em {formatDateTime(report.approved_at)} por {report.approved_by || '-'}</div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    {/if}
-  {/if}
 </div>
 
 <style>
@@ -687,7 +561,7 @@
   }
 
   /* Timeline */
-  .timeline-title, .plans-title {
+  .timeline-title {
     font-size: var(--font-size-base);
     font-weight: 700;
     color: var(--gray-800);
@@ -757,129 +631,6 @@
     line-height: 1.4;
   }
 
-  /* Linked plans in modal */
-  .linked-plan {
-    padding: var(--space-3);
-    background: var(--gray-50);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-color);
-  }
-  .linked-plan-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
-    font-size: var(--font-size-sm);
-    flex-wrap: wrap;
-  }
-
-  /* Plan expand */
-  .plan-expand {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-  .plan-expand p {
-    margin: 0;
-    font-size: var(--font-size-sm);
-    color: var(--gray-700);
-    line-height: 1.5;
-  }
-  .plan-updates {
-    margin-top: var(--space-2);
-  }
-  .plan-updates strong {
-    font-size: var(--font-size-sm);
-    color: var(--gray-800);
-  }
-  .plan-update-item {
-    display: flex;
-    gap: var(--space-3);
-    padding: var(--space-2) 0;
-    border-bottom: 1px solid var(--border-color);
-    font-size: var(--font-size-sm);
-  }
-  .plan-update-item:last-child {
-    border-bottom: none;
-  }
-  .update-date {
-    color: var(--gray-500);
-    font-weight: 600;
-    white-space: nowrap;
-    min-width: 80px;
-  }
-  .update-author {
-    color: var(--primary);
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .update-note {
-    color: var(--gray-700);
-  }
-
-  /* Reports grid */
-  .reports-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: var(--space-4);
-  }
-  .report-card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-  .report-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .report-header h3 {
-    margin: 0;
-    font-size: var(--font-size-lg);
-    font-weight: 700;
-    color: var(--gray-900);
-  }
-  .report-period {
-    font-size: var(--font-size-sm);
-    color: var(--gray-500);
-  }
-  .report-stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--space-2);
-  }
-  .report-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-  }
-  .report-stat-value {
-    font-size: var(--font-size-xl);
-    font-weight: 800;
-    color: var(--gray-900);
-  }
-  .report-stat-success { color: var(--success); }
-  .report-stat-warning { color: var(--warning); }
-  .report-stat-label {
-    font-size: var(--font-size-xs);
-    color: var(--gray-500);
-    font-weight: 600;
-    text-align: center;
-  }
-  .report-approval {
-    font-size: var(--font-size-xs);
-    color: var(--gray-500);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border-color);
-  }
-  .empty-state {
-    padding: var(--space-10);
-    text-align: center;
-    color: var(--gray-500);
-    font-size: var(--font-size-base);
-  }
-
   @media (max-width: 900px) {
     .kpi-grid {
       grid-template-columns: repeat(2, 1fr);
@@ -939,68 +690,93 @@
     letter-spacing: 0.04em;
   }
 
-  .transition-bar {
+  /* Action panel — input de comentário + botões coloridos de transição */
+  .action-panel {
+    margin-top: var(--space-3);
+    padding: var(--space-4);
+    background: var(--gray-50, #f8f9fa);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .action-panel-header {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
     gap: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border-color);
-  }
-  .transition-label {
-    font-size: var(--font-size-sm);
-    color: var(--gray-700);
-  }
-  .btn-transition {
-    padding: var(--space-2) var(--space-3);
-    background: var(--white);
-    color: var(--gray-800);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
     font-weight: 600;
+    color: var(--gray-700);
+  }
+  .action-panel-header svg { color: var(--gray-500); }
+  .optional-tag {
+    font-weight: 400;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+  }
+  .action-comment {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    color: var(--gray-900);
+    resize: vertical;
+    min-height: 60px;
+    background: var(--white);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+  .action-comment:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(255, 51, 102, 0.08);
+  }
+  .action-comment:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .action-buttons {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .btn-action {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
     cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
+    color: white;
+    transition: filter var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
   }
-  .btn-transition:hover:not(:disabled) {
-    background: var(--gray-50);
-    border-color: var(--primary);
-  }
-  .btn-transition:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-transition-resolved {
-    background: var(--success-light);
-    color: var(--success);
-    border-color: var(--success);
-  }
-  .btn-transition-validated {
-    background: var(--info-light);
-    color: var(--primary);
-    border-color: var(--primary);
-  }
-  .btn-transition-escalated {
-    background: var(--error-light);
-    color: var(--error);
-    border-color: var(--error);
-  }
-  .btn-transition-reopened {
-    background: var(--warning-light);
-    color: var(--orange-900);
-    border-color: var(--warning);
-  }
-  .transition-status {
+  .btn-action:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 3px 6px rgba(0,0,0,0.12); }
+  .btn-action:active:not(:disabled) { transform: translateY(0); }
+  .btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-action svg { flex-shrink: 0; }
+  .btn-action-label { line-height: 1; }
+
+  /* Variantes de cor — cada ação tem semântica clara */
+  .btn-action-primary  { background: var(--primary, #2563eb); }
+  .btn-action-success  { background: var(--success, #16a34a); }
+  .btn-action-warning  { background: var(--warning, #d97706); color: white; }
+  .btn-action-danger   { background: var(--error, #dc2626); }
+
+  .action-status {
     font-size: var(--font-size-xs);
     color: var(--gray-500);
     font-style: italic;
   }
-  .transition-error {
-    margin-top: var(--space-2);
+  .action-error {
     padding: var(--space-2) var(--space-3);
     background: var(--error-light);
     color: var(--error);
     border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
+    border-left: 3px solid var(--error);
   }
 </style>

@@ -135,16 +135,6 @@ export function getIrregularityDetail(id) {
   return apiFetch(`/governance/irregularities/${encodeURIComponent(id)}`);
 }
 
-export function getActionPlans(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  return apiFetch(`/governance/action-plans?${params}`);
-}
-
-export function getGovernanceReports() {
-  return apiFetch('/governance/reports');
-}
-
 // Create an incident from a DQX validation row (Críticas SCR "Criar Incidente" button).
 // Dedup key per docs/spec/08_dqx_app_integration.md §4.1:
 //   (critica_id, run_config_name, dt_base) WHERE status NOT IN ('resolved','validated')

@@ -46,26 +46,39 @@ _SEVERITY_REVERSE_MAP = {
 # Incident lifecycle storage → UI. The UI vocabulary keeps backward-compat with
 # the legacy ``open`` shorthand for ``detected`` (the original ``Aberto`` label).
 _STATUS_MAP = {
-    "detected": "open",
-    "assigned": "assigned",
+    "detected":    "open",
     "in_progress": "in_progress",
-    "escalated": "escalated",
-    "resolved": "resolved",
-    "validated": "validated",
-    "reopened": "reopened",
+    "resolved":    "resolved",
+    "reopened":    "reopened",
+    # Legacy mappings — back-compat com linhas antigas em `governance.incidents`
+    # gravadas pela FSM anterior de 7 estados. Render-only: surface como o
+    # estado ativo mais próximo. NÃO entram no reverse map (ninguém ESCREVE
+    # esses valores hoje).
+    "assigned":  "in_progress",
+    "escalated": "in_progress",
+    "validated": "resolved",
 }
-_STATUS_REVERSE_MAP = {v: k for k, v in _STATUS_MAP.items()}
+# Reverse map: UI → storage. Construído explicitamente porque _STATUS_MAP tem
+# duplicatas de VALOR (legacy → in_progress/resolved); um dict comp simples
+# perderia entradas ativas.
+_STATUS_REVERSE_MAP = {
+    "open":        "detected",
+    "in_progress": "in_progress",
+    "resolved":    "resolved",
+    "reopened":    "reopened",
+}
 
-# Finite-state machine for the lifecycle PATCH endpoint. Mirrors
-# docs/spec/07_dqx_migration.md §12.4.
+# Finite-state machine simplificada — 4 estados, ciclo claro:
+#   detected (UI: Aberto) → in_progress → resolved → (reopened) → in_progress
+# Estados removidos vs spec original (07 §12.4): assigned, escalated, validated.
+# Razão: o fluxo com 7 estados ficou confuso pra usuários ("Assumir" de
+# in_progress voltava pra assigned, etc.). Versão atual cobre 95% dos casos
+# reais (incidente é aberto, alguém pega, resolve; eventualmente reabre).
 _FSM_TRANSITIONS: dict[str, set[str]] = {
-    "detected":    {"assigned", "in_progress", "escalated", "resolved"},
-    "assigned":    {"in_progress", "escalated", "resolved"},
-    "in_progress": {"escalated", "resolved"},
-    "escalated":   {"in_progress", "resolved"},
-    "resolved":    {"validated", "reopened"},
-    "validated":   {"reopened"},
-    "reopened":    {"in_progress", "escalated", "resolved"},
+    "detected":    {"in_progress", "resolved"},
+    "in_progress": {"resolved"},
+    "resolved":    {"reopened"},
+    "reopened":    {"in_progress", "resolved"},
 }
 
 from models import (
@@ -92,13 +105,14 @@ router = APIRouter()
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _dqx_studio_url(run_config_name: str | None, check_name: str | None) -> str | None:
+def _dqx_studio_url(_run_config_name: str | None, check_name: str | None) -> str | None:
     """Linkback URL para DQX Studio (lista de regras ativas).
 
     Studio não tem deep-link por (run_config_name, check_name) — apontamos pra
     `/rules/active` e o usuário localiza a regra na lista. Retorna ``None``
     quando ``DQX_STUDIO_URL`` está como `about:blank`, OU
-    quando ``check_name`` é nulo."""
+    quando ``check_name`` é nulo. `_run_config_name` mantido na assinatura
+    apenas pra compatibilidade com call sites antigos; não é consumido."""
     base = (os.getenv("DQX_STUDIO_URL") or "").rstrip("/")
     if not base or base in ("about:blank",) or not check_name:
         return None
@@ -373,17 +387,33 @@ def _row_to_irregularity(r: dict) -> Irregularity:
             resolution_days = max(0, int((resolved_at - detected_at).days))
         except Exception:  # noqa: BLE001
             resolution_days = None
-    timeline_raw = r.get("timeline") or []
+    # `r.get("timeline")` pode vir como numpy.ndarray (databricks-sql-connector
+    # converte ARRAY<STRUCT<>> via pandas em alguns paths). `arr or []` chama
+    # bool(arr) que dispara "truth value of array is ambiguous". Tratamos
+    # explicitamente: None vira []; arrays e listas iteramos direto.
+    timeline_raw = r.get("timeline")
+    if timeline_raw is None:
+        timeline_iter = []
+    else:
+        try:
+            timeline_iter = list(timeline_raw)
+        except TypeError:
+            timeline_iter = []
     timeline: list[IncidentEvent] = []
-    for ev in timeline_raw:
-        # SQL returns each STRUCT as a dict (databricks-sql-connector default).
-        if isinstance(ev, dict):
-            timeline.append(IncidentEvent(
-                timestamp=str(ev.get("timestamp") or ""),
-                event_type=str(ev.get("event_type") or ""),
-                actor=str(ev.get("actor") or ""),
-                description=str(ev.get("description") or ""),
-            ))
+    for ev in timeline_iter:
+        # STRUCT pode chegar como dict OU numpy structured row. Acessamos via
+        # dict() quando possível.
+        if not isinstance(ev, dict):
+            try:
+                ev = dict(ev)
+            except (TypeError, ValueError):
+                continue
+        timeline.append(IncidentEvent(
+            timestamp=str(ev.get("timestamp") or ""),
+            event_type=str(ev.get("event_type") or ""),
+            actor=str(ev.get("actor") or ""),
+            description=str(ev.get("description") or ""),
+        ))
     return Irregularity(
         id=r.get("incident_id") or "",
         detected_at=str(detected_at) if detected_at else "",
