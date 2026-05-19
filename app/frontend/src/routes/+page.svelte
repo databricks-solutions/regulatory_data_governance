@@ -5,7 +5,7 @@
   import LineChart from '$lib/components/charts/LineChart.svelte';
   import { goto } from '$app/navigation';
   import { appState } from '$lib/stores.svelte.js';
-  import { getDashboardKpis, getQualityDimensions } from '$lib/api.js';
+  import { getDashboardKpis, getQualityDimensions, getQualityTrend } from '$lib/api.js';
   import { formatDate, formatPercent } from '$lib/format.js';
   import { onMount } from 'svelte';
 
@@ -18,13 +18,7 @@
   });
 
   let dimensions = $state([]);
-
-  let overallTrend = $derived(
-    dimensions[0]?.trend?.map(t => ({
-      month: t.month,
-      score: dimensions.reduce((sum, d) => sum + (d.trend.find(tr => tr.month === t.month)?.score || 0), 0) / dimensions.length
-    })) || []
-  );
+  let overallTrend = $state([]);
 
   onMount(async () => {
     try {
@@ -34,6 +28,13 @@
     try {
       const data = await getQualityDimensions(appState.dataBase);
       if (data?.dimensions) dimensions = data.dimensions;
+    } catch {}
+    try {
+      // /quality/trend agrega scores de TODAS as runs DQX por mês — fonte
+      // direta da Tendência de Conformidade. Antes derivávamos do trend
+      // embutido em dimensions[i].trend, que nunca foi populado.
+      const data = await getQualityTrend(appState.dataBase);
+      if (Array.isArray(data?.trend)) overallTrend = data.trend;
     } catch {}
   });
 
@@ -136,7 +137,7 @@
 
   <!-- Status Row -->
   <div class="status-row">
-    <!-- Last Submission -->
+    <!-- Última Execução DQX -->
     <div class="card status-card">
       <div class="status-card-header">
         <div class="status-icon-wrapper submission">
@@ -144,25 +145,24 @@
             <path d="M12 19V5M5 12l7-7 7 7"/>
           </svg>
         </div>
-        <div class="card-header">Última Remessa</div>
+        <div class="card-header">Última Execução DQX</div>
       </div>
       <div class="status-body">
-        <div class="status-main-value">{kpis.last_submission.document}</div>
+        <div class="status-main-value">{kpis.last_submission.document || '—'}</div>
         <div class="status-detail">
-          <span class="detail-label">Data-base</span>
-          <span class="detail-value">{kpis.last_submission.data_base}</span>
+          <span class="detail-label">Data-base do app</span>
+          <span class="detail-value">{kpis.last_submission.data_base || '—'}</span>
         </div>
         <div class="status-detail">
           <span class="detail-label">Status</span>
-          <Badge label={kpis.last_submission.status === 'aceito' ? 'Aceito' : 'Pendente'} variant={kpis.last_submission.status === 'aceito' ? 'success' : 'warning'} />
+          <Badge label={kpis.last_submission.status === 'executado' ? 'Executado' : 'Pendente'} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
         </div>
         <div class="status-detail">
-          <span class="detail-label">Enviado</span>
-          <span class="detail-value">{formatDate(kpis.last_submission.submitted_at)}</span>
+          <span class="detail-label">Última run</span>
+          <span class="detail-value">{kpis.last_submission.submitted_at ? formatDate(kpis.last_submission.submitted_at) : '—'}</span>
         </div>
       </div>
     </div>
-
 
     <!-- Active Alerts -->
     <div class="card status-card">
@@ -176,6 +176,9 @@
         <span class="alert-count">{kpis.alerts.length}</span>
       </div>
       <div class="alerts-list">
+        {#if kpis.alerts.length === 0}
+          <div class="alerts-empty">Sem incidentes abertos.</div>
+        {/if}
         {#each kpis.alerts as alert}
           <div class="alert-item sev-{alert.severity}">
             <div class="alert-icon-wrap">
@@ -323,8 +326,8 @@
     opacity: 0.6;
   }
 
-  /* KPI Row */
-  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+  /* KPI Row — 3 cards iguais (Índice / Críticas / Prazo) */
+  .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 
   /* Charts Row */
   .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
@@ -362,9 +365,10 @@
     text-decoration: none;
   }
 
-  /* Status Row */
-  .status-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-5); }
+  /* Status Row — 2 cards (Última Execução + Alertas) */
+  .status-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
   .status-card { padding: var(--space-5) var(--space-6); }
+  .alerts-empty { color: var(--gray-500); font-size: var(--font-size-sm); font-style: italic; padding: var(--space-3) 0; }
   .status-card-header {
     display: flex;
     align-items: center;

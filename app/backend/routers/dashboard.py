@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Query
 
-from db import CATALOG, SCHEMA_GOLD, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
+from rc18_rule_meta import meta_for
 from models import (
     Alert,
     DashboardEmbed,
@@ -86,34 +88,168 @@ async def get_dashboard_kpis(data_base: str = Query("2026-03", description="Refe
     if USE_MOCK:
         return _mock_kpis(data_base)
 
-    dim_rows = await execute_query(
-        "SELECT dimensao_id, dimensao_nome, score_pct, meta_pct, status, documento "
-        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
-        "WHERE dt_base = :data_base ORDER BY dimensao_id",
-        {"data_base": data_base},
+    # Real-mode: agrega das tabelas de execução do DQX Studio.
+    return await _build_kpis_from_dqx_studio(data_base)
+
+
+# Mapping `R.18 deadline` (BACEN final date for accelerator compliance).
+_R18_DEADLINE = date(2026, 12, 31)
+_R18_DIM_NAMES = {
+    1: "Acessibilidade", 2: "Acurácia", 3: "Adaptabilidade", 4: "Clareza",
+    5: "Comparabilidade", 6: "Completude", 7: "Confiabilidade", 8: "Consistência",
+    9: "Integridade", 10: "Rastreabilidade", 11: "Relevância", 12: "Tempestividade",
+}
+
+
+def _days_until_deadline() -> int:
+    delta = (_R18_DEADLINE - date.today()).days
+    return max(delta, 0)
+
+
+def _deadline_phase(days: int) -> str:
+    # Faixas grosseiras pra dar contexto humano ao número de dias.
+    if days > 270:    return "Fase 1 - Fundação"
+    if days > 180:    return "Fase 2 - Dados e Qualidade"
+    if days > 90:     return "Fase 3 - Reconciliação e XML"
+    if days > 30:     return "Fase 4 - Governança e Relatório"
+    return "Fase 5 - Auditoria e Go-Live"
+
+
+async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
+    """Compõe KPIs a partir das tabelas de execução do DQX Studio.
+
+    Reusa a mesma lógica de agregação por dimensão usada pela rota
+    /quality/dimensions (latest run per source_table_fqn → check_metrics).
+    Calcula contagens de violações por documento (3040/3050) e timestamp do
+    último run para o card "Última Execução".
+    """
+    # 1. Latest SUCCESS runs per source_table_fqn (qualquer silver RC18)
+    runs = await execute_query(
+        "WITH ranked AS ("
+        "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
+        "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
+        "  FROM dqx_catalog.dqx_app.dq_validation_runs"
+        "  WHERE status = 'SUCCESS'"
+        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
+        "FROM ranked WHERE rn = 1",
+        {},
     )
-    # gold.qualidade_dimensoes_mensal.dimensao_id is Roman ('I'..'XII'); the
-    # frontend's DimensionScore.id is int — translate.
-    _ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
-                     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
-    dimensions = [
-        DimensionScore(
-            id=_ROMAN_TO_INT.get(r["dimensao_id"], 0) if isinstance(r["dimensao_id"], str) else r["dimensao_id"],
-            name=r["dimensao_nome"] or "",
-            score=float(r["score_pct"] or 0),
-            status=r["status"] or "",
+    last_run_at = ""
+    last_table = ""
+    if runs:
+        runs_sorted = sorted(runs, key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        last_run_at = str(runs_sorted[0].get("created_at") or "")
+        last_table = runs_sorted[0].get("source_table_fqn") or ""
+
+    # 2. check_metrics + active rules → por-dimensão agg + pending counts.
+    by_dim: dict[int, dict] = {}
+    pending = {"3040": 0, "3050": 0}
+    if runs:
+        quoted = ",".join(f"'{r['run_id']}'" for r in runs)
+        metrics_rows = await execute_query(
+            "SELECT run_id, metric_value AS check_metrics_json "
+            "FROM dqx_catalog.dqx_app.dq_metrics "
+            f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
+            {},
         )
-        for r in dim_rows
-    ]
-    scores = [d.score for d in dimensions] or [0]
+        metrics_by_run = {m["run_id"]: m for m in metrics_rows}
+
+        # Cache user_metadata for the rules (used for dimensao_r18 tag).
+        rule_rows = await execute_query(
+            f"SELECT checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
+            {},
+        )
+        rule_um_by_name: dict[str, dict] = {}
+        for r in rule_rows:
+            try:
+                parsed = json.loads(r["checks"]) if isinstance(r.get("checks"), str) else (r.get("checks") or [])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            items = parsed if isinstance(parsed, list) else [parsed]
+            for chk in items:
+                if isinstance(chk, dict):
+                    name = chk.get("name") or ((chk.get("check") or {}).get("arguments") or {}).get("name")
+                    if name:
+                        rule_um_by_name[name] = chk.get("user_metadata") or {}
+
+        for r in runs:
+            total = int(r.get("total_rows") or 0)
+            table_fqn = r.get("source_table_fqn") or ""
+            doc = "3040" if "scr3040" in table_fqn.lower() else "3050" if "scr3050" in table_fqn.lower() else ""
+            cm = metrics_by_run.get(r["run_id"])
+            if not cm:
+                continue
+            try:
+                check_metrics = json.loads(cm["check_metrics_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(check_metrics, list):
+                continue
+            for cmrow in check_metrics:
+                check_name = cmrow.get("check_name")
+                if not check_name:
+                    continue
+                um = rule_um_by_name.get(check_name) or {}
+                meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
+                err = int(cmrow.get("error_count") or 0)
+                warn = int(cmrow.get("warning_count") or 0)
+                affected = err + warn
+                dim_id = meta["dimension_r18"]
+                bucket = by_dim.setdefault(dim_id, {"total": 0, "invalid": 0, "rules": 0})
+                bucket["total"] += total
+                bucket["invalid"] += affected
+                bucket["rules"] += 1
+                if affected > 0 and doc in pending:
+                    pending[doc] += 1
+
+    # 3. Build DimensionScore list for the radar chart (12 dimensions).
+    dims: list[DimensionScore] = []
+    target = 95.0
+    measured_scores: list[float] = []
+    for dim_id in range(1, 13):
+        agg = by_dim.get(dim_id, {"total": 0, "invalid": 0, "rules": 0})
+        if agg["rules"] == 0:
+            # Sem regras vinculadas → não conta no overall e marca "sem_regras"
+            score = 0.0
+            status = "sem_regras"
+        else:
+            score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 1) if agg["total"] else 100.0
+            status = (
+                "conforme" if score >= target
+                else "atencao" if score >= target - 10
+                else "nao_conforme"
+            )
+            measured_scores.append(score)
+        dims.append(DimensionScore(
+            id=dim_id,
+            name=_R18_DIM_NAMES.get(dim_id, ""),
+            score=score,
+            status=status,
+        ))
+    compliance = round(sum(measured_scores) / len(measured_scores), 1) if measured_scores else 0.0
+
+    days_left = _days_until_deadline()
     return DashboardKPIs(
         data_base=data_base,
-        compliance_score=round(sum(scores) / len(scores), 1),
-        dimensions=dimensions,
-        pending_validations=PendingValidations(),
-        last_submission=LastSubmission(document="", data_base=data_base, status="", submitted_at=""),
+        compliance_score=compliance,
+        dimensions=dims,
+        pending_validations=PendingValidations(
+            scr3040=pending.get("3040", 0),
+            scr3050=pending.get("3050", 0),
+        ),
+        last_submission=LastSubmission(
+            document=last_table.split(".")[-1] if last_table else "",
+            data_base=data_base,
+            status="executado" if last_run_at else "pendente",
+            submitted_at=last_run_at,
+        ),
         alerts=[],
-        deadline=Deadline(date="2026-12-31", days_remaining=274, phase="Fase 1 - Fundacao"),
+        deadline=Deadline(
+            date=_R18_DEADLINE.isoformat(),
+            days_remaining=days_left,
+            phase=_deadline_phase(days_left),
+        ),
     )
 
 
@@ -127,19 +263,22 @@ async def get_dashboard_alerts(limit: int = Query(10, ge=1, le=50)):
             Alert(severity="info", message="Pipeline bronze concluido com sucesso", created_at="2026-03-28T06:00:00Z"),
         ][:limit]
 
+    # Lê incidentes abertos de governance.incidents (R.18 Art.2 §3).
+    # Quando a tabela não existe (setup_job não rodou), execute_query_or_empty
+    # retorna lista vazia — o card "Alertas Ativos" mostra estado vazio.
     rows = await execute_query(
-        "SELECT severidade, expectation_name, log_timestamp "
-        f"FROM {CATALOG}.{SCHEMA_GOLD}.violacoes_log WHERE status_resolucao = 'ABERTA' "
-        "ORDER BY log_timestamp DESC LIMIT :limit",
+        "SELECT severidade, mensagem, detected_at "
+        f"FROM {CATALOG}.governance.incidents "
+        "WHERE status NOT IN ('resolved','validated') "
+        "ORDER BY detected_at DESC LIMIT :limit",
         {"limit": limit},
     )
-    # Normalize Portuguese pipeline severity vocabulary to the UI-facing one.
     _SEV_MAP = {"BLOQUEANTE": "error", "ALERTA": "warning", "INFO": "info"}
     return [
         Alert(
-            severity=_SEV_MAP.get(r["severidade"], "info"),
-            message=r["expectation_name"] or "",
-            created_at=str(r["log_timestamp"]) if r["log_timestamp"] else "",
+            severity=_SEV_MAP.get(r.get("severidade") or "", "info"),
+            message=r.get("mensagem") or "",
+            created_at=str(r.get("detected_at")) if r.get("detected_at") else "",
         )
         for r in rows
     ]

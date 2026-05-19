@@ -37,6 +37,13 @@ export function getQualityDimensions(dataBase, trendMonths = 6) {
   return apiFetch(`/quality/dimensions?${params}`);
 }
 
+export function getQualityTrend(dataBase, months = 6) {
+  const params = new URLSearchParams();
+  if (dataBase) params.set('data_base', dataBase);
+  params.set('months', months);
+  return apiFetch(`/quality/trend?${params}`);
+}
+
 export function getQualityDimension(dimensionId, dataBase) {
   const params = dataBase ? `?data_base=${dataBase}` : '';
   return apiFetch(`/quality/dimensions/${dimensionId}${params}`);
