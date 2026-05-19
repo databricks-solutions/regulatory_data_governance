@@ -48,9 +48,10 @@
 
   // Two distinct visual concepts:
   //   • Severidade — PROPERTY of the rule (Bloqueante/Alerta) → neutral chip.
-  //   • Status     — RESULT of last run (Aprovado/Reprovado/Atenção) → colored
-  //     status badge with icon. Status drives the row's emphasis; severity is
-  //     informational and only matters when reading "WHY does it block?".
+  //   • Status     — RESULT of last run (Aprovado/Reprovado) → colored
+  //     status badge with icon. Binário: como todas as regras iniciais usam
+  //     `criticality: error`, não há estado intermediário "atenção"; qualquer
+  //     violação é Reprovado.
   const columns = [
     { key: 'rule_id', label: 'Regra', sortable: true, width: '100px' },
     { key: 'rule_name', label: 'Descrição', sortable: true },
@@ -64,8 +65,14 @@
     },
     { key: 'status', label: 'Status', sortable: true, width: '140px',
       render: (v) => {
-        if (v === 'fail') return '<span class="status-badge status-fail">✗ Reprovado</span>';
-        if (v === 'warning' || v === 'warn') return '<span class="status-badge status-warn">⚠ Atenção</span>';
+        // Binário: aprovado vs reprovado. Como as regras iniciais usam todas
+        // `criticality: error`, não há um estado intermediário "atenção". Caso
+        // alguma run venha como `warning`/`warn` (regra warn-level com
+        // violações), tratamos como reprovação também — um violation é um
+        // violation, independente da severidade da regra.
+        if (v === 'fail' || v === 'warning' || v === 'warn') {
+          return '<span class="status-badge status-fail">✗ Reprovado</span>';
+        }
         return '<span class="status-badge status-pass">✓ Aprovado</span>';
       }
     },
@@ -213,9 +220,7 @@
       <span class="run-sep">|</span>
       <span class="stat-pass">✓ {runSummary.passed} aprovadas</span>
       <span class="run-sep">|</span>
-      <span class="stat-warn">⚠ {runSummary.warnings ?? 0} em atenção</span>
-      <span class="run-sep">|</span>
-      <span class="stat-fail">✗ {runSummary.failed} reprovadas</span>
+      <span class="stat-fail">✗ {(runSummary.failed ?? 0) + (runSummary.warnings ?? 0)} reprovadas</span>
       <span class="run-sep">|</span>
       Taxa de aprovação: <strong>{runSummary.pass_rate_pct}%</strong>
     </div>
@@ -240,8 +245,7 @@
         <div class="nivel-stats">
           <span>{counts.total} regras</span>
           <span class="run-sep">|</span>
-          {#if counts.fail > 0}<span class="stat-fail">✗ {counts.fail} reprov.</span>{/if}
-          {#if counts.warn > 0}<span class="stat-warn">⚠ {counts.warn} atenção</span>{/if}
+          {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {counts.fail + counts.warn} reprov.</span>{/if}
           <span class="stat-pass">✓ {counts.pass} aprov.</span>
         </div>
       </button>
