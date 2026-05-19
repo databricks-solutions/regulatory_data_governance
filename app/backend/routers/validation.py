@@ -55,6 +55,20 @@ _RUN_CONFIG_DEFAULTS = {
 }
 
 
+def _dqx_studio_configured_base() -> str | None:
+    """Base URL do DQX Studio quando configurado de verdade.
+
+    Trata como "desativado" três casos: env ausente, string vazia, e a
+    sentinela `about:blank` (default do bundle quando o customer não
+    setou a URL real). Retorna None nesses casos pra UI esconder
+    deep-links e a aba Motor de Regras renderizar estado vazio.
+    """
+    base = os.getenv("DQX_STUDIO_URL", "").rstrip("/")
+    if not base or base in ("about:blank",):
+        return None
+    return base
+
+
 def dqx_check_url(run_config_name: str | None, check_name: str | None) -> str | None:
     """Linkback to DQX Studio para edição da regra.
 
@@ -64,11 +78,8 @@ def dqx_check_url(run_config_name: str | None, check_name: str | None) -> str | 
     `/rules/active`, que lista todas as regras ativas (incluindo as 4 do RC18
     + qualquer regra criada via UI da Studio). O usuário acha a regra na
     lista e clica para abrir o editor.
-
-    Retorna `None` quando `DQX_STUDIO_URL` está vazio para que o frontend
-    esconda o link.
     """
-    base = os.getenv("DQX_STUDIO_URL", "").rstrip("/")
+    base = _dqx_studio_configured_base()
     if not base or not check_name:
         return None
     return f"{base}/rules/active"
@@ -81,7 +92,7 @@ def _studio_base_url() -> str | None:
     invés da home — o usuário vem da Críticas SCR querendo investigar as
     execuções recentes, então é a destination certa.
     """
-    base = os.getenv("DQX_STUDIO_URL", "").rstrip("/")
+    base = _dqx_studio_configured_base()
     if not base:
         return None
     return f"{base}/runs-history"

@@ -97,10 +97,10 @@ def _dqx_studio_url(run_config_name: str | None, check_name: str | None) -> str 
 
     Studio não tem deep-link por (run_config_name, check_name) — apontamos pra
     `/rules/active` e o usuário localiza a regra na lista. Retorna ``None``
-    quando ``DQX_STUDIO_URL`` está vazio OU quando ``check_name`` é nulo (sem
-    contexto suficiente)."""
+    quando ``DQX_STUDIO_URL`` está como `about:blank`, OU
+    quando ``check_name`` é nulo."""
     base = (os.getenv("DQX_STUDIO_URL") or "").rstrip("/")
-    if not base or not check_name:
+    if not base or base in ("about:blank",) or not check_name:
         return None
     return f"{base}/rules/active"
 

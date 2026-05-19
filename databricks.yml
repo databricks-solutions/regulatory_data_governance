@@ -69,9 +69,12 @@ variables:
   dqx_studio_url:
     description: |
       URL do app DQX Studio (Motor de Regras). Override por workspace.
-      Default vazio → desativa a aba; valor não-vazio embarca o Studio em iframe
-      e popula deep-links de regras na UI de Críticas SCR.
-    default: ""
+      Quando default `about:blank` o backend trata como
+      None e a aba Motor de Regras mostra estado vazio. Use --var
+      dqx_studio_url=https://<dqx-studio>.databricksapps.com para habilitar.
+      Valor NÃO pode ser string vazia (API de Databricks Apps rejeita env vars
+      sem valor — ver CLAUDE.md "Bundle gotchas").
+    default: "about:blank"
 
 targets:
   dev:
