@@ -22,6 +22,11 @@
   let iframeBlocked = $state(false);
   let timeoutHandle = null;
 
+  // O usuário entra no Motor de Regras esperando ver a lista de regras ativas
+  // (não a home da Studio). Apontamos iframe + botão "Abrir em nova aba" pra
+  // /rules/active. Quando studioUrl é vazio, mantemos vazio.
+  let studioEntryUrl = $derived(studioUrl ? `${studioUrl.replace(/\/$/, '')}/rules/active` : '');
+
   // Bumped whenever the sidebar toggles, used as a key on the iframe so it
   // remounts at the new width. Cross-origin iframes (DQX Studio) don't always
   // reflow internally on container resize, so a remount is the reliable fix.
@@ -53,8 +58,8 @@
   }
 
   function openInNewTab() {
-    if (studioUrl) {
-      window.open(studioUrl, '_blank', 'noopener,noreferrer');
+    if (studioEntryUrl) {
+      window.open(studioEntryUrl, '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -166,8 +171,8 @@
       {#key iframeKey}
         <iframe
           class="studio-frame"
-          src={studioUrl}
-          title="DQX Studio"
+          src={studioEntryUrl}
+          title="DQX Studio — Regras Ativas"
           onload={handleIframeLoad}
           onerror={handleIframeError}
           referrerpolicy="no-referrer-when-downgrade"

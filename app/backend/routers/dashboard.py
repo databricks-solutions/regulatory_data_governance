@@ -8,7 +8,7 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, USE_MOCK
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
@@ -190,7 +190,14 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
                 check_name = cmrow.get("check_name")
                 if not check_name:
                     continue
-                um = rule_um_by_name.get(check_name) or {}
+                # Filtra runs antigos cujas regras foram deletadas de
+                # dq_quality_rules — mesma semântica do /validations/*/results
+                # (validation.py:_fetch_studio_results). Sem isso, o dashboard
+                # contava check_metrics de regras stale (ex: source='ui' já
+                # apagadas) e divergia das Críticas SCR.
+                if check_name not in rule_um_by_name:
+                    continue
+                um = rule_um_by_name[check_name]
                 meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
                 err = int(cmrow.get("error_count") or 0)
                 warn = int(cmrow.get("warning_count") or 0)
@@ -285,7 +292,7 @@ async def get_dashboard_alerts(limit: int = Query(10, ge=1, le=50)):
 
 
 @router.get("/timeline")
-async def get_dashboard_timeline(data_base: str = Query("2026-03")):
+async def get_dashboard_timeline():
     """Return project implementation timeline milestones."""
     return {
         "phases": [

@@ -214,7 +214,13 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             check_name = cmrow.get("check_name")
             if not check_name:
                 continue
-            um = rule_meta_cache.get(check_name) or {}
+            # Filtra check_metrics de runs cujas regras foram deletadas de
+            # dq_quality_rules — mesma semântica de /validations/*/results
+            # e /dashboard/kpis. Sem isso, dimensões podiam ser inflacionadas
+            # por execuções históricas de regras stale (source='ui' apagadas).
+            if check_name not in rule_meta_cache:
+                continue
+            um = rule_meta_cache[check_name]
             meta = meta_for(
                 check_name,
                 table_fqn=r.get("source_table_fqn", ""),
