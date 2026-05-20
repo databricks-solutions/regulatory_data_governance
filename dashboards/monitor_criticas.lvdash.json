@@ -1,14 +1,20 @@
 {
   "datasets": [
     {
-      "name": "ds_criticas_summary",
-      "displayName": "Resumo Criticas por Documento",
+      "name": "ds_incidents_por_dimensao",
+      "displayName": "Incidentes por dimensao R.18",
       "queryLines": [
-        "SELECT documento, dt_base, status, ",
-        "  COUNT(*) AS qtd_criticas ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -3), 'yyyy-MM') ",
-        "GROUP BY documento, dt_base, status"
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  COALESCE(i.documento, '—') AS documento, ",
+        "  COALESCE(i.severidade, '—') AS severidade, ",
+        "  COUNT(i.incident_id) AS total_incidentes, ",
+        "  SUM(CASE WHEN i.status IS NOT NULL AND i.status NOT IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) AS abertos ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN IDENTIFIER(:catalog || '.governance.incidents') i ON i.dimensao_r18 = d.dimensao_id ",
+        "GROUP BY d.dimensao_id, d.nome, i.documento, i.severidade ",
+        "ORDER BY d.dimensao_id"
       ],
       "parameters": [
         {
@@ -25,15 +31,23 @@
       ]
     },
     {
-      "name": "ds_criticas_by_category",
-      "displayName": "Criticas por Categoria e Severidade",
+      "name": "ds_funil_status",
+      "displayName": "Funil de ciclo de vida dos incidentes",
       "queryLines": [
-        "SELECT severidade, ",
-        "  COUNT(*) AS total, ",
-        "  SUM(CASE WHEN status = 'REPROVADO' THEN 1 ELSE 0 END) AS reprovadas ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results')) ",
-        "GROUP BY severidade"
+        "SELECT ",
+        "  status, ",
+        "  COUNT(*) AS qtd_incidentes ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "GROUP BY status ",
+        "ORDER BY CASE status ",
+        "  WHEN 'DETECTED' THEN 1 ",
+        "  WHEN 'ASSIGNED' THEN 2 ",
+        "  WHEN 'RESPONDED' THEN 3 ",
+        "  WHEN 'ESCALATED' THEN 4 ",
+        "  WHEN 'RESOLVED' THEN 5 ",
+        "  WHEN 'VALIDATED' THEN 6 ",
+        "  WHEN 'REOPENED' THEN 7 ",
+        "  ELSE 99 END"
       ],
       "parameters": [
         {
@@ -50,19 +64,25 @@
       ]
     },
     {
-      "name": "ds_criticas_top_failures",
-      "displayName": "Top 20 Criticas com Maior Reprovacao",
+      "name": "ds_top_violations",
+      "displayName": "Top 20 incidentes por taxa de violacao",
       "queryLines": [
-        "SELECT critica_id AS codigo_critica, ",
-        "  MAX(critica_descricao) AS descricao, ",
-        "  documento, ",
-        "  MAX(severidade) AS severidade, ",
-        "  COUNT(*) AS ocorrencias ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE status = 'REPROVADO' ",
-        "  AND dt_base >= DATE_FORMAT(add_months(current_date(), -1), 'yyyy-MM') ",
-        "GROUP BY critica_id, documento ",
-        "ORDER BY ocorrencias DESC ",
+        "SELECT ",
+        "  i.critica_id, ",
+        "  i.check_name, ",
+        "  i.documento, ",
+        "  d.nome AS dimensao, ",
+        "  i.severidade, ",
+        "  i.status, ",
+        "  i.affected_records, ",
+        "  i.total_records, ",
+        "  ROUND(i.taxa_violacao_pct, 2) AS taxa_violacao_pct, ",
+        "  i.owner, ",
+        "  i.detected_at ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') i ",
+        "LEFT JOIN IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ON d.dimensao_id = i.dimensao_r18 ",
+        "WHERE i.status NOT IN ('RESOLVED', 'VALIDATED') ",
+        "ORDER BY i.taxa_violacao_pct DESC NULLS LAST ",
         "LIMIT 20"
       ],
       "parameters": [
@@ -80,14 +100,15 @@
       ]
     },
     {
-      "name": "ds_taxa_aprovacao",
-      "displayName": "Tendencia da Taxa de Aprovacao",
+      "name": "ds_kpi_tmr",
+      "displayName": "KPI Tempo Medio de Resolucao (horas)",
       "queryLines": [
-        "SELECT documento, dt_base AS mes, ",
-        "  ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
-        "GROUP BY documento, dt_base"
+        "SELECT ",
+        "  ROUND(AVG(timestampdiff(HOUR, detected_at, resolved_at)), 1) AS tmr_horas ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE status IN ('RESOLVED', 'VALIDATED') ",
+        "  AND detected_at IS NOT NULL AND resolved_at IS NOT NULL ",
+        "  AND detected_at >= add_months(current_date(), -3)"
       ],
       "parameters": [
         {
@@ -104,13 +125,13 @@
       ]
     },
     {
-      "name": "ds_kpi_taxa_3040",
-      "displayName": "KPI Taxa Aprovacao 3040",
+      "name": "ds_kpi_bloqueantes",
+      "displayName": "KPI Incidentes bloqueantes abertos",
       "queryLines": [
-        "SELECT ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3040 ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE documento = '3040' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results') WHERE documento = '3040')"
+        "SELECT COUNT(*) AS bloqueantes_abertos ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE severidade = 'BLOQUEANTE' ",
+        "  AND status NOT IN ('RESOLVED', 'VALIDATED')"
       ],
       "parameters": [
         {
@@ -127,13 +148,13 @@
       ]
     },
     {
-      "name": "ds_kpi_taxa_3050",
-      "displayName": "KPI Taxa Aprovacao 3050",
+      "name": "ds_kpi_taxa_resolucao",
+      "displayName": "KPI Taxa de resolucao (ultimos 30 dias)",
       "queryLines": [
-        "SELECT ROUND(SUM(CASE WHEN status = 'APROVADO' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS taxa_aprovacao_3050 ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE documento = '3050' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results') WHERE documento = '3050')"
+        "SELECT ",
+        "  ROUND(SUM(CASE WHEN status IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS taxa_resolucao_pct ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE detected_at >= current_date() - INTERVAL 30 DAYS"
       ],
       "parameters": [
         {
@@ -150,13 +171,95 @@
       ]
     },
     {
-      "name": "ds_kpi_criticas_abertas",
-      "displayName": "KPI Criticas Bloqueantes Abertas",
+      "name": "ds_tendencia_mensal",
+      "displayName": "Tendencia mensal: detectados vs resolvidos",
       "queryLines": [
-        "SELECT COUNT(*) AS criticas_bloqueantes ",
-        "FROM IDENTIFIER(:catalog || '.silver.criticas_results') ",
-        "WHERE severidade = 'BLOQUEANTE' AND status = 'REPROVADO' ",
-        "  AND dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.silver.criticas_results'))"
+        "WITH base AS ( ",
+        "  SELECT ",
+        "    date_trunc('MONTH', detected_at) AS mes, ",
+        "    SUM(1) AS detectados, ",
+        "    SUM(CASE WHEN status IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) AS resolvidos ",
+        "  FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "  WHERE detected_at >= add_months(current_date(), -6) ",
+        "  GROUP BY date_trunc('MONTH', detected_at) ",
+        ") ",
+        "SELECT mes, 'Detectados' AS tipo, detectados AS qtd FROM base ",
+        "UNION ALL ",
+        "SELECT mes, 'Resolvidos' AS tipo, resolvidos AS qtd FROM base ",
+        "ORDER BY mes, tipo"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_regras_por_dimensao",
+      "displayName": "Regras DQX vinculadas por dimensao R.18",
+      "queryLines": [
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), dim_rules AS ( ",
+        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
+        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
+        "  GROUP BY dimensao_r18 ",
+        ") ",
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  COALESCE(dr.rules_count, 0) AS rules_count, ",
+        "  CASE WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ELSE 'COM REGRAS' END AS estado_regras ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
+        "ORDER BY d.dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_heatmap_dimensao_doc",
+      "displayName": "Heatmap dimensao x documento",
+      "queryLines": [
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  i.documento, ",
+        "  COUNT(*) AS qtd_incidentes ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') i ",
+        "JOIN IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ON d.dimensao_id = i.dimensao_r18 ",
+        "GROUP BY d.dimensao_id, d.nome, i.documento ",
+        "ORDER BY d.dimensao_id, i.documento"
       ],
       "parameters": [
         {
@@ -175,15 +278,15 @@
   ],
   "pages": [
     {
-      "name": "visao-executiva",
-      "displayName": "Visao Executiva",
+      "name": "visao-operacional",
+      "displayName": "Visao Operacional",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
         {
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
-              "lines": ["## Monitor de Criticas SCR — 3040 e 3050"]
+              "lines": ["## Monitor de Incidentes de Qualidade — Dimensoes R.18"]
             }
           },
           "position": {"x": 0, "y": 0, "width": 6, "height": 1}
@@ -192,19 +295,19 @@
           "widget": {
             "name": "subtitle",
             "multilineTextboxSpec": {
-              "lines": ["Resultados de validacao por regra regulatoria"]
+              "lines": ["Ciclo de vida dos incidentes emitidos pelo DQX Studio · fonte: governance.incidents · dimensoes sem regras DQX vinculadas ficam em destaque"]
             }
           },
           "position": {"x": 0, "y": 1, "width": 6, "height": 1}
         },
         {
           "widget": {
-            "name": "kpi-taxa-3040",
+            "name": "kpi-tmr",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_kpi_taxa_3040",
-                "fields": [{"name": "taxa_aprovacao_3040", "expression": "`taxa_aprovacao_3040`"}],
+                "datasetName": "ds_kpi_tmr",
+                "fields": [{"name": "tmr_horas", "expression": "`tmr_horas`"}],
                 "disaggregated": true
               }
             }],
@@ -212,21 +315,21 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "taxa_aprovacao_3040", "displayName": "Taxa Aprovacao 3040 (%)"}
+                "value": {"fieldName": "tmr_horas", "displayName": "TMR (h)"}
               },
-              "frame": {"showTitle": true, "title": "Taxa Aprovacao 3040"}
+              "frame": {"showTitle": true, "title": "Tempo Medio de Resolucao (h)"}
             }
           },
           "position": {"x": 0, "y": 2, "width": 2, "height": 3}
         },
         {
           "widget": {
-            "name": "kpi-taxa-3050",
+            "name": "kpi-bloqueantes",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_kpi_taxa_3050",
-                "fields": [{"name": "taxa_aprovacao_3050", "expression": "`taxa_aprovacao_3050`"}],
+                "datasetName": "ds_kpi_bloqueantes",
+                "fields": [{"name": "bloqueantes_abertos", "expression": "`bloqueantes_abertos`"}],
                 "disaggregated": true
               }
             }],
@@ -234,21 +337,21 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "taxa_aprovacao_3050", "displayName": "Taxa Aprovacao 3050 (%)"}
+                "value": {"fieldName": "bloqueantes_abertos", "displayName": "Bloqueantes Abertos"}
               },
-              "frame": {"showTitle": true, "title": "Taxa Aprovacao 3050"}
+              "frame": {"showTitle": true, "title": "Incidentes Bloqueantes Abertos"}
             }
           },
           "position": {"x": 2, "y": 2, "width": 2, "height": 3}
         },
         {
           "widget": {
-            "name": "kpi-criticas-bloqueantes",
+            "name": "kpi-taxa-resolucao",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_kpi_criticas_abertas",
-                "fields": [{"name": "criticas_bloqueantes", "expression": "`criticas_bloqueantes`"}],
+                "datasetName": "ds_kpi_taxa_resolucao",
+                "fields": [{"name": "taxa_resolucao_pct", "expression": "`taxa_resolucao_pct`"}],
                 "disaggregated": true
               }
             }],
@@ -256,33 +359,32 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "criticas_bloqueantes", "displayName": "Criticas Bloqueantes"}
+                "value": {"fieldName": "taxa_resolucao_pct", "displayName": "Taxa Resolucao (%)"}
               },
-              "frame": {"showTitle": true, "title": "Criticas Bloqueantes Abertas"}
+              "frame": {"showTitle": true, "title": "Taxa de Resolucao (ult. 30 dias)"}
             }
           },
           "position": {"x": 4, "y": 2, "width": 2, "height": 3}
         },
         {
           "widget": {
-            "name": "section-por-documento",
+            "name": "section-funil",
             "multilineTextboxSpec": {
-              "lines": ["### Taxa de Aprovacao por Documento"]
+              "lines": ["### Funil de Ciclo de Vida"]
             }
           },
           "position": {"x": 0, "y": 5, "width": 6, "height": 1}
         },
         {
           "widget": {
-            "name": "bar-pass-rate",
+            "name": "bar-funil",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_criticas_summary",
+                "datasetName": "ds_funil_status",
                 "fields": [
-                  {"name": "documento", "expression": "`documento`"},
-                  {"name": "qtd_criticas", "expression": "`qtd_criticas`"},
-                  {"name": "status", "expression": "`status`"}
+                  {"name": "status", "expression": "`status`"},
+                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
                 ],
                 "disaggregated": true
               }
@@ -291,37 +393,38 @@
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"},
-                "y": {"fieldName": "qtd_criticas", "scale": {"type": "quantitative"}, "displayName": "Qtd Criticas"},
-                "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
+                "x": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"},
+                "y": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Qtd Incidentes"}
               },
-              "frame": {"showTitle": true, "title": "Criticas por Documento e Status"}
+              "frame": {"showTitle": true, "title": "Incidentes por Status (todo periodo)"}
             }
           },
           "position": {"x": 0, "y": 6, "width": 3, "height": 5}
         },
         {
           "widget": {
-            "name": "pie-severidade",
+            "name": "bar-incidents-por-dimensao",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_criticas_by_category",
+                "datasetName": "ds_incidents_por_dimensao",
                 "fields": [
-                  {"name": "severidade", "expression": "`severidade`"},
-                  {"name": "sum(total)", "expression": "SUM(`total`)"}
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "sum(abertos)", "expression": "SUM(`abertos`)"},
+                  {"name": "severidade", "expression": "`severidade`"}
                 ],
                 "disaggregated": false
               }
             }],
             "spec": {
               "version": 3,
-              "widgetType": "pie",
+              "widgetType": "bar",
               "encodings": {
-                "angle": {"fieldName": "sum(total)", "scale": {"type": "quantitative"}, "displayName": "Total"},
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "y": {"fieldName": "sum(abertos)", "scale": {"type": "quantitative"}, "displayName": "Abertos"},
                 "color": {"fieldName": "severidade", "scale": {"type": "categorical"}, "displayName": "Severidade"}
               },
-              "frame": {"showTitle": true, "title": "Distribuicao por Severidade"}
+              "frame": {"showTitle": true, "title": "Incidentes Abertos por Dimensao R.18"}
             }
           },
           "position": {"x": 3, "y": 6, "width": 3, "height": 5}
@@ -330,22 +433,22 @@
           "widget": {
             "name": "section-tendencia",
             "multilineTextboxSpec": {
-              "lines": ["### Evolucao da Taxa de Aprovacao (Ultimos 6 Meses)"]
+              "lines": ["### Detectados vs Resolvidos (Ultimos 6 Meses)"]
             }
           },
           "position": {"x": 0, "y": 11, "width": 6, "height": 1}
         },
         {
           "widget": {
-            "name": "line-approval-trend",
+            "name": "line-trend",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_taxa_aprovacao",
+                "datasetName": "ds_tendencia_mensal",
                 "fields": [
                   {"name": "mes", "expression": "`mes`"},
-                  {"name": "taxa_aprovacao", "expression": "`taxa_aprovacao`"},
-                  {"name": "documento", "expression": "`documento`"}
+                  {"name": "qtd", "expression": "`qtd`"},
+                  {"name": "tipo", "expression": "`tipo`"}
                 ],
                 "disaggregated": true
               }
@@ -354,37 +457,80 @@
               "version": 3,
               "widgetType": "line",
               "encodings": {
-                "x": {"fieldName": "mes", "scale": {"type": "categorical"}, "displayName": "Mes"},
-                "y": {"fieldName": "taxa_aprovacao", "scale": {"type": "quantitative"}, "displayName": "Taxa Aprovacao (%)"},
-                "color": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"}
+                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mes"},
+                "y": {"fieldName": "qtd", "scale": {"type": "quantitative"}, "displayName": "Qtd Incidentes"},
+                "color": {"fieldName": "tipo", "scale": {"type": "categorical"}, "displayName": "Tipo"}
               },
-              "frame": {"showTitle": true, "title": "Tendencia de Aprovacao por Documento"}
+              "frame": {"showTitle": true, "title": "Detectados vs Resolvidos por Mes"}
             }
           },
           "position": {"x": 0, "y": 12, "width": 6, "height": 5}
         },
         {
           "widget": {
-            "name": "section-top-falhas",
+            "name": "section-heatmap",
             "multilineTextboxSpec": {
-              "lines": ["### Top 20 Criticas com Maior Taxa de Reprovacao"]
+              "lines": ["### Concentracao por Dimensao x Documento"]
             }
           },
           "position": {"x": 0, "y": 17, "width": 6, "height": 1}
         },
         {
           "widget": {
-            "name": "table-top-failures",
+            "name": "heatmap-dim-doc",
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_criticas_top_failures",
+                "datasetName": "ds_heatmap_dimensao_doc",
                 "fields": [
-                  {"name": "codigo_critica", "expression": "`codigo_critica`"},
-                  {"name": "descricao", "expression": "`descricao`"},
+                  {"name": "dimensao", "expression": "`dimensao`"},
                   {"name": "documento", "expression": "`documento`"},
+                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"},
+                "y": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "color": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incidentes"}
+              },
+              "frame": {"showTitle": true, "title": "Incidentes por Dimensao x Documento"}
+            }
+          },
+          "position": {"x": 0, "y": 18, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-top-violations",
+            "multilineTextboxSpec": {
+              "lines": ["### Top 20 Incidentes Abertos por Taxa de Violacao"]
+            }
+          },
+          "position": {"x": 0, "y": 23, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-top-violations",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_top_violations",
+                "fields": [
+                  {"name": "critica_id", "expression": "`critica_id`"},
+                  {"name": "check_name", "expression": "`check_name`"},
+                  {"name": "documento", "expression": "`documento`"},
+                  {"name": "dimensao", "expression": "`dimensao`"},
                   {"name": "severidade", "expression": "`severidade`"},
-                  {"name": "ocorrencias", "expression": "`ocorrencias`"}
+                  {"name": "status", "expression": "`status`"},
+                  {"name": "affected_records", "expression": "`affected_records`"},
+                  {"name": "total_records", "expression": "`total_records`"},
+                  {"name": "taxa_violacao_pct", "expression": "`taxa_violacao_pct`"},
+                  {"name": "owner", "expression": "`owner`"},
+                  {"name": "detected_at", "expression": "`detected_at`"}
                 ],
                 "disaggregated": true
               }
@@ -394,17 +540,60 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  {"fieldName": "codigo_critica", "displayName": "Codigo"},
-                  {"fieldName": "descricao", "displayName": "Descricao"},
+                  {"fieldName": "critica_id", "displayName": "Critica"},
+                  {"fieldName": "check_name", "displayName": "Check"},
                   {"fieldName": "documento", "displayName": "Documento"},
+                  {"fieldName": "dimensao", "displayName": "Dimensao"},
                   {"fieldName": "severidade", "displayName": "Severidade"},
-                  {"fieldName": "ocorrencias", "displayName": "Ocorrencias"}
+                  {"fieldName": "status", "displayName": "Status"},
+                  {"fieldName": "affected_records", "displayName": "Afetados"},
+                  {"fieldName": "total_records", "displayName": "Total"},
+                  {"fieldName": "taxa_violacao_pct", "displayName": "Taxa (%)"},
+                  {"fieldName": "owner", "displayName": "Owner"},
+                  {"fieldName": "detected_at", "displayName": "Detectado em"}
                 ]
               },
-              "frame": {"showTitle": true, "title": "Top 20 Criticas Reprovadas"}
+              "frame": {"showTitle": true, "title": "Top 20 Incidentes Abertos"}
             }
           },
-          "position": {"x": 0, "y": 18, "width": 6, "height": 8}
+          "position": {"x": 0, "y": 24, "width": 6, "height": 8}
+        },
+        {
+          "widget": {
+            "name": "section-regras",
+            "multilineTextboxSpec": {
+              "lines": ["### Cobertura de Regras DQX por Dimensao R.18"]
+            }
+          },
+          "position": {"x": 0, "y": 32, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-regras-por-dimensao",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_regras_por_dimensao",
+                "fields": [
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "rules_count", "expression": "`rules_count`"},
+                  {"name": "estado_regras", "expression": "`estado_regras`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "y": {"fieldName": "rules_count", "scale": {"type": "quantitative"}, "displayName": "Qtd Regras DQX"},
+                "color": {"fieldName": "estado_regras", "scale": {"type": "categorical"}, "displayName": "Estado"}
+              },
+              "frame": {"showTitle": true, "title": "Regras DQX vinculadas a cada dimensao (SEM REGRAS = 0)"}
+            }
+          },
+          "position": {"x": 0, "y": 33, "width": 6, "height": 5}
         }
       ]
     },
@@ -417,9 +606,9 @@
           "widget": {
             "name": "filter-documento",
             "queries": [{
-              "name": "ds_criticas_summary_documento",
+              "name": "ds_incidents_por_dimensao_documento",
               "query": {
-                "datasetName": "ds_criticas_summary",
+                "datasetName": "ds_incidents_por_dimensao",
                 "fields": [{"name": "documento", "expression": "`documento`"}],
                 "disaggregated": false
               }
@@ -431,7 +620,7 @@
                 "fields": [{
                   "fieldName": "documento",
                   "displayName": "Documento",
-                  "queryName": "ds_criticas_summary_documento"
+                  "queryName": "ds_incidents_por_dimensao_documento"
                 }]
               },
               "frame": {"showTitle": true, "title": "Documento"}
@@ -443,9 +632,9 @@
           "widget": {
             "name": "filter-severidade",
             "queries": [{
-              "name": "ds_criticas_by_category_severidade",
+              "name": "ds_incidents_por_dimensao_severidade",
               "query": {
-                "datasetName": "ds_criticas_by_category",
+                "datasetName": "ds_incidents_por_dimensao",
                 "fields": [{"name": "severidade", "expression": "`severidade`"}],
                 "disaggregated": false
               }
@@ -457,7 +646,7 @@
                 "fields": [{
                   "fieldName": "severidade",
                   "displayName": "Severidade",
-                  "queryName": "ds_criticas_by_category_severidade"
+                  "queryName": "ds_incidents_por_dimensao_severidade"
                 }]
               },
               "frame": {"showTitle": true, "title": "Severidade"}
@@ -467,26 +656,26 @@
         },
         {
           "widget": {
-            "name": "filter-dt-base",
+            "name": "filter-dimensao",
             "queries": [{
-              "name": "ds_criticas_summary_dt_base",
+              "name": "ds_incidents_por_dimensao_dimensao",
               "query": {
-                "datasetName": "ds_criticas_summary",
-                "fields": [{"name": "dt_base", "expression": "`dt_base`"}],
+                "datasetName": "ds_incidents_por_dimensao",
+                "fields": [{"name": "dimensao", "expression": "`dimensao`"}],
                 "disaggregated": false
               }
             }],
             "spec": {
               "version": 2,
-              "widgetType": "filter-single-select",
+              "widgetType": "filter-multi-select",
               "encodings": {
                 "fields": [{
-                  "fieldName": "dt_base",
-                  "displayName": "Data-Base",
-                  "queryName": "ds_criticas_summary_dt_base"
+                  "fieldName": "dimensao",
+                  "displayName": "Dimensao",
+                  "queryName": "ds_incidents_por_dimensao_dimensao"
                 }]
               },
-              "frame": {"showTitle": true, "title": "Data-Base"}
+              "frame": {"showTitle": true, "title": "Dimensao"}
             }
           },
           "position": {"x": 4, "y": 0, "width": 2, "height": 2}

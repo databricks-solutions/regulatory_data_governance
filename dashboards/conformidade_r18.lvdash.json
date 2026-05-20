@@ -1,20 +1,67 @@
 {
   "datasets": [
     {
-      "name": "ds_scorecard_latest",
-      "displayName": "Scores por Dimensao (Atual)",
+      "name": "ds_dimensoes_status",
+      "displayName": "Status atual das 12 dimensoes R.18",
       "queryLines": [
-        "SELECT dimensao_id, ",
-        "  MAX(dimensao_nome) AS dimensao, ",
-        "  AVG(score_pct) AS score, ",
-        "  AVG(meta_pct) AS meta, ",
-        "  MAX(dt_base) AS dt_base, ",
-        "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
-        "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
-        "       ELSE 'CRITICO' END AS status ",
-        "FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal') ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal')) ",
-        "GROUP BY dimensao_id"
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.name AS check_name, ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), dim_rules AS ( ",
+        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
+        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
+        "  GROUP BY dimensao_r18 ",
+        "), latest_runs AS ( ",
+        "  SELECT run_id, source_table_fqn, total_rows FROM ( ",
+        "    SELECT run_id, source_table_fqn, total_rows, ",
+        "      ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn ",
+        "    FROM IDENTIFIER(:dqx_schema || '.dq_validation_runs') ",
+        "    WHERE status = 'SUCCESS' ",
+        "      AND source_table_fqn LIKE concat(:catalog, '.silver.%') ",
+        "  ) WHERE rn = 1 ",
+        "), metrics_explode AS ( ",
+        "  SELECT lr.total_rows AS run_total_rows, cm.check_name, cm.error_count, cm.warning_count ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_metrics') m ",
+        "  JOIN latest_runs lr ON lr.run_id = m.run_id ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(m.metric_value, 'array<struct<check_name:string,error_count:bigint,warning_count:bigint>>') ",
+        "  ) AS cm ",
+        "  WHERE m.metric_name = 'check_metrics' ",
+        "), dim_metrics AS ( ",
+        "  SELECT rd.dimensao_r18, ",
+        "    SUM(me.run_total_rows) AS total_rows, ",
+        "    SUM(COALESCE(me.error_count, 0) + COALESCE(me.warning_count, 0)) AS invalid_rows ",
+        "  FROM metrics_explode me ",
+        "  JOIN rule_dims rd ON rd.check_name = me.check_name ",
+        "  GROUP BY rd.dimensao_r18 ",
+        ") ",
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  d.meta_padrao_pct AS meta_pct, ",
+        "  COALESCE(dr.rules_count, 0) AS rules_count, ",
+        "  CASE ",
+        "    WHEN COALESCE(dr.rules_count, 0) = 0 THEN 0.0 ",
+        "    WHEN COALESCE(dm.total_rows, 0) = 0 THEN 100.0 ",
+        "    ELSE ROUND(100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows, 2) ",
+        "  END AS score_pct, ",
+        "  CASE ",
+        "    WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ",
+        "    WHEN COALESCE(dm.total_rows, 0) = 0 THEN 'CONFORME' ",
+        "    WHEN 100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows >= d.meta_padrao_pct THEN 'CONFORME' ",
+        "    WHEN 100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows >= d.meta_padrao_pct * 0.8 THEN 'ALERTA' ",
+        "    ELSE 'CRITICO' ",
+        "  END AS status ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
+        "LEFT JOIN dim_metrics dm ON dm.dimensao_r18 = d.dimensao_id ",
+        "ORDER BY d.dimensao_id"
       ],
       "parameters": [
         {
@@ -22,25 +69,60 @@
           "keyword": "catalog",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
-            }
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
           }
         }
       ]
     },
     {
-      "name": "ds_scorecard_trend",
-      "displayName": "Tendencia de Scores",
+      "name": "ds_dimensoes_trend",
+      "displayName": "Evolucao mensal de score por dimensao",
       "queryLines": [
-        "SELECT dt_base, ",
-        "  MAX(dimensao_nome) AS dimensao, ",
-        "  AVG(score_pct) AS score ",
-        "FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal') ",
-        "WHERE dt_base >= DATE_FORMAT(add_months(current_date(), -6), 'yyyy-MM') ",
-        "GROUP BY dt_base, dimensao_id ",
-        "ORDER BY dt_base, dimensao_id"
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.name AS check_name, ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), runs_6m AS ( ",
+        "  SELECT run_id, total_rows, date_trunc('MONTH', created_at) AS mes ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_validation_runs') ",
+        "  WHERE status = 'SUCCESS' ",
+        "    AND source_table_fqn LIKE concat(:catalog, '.silver.%') ",
+        "    AND created_at >= add_months(current_date(), -6) ",
+        "), metrics_explode AS ( ",
+        "  SELECT r.mes, r.total_rows AS run_total_rows, ",
+        "    cm.check_name, cm.error_count, cm.warning_count ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_metrics') m ",
+        "  JOIN runs_6m r ON r.run_id = m.run_id ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(m.metric_value, 'array<struct<check_name:string,error_count:bigint,warning_count:bigint>>') ",
+        "  ) AS cm ",
+        "  WHERE m.metric_name = 'check_metrics' ",
+        ") ",
+        "SELECT ",
+        "  me.mes, ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  CASE WHEN SUM(me.run_total_rows) = 0 THEN 100.0 ",
+        "       ELSE ROUND(100.0 * (SUM(me.run_total_rows) - SUM(COALESCE(me.error_count,0) + COALESCE(me.warning_count,0))) / SUM(me.run_total_rows), 2) ",
+        "  END AS score_pct ",
+        "FROM metrics_explode me ",
+        "JOIN rule_dims rd ON rd.check_name = me.check_name ",
+        "JOIN IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ON d.dimensao_id = rd.dimensao_r18 ",
+        "GROUP BY me.mes, d.dimensao_id, d.nome ",
+        "ORDER BY me.mes, d.dimensao_id"
       ],
       "parameters": [
         {
@@ -48,28 +130,79 @@
           "keyword": "catalog",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
-            }
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
           }
         }
       ]
     },
     {
       "name": "ds_kpi_summary",
-      "displayName": "KPIs Resumo",
+      "displayName": "KPIs de conformidade R.18",
       "queryLines": [
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.name AS check_name, ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), dim_rules AS ( ",
+        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
+        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
+        "  GROUP BY dimensao_r18 ",
+        "), latest_runs AS ( ",
+        "  SELECT run_id, total_rows FROM ( ",
+        "    SELECT run_id, source_table_fqn, total_rows, ",
+        "      ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn ",
+        "    FROM IDENTIFIER(:dqx_schema || '.dq_validation_runs') ",
+        "    WHERE status = 'SUCCESS' ",
+        "      AND source_table_fqn LIKE concat(:catalog, '.silver.%') ",
+        "  ) WHERE rn = 1 ",
+        "), metrics_explode AS ( ",
+        "  SELECT lr.total_rows AS run_total_rows, cm.check_name, cm.error_count, cm.warning_count ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_metrics') m ",
+        "  JOIN latest_runs lr ON lr.run_id = m.run_id ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(m.metric_value, 'array<struct<check_name:string,error_count:bigint,warning_count:bigint>>') ",
+        "  ) AS cm ",
+        "  WHERE m.metric_name = 'check_metrics' ",
+        "), dim_metrics AS ( ",
+        "  SELECT rd.dimensao_r18, ",
+        "    SUM(me.run_total_rows) AS total_rows, ",
+        "    SUM(COALESCE(me.error_count, 0) + COALESCE(me.warning_count, 0)) AS invalid_rows ",
+        "  FROM metrics_explode me ",
+        "  JOIN rule_dims rd ON rd.check_name = me.check_name ",
+        "  GROUP BY rd.dimensao_r18 ",
+        "), por_dim AS ( ",
+        "  SELECT ",
+        "    d.dimensao_id, ",
+        "    d.meta_padrao_pct AS meta_pct, ",
+        "    COALESCE(dr.rules_count, 0) AS rules_count, ",
+        "    CASE ",
+        "      WHEN COALESCE(dr.rules_count, 0) = 0 THEN 0.0 ",
+        "      WHEN COALESCE(dm.total_rows, 0) = 0 THEN 100.0 ",
+        "      ELSE ROUND(100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows, 2) ",
+        "    END AS score_pct ",
+        "  FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "  LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
+        "  LEFT JOIN dim_metrics dm ON dm.dimensao_r18 = d.dimensao_id ",
+        ") ",
         "SELECT ",
-        "  ROUND(AVG(score_pct), 2) AS score_medio, ",
-        "  SUM(CASE WHEN score_pct >= meta_pct THEN 1 ELSE 0 END) AS dims_conformes, ",
+        "  ROUND(AVG(CASE WHEN rules_count > 0 THEN score_pct END), 2) AS score_medio, ",
+        "  SUM(CASE WHEN rules_count > 0 AND score_pct >= meta_pct THEN 1 ELSE 0 END) AS dims_conformes, ",
+        "  SUM(CASE WHEN rules_count = 0 THEN 1 ELSE 0 END) AS dims_sem_regras, ",
         "  COUNT(*) AS total_dims ",
-        "FROM ( ",
-        "  SELECT dimensao_id, AVG(score_pct) AS score_pct, AVG(meta_pct) AS meta_pct ",
-        "  FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal') ",
-        "  WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal')) ",
-        "  GROUP BY dimensao_id ",
-        ")"
+        "FROM por_dim"
       ],
       "parameters": [
         {
@@ -77,38 +210,91 @@
           "keyword": "catalog",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
-            }
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
           }
         }
       ]
     },
     {
       "name": "ds_deadline",
-      "displayName": "Dias para o Prazo",
+      "displayName": "Dias para o prazo R.18 (31/12/2026)",
       "queryLines": [
         "SELECT datediff(DATE '2026-12-31', current_date()) AS dias_restantes, ",
         "  current_date() AS hoje"
       ]
     },
     {
-      "name": "ds_scorecard_detail",
-      "displayName": "Detalhe por Dimensao",
+      "name": "ds_dimensoes_detalhe",
+      "displayName": "Detalhe das 12 dimensoes",
       "queryLines": [
-        "SELECT dimensao_id, ",
-        "  MAX(dimensao_nome) AS dimensao, ",
-        "  ROUND(AVG(score_pct), 2) AS score, ",
-        "  ROUND(AVG(meta_pct), 2) AS meta, ",
-        "  CASE WHEN AVG(score_pct) >= AVG(meta_pct) THEN 'CONFORME' ",
-        "       WHEN AVG(score_pct) >= AVG(meta_pct) * 0.8 THEN 'ALERTA' ",
-        "       ELSE 'CRITICO' END AS status, ",
-        "  MAX(dt_base) AS dt_base ",
-        "FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal') ",
-        "WHERE dt_base = (SELECT MAX(dt_base) FROM IDENTIFIER(:catalog || '.gold.qualidade_dimensoes_mensal')) ",
-        "GROUP BY dimensao_id ",
-        "ORDER BY dimensao_id"
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.name AS check_name, ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), dim_rules AS ( ",
+        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
+        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
+        "  GROUP BY dimensao_r18 ",
+        "), latest_runs AS ( ",
+        "  SELECT run_id, source_table_fqn, total_rows FROM ( ",
+        "    SELECT run_id, source_table_fqn, total_rows, ",
+        "      ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn ",
+        "    FROM IDENTIFIER(:dqx_schema || '.dq_validation_runs') ",
+        "    WHERE status = 'SUCCESS' ",
+        "      AND source_table_fqn LIKE concat(:catalog, '.silver.%') ",
+        "  ) WHERE rn = 1 ",
+        "), metrics_explode AS ( ",
+        "  SELECT lr.total_rows AS run_total_rows, cm.check_name, cm.error_count, cm.warning_count ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_metrics') m ",
+        "  JOIN latest_runs lr ON lr.run_id = m.run_id ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(m.metric_value, 'array<struct<check_name:string,error_count:bigint,warning_count:bigint>>') ",
+        "  ) AS cm ",
+        "  WHERE m.metric_name = 'check_metrics' ",
+        "), dim_metrics AS ( ",
+        "  SELECT rd.dimensao_r18, ",
+        "    SUM(me.run_total_rows) AS total_rows, ",
+        "    SUM(COALESCE(me.error_count, 0) + COALESCE(me.warning_count, 0)) AS invalid_rows ",
+        "  FROM metrics_explode me ",
+        "  JOIN rule_dims rd ON rd.check_name = me.check_name ",
+        "  GROUP BY rd.dimensao_r18 ",
+        ") ",
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  d.artigo_r18, ",
+        "  d.meta_padrao_pct AS meta_pct, ",
+        "  COALESCE(dr.rules_count, 0) AS rules_count, ",
+        "  ROUND(CASE ",
+        "    WHEN COALESCE(dr.rules_count, 0) = 0 THEN 0.0 ",
+        "    WHEN COALESCE(dm.total_rows, 0) = 0 THEN 100.0 ",
+        "    ELSE 100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows ",
+        "  END, 2) AS score_pct, ",
+        "  d.nivel_implementacao, ",
+        "  CASE ",
+        "    WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ",
+        "    WHEN COALESCE(dm.total_rows, 0) = 0 THEN 'CONFORME' ",
+        "    WHEN 100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows >= d.meta_padrao_pct THEN 'CONFORME' ",
+        "    WHEN 100.0 * (dm.total_rows - COALESCE(dm.invalid_rows, 0)) / dm.total_rows >= d.meta_padrao_pct * 0.8 THEN 'ALERTA' ",
+        "    ELSE 'CRITICO' ",
+        "  END AS status ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
+        "LEFT JOIN dim_metrics dm ON dm.dimensao_r18 = d.dimensao_id ",
+        "ORDER BY d.dimensao_id"
       ],
       "parameters": [
         {
@@ -116,10 +302,15 @@
           "keyword": "catalog",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
-            }
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
           }
         }
       ]
@@ -144,7 +335,7 @@
           "widget": {
             "name": "subtitle",
             "multilineTextboxSpec": {
-              "lines": ["Monitoramento das 12 dimensoes de qualidade · Resolucao Conjunta N.18"]
+              "lines": ["Score das 12 dimensoes de qualidade · Resolucao Conjunta N.18 · Calculado a partir das execucoes do DQX Studio (dq_validation_runs + dq_metrics). Dimensoes sem regras vinculadas recebem score 0 e nao entram na media."]
             }
           },
           "position": {"x": 0, "y": 1, "width": 6, "height": 1}
@@ -166,7 +357,7 @@
               "encodings": {
                 "value": {"fieldName": "score_medio", "displayName": "Score Medio (%)"}
               },
-              "frame": {"showTitle": true, "title": "Score Medio"}
+              "frame": {"showTitle": true, "title": "Score Medio (dimensoes com regras)"}
             }
           },
           "position": {"x": 0, "y": 2, "width": 2, "height": 3}
@@ -195,6 +386,28 @@
         },
         {
           "widget": {
+            "name": "kpi-dims-sem-regras",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_summary",
+                "fields": [{"name": "dims_sem_regras", "expression": "`dims_sem_regras`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "dims_sem_regras", "displayName": "Sem Regras"}
+              },
+              "frame": {"showTitle": true, "title": "Dimensoes Sem Regras"}
+            }
+          },
+          "position": {"x": 4, "y": 2, "width": 1, "height": 3}
+        },
+        {
+          "widget": {
             "name": "kpi-dias-restantes",
             "queries": [{
               "name": "main_query",
@@ -213,13 +426,13 @@
               "frame": {"showTitle": true, "title": "Dias para 31/12/2026"}
             }
           },
-          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+          "position": {"x": 5, "y": 2, "width": 1, "height": 3}
         },
         {
           "widget": {
             "name": "section-dimensoes",
             "multilineTextboxSpec": {
-              "lines": ["### Scores por Dimensao (Data-Base Atual)"]
+              "lines": ["### Score por Dimensao R.18 (atual)"]
             }
           },
           "position": {"x": 0, "y": 5, "width": 6, "height": 1}
@@ -230,10 +443,10 @@
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_scorecard_latest",
+                "datasetName": "ds_dimensoes_status",
                 "fields": [
                   {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "score", "expression": "`score`"},
+                  {"name": "score_pct", "expression": "`score_pct`"},
                   {"name": "status", "expression": "`status`"}
                 ],
                 "disaggregated": true
@@ -244,10 +457,10 @@
               "widgetType": "bar",
               "encodings": {
                 "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
-                "y": {"fieldName": "score", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
+                "y": {"fieldName": "score_pct", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
                 "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
               },
-              "frame": {"showTitle": true, "title": "Scores por Dimensao R.18"}
+              "frame": {"showTitle": true, "title": "Score por Dimensao R.18 (SEM REGRAS = 0%)"}
             }
           },
           "position": {"x": 0, "y": 6, "width": 6, "height": 6}
@@ -256,7 +469,7 @@
           "widget": {
             "name": "section-tendencia",
             "multilineTextboxSpec": {
-              "lines": ["### Evolucao das Dimensoes (Ultimos 6 Meses)"]
+              "lines": ["### Evolucao do Score por Dimensao (Ultimos 6 Meses)"]
             }
           },
           "position": {"x": 0, "y": 12, "width": 6, "height": 1}
@@ -267,10 +480,10 @@
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_scorecard_trend",
+                "datasetName": "ds_dimensoes_trend",
                 "fields": [
-                  {"name": "dt_base", "expression": "`dt_base`"},
-                  {"name": "score", "expression": "`score`"},
+                  {"name": "mes", "expression": "`mes`"},
+                  {"name": "score_pct", "expression": "`score_pct`"},
                   {"name": "dimensao", "expression": "`dimensao`"}
                 ],
                 "disaggregated": true
@@ -280,11 +493,11 @@
               "version": 3,
               "widgetType": "line",
               "encodings": {
-                "x": {"fieldName": "dt_base", "scale": {"type": "categorical"}, "displayName": "Data-Base"},
-                "y": {"fieldName": "score", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
+                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mes"},
+                "y": {"fieldName": "score_pct", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
                 "color": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"}
               },
-              "frame": {"showTitle": true, "title": "Tendencia de Scores por Dimensao"}
+              "frame": {"showTitle": true, "title": "Tendencia do Score (apenas dimensoes com regras executadas)"}
             }
           },
           "position": {"x": 0, "y": 13, "width": 6, "height": 6}
@@ -293,7 +506,7 @@
           "widget": {
             "name": "section-detalhe",
             "multilineTextboxSpec": {
-              "lines": ["### Score Detalhado por Dimensao"]
+              "lines": ["### Detalhe das 12 Dimensoes R.18"]
             }
           },
           "position": {"x": 0, "y": 19, "width": 6, "height": 1}
@@ -304,14 +517,16 @@
             "queries": [{
               "name": "main_query",
               "query": {
-                "datasetName": "ds_scorecard_detail",
+                "datasetName": "ds_dimensoes_detalhe",
                 "fields": [
                   {"name": "dimensao_id", "expression": "`dimensao_id`"},
                   {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "score", "expression": "`score`"},
-                  {"name": "meta", "expression": "`meta`"},
-                  {"name": "status", "expression": "`status`"},
-                  {"name": "dt_base", "expression": "`dt_base`"}
+                  {"name": "artigo_r18", "expression": "`artigo_r18`"},
+                  {"name": "score_pct", "expression": "`score_pct`"},
+                  {"name": "meta_pct", "expression": "`meta_pct`"},
+                  {"name": "rules_count", "expression": "`rules_count`"},
+                  {"name": "nivel_implementacao", "expression": "`nivel_implementacao`"},
+                  {"name": "status", "expression": "`status`"}
                 ],
                 "disaggregated": true
               }
@@ -323,10 +538,12 @@
                 "columns": [
                   {"fieldName": "dimensao_id", "displayName": "ID"},
                   {"fieldName": "dimensao", "displayName": "Dimensao"},
-                  {"fieldName": "score", "displayName": "Score (%)"},
-                  {"fieldName": "meta", "displayName": "Meta (%)"},
-                  {"fieldName": "status", "displayName": "Status"},
-                  {"fieldName": "dt_base", "displayName": "Data-Base"}
+                  {"fieldName": "artigo_r18", "displayName": "Artigo R.18"},
+                  {"fieldName": "score_pct", "displayName": "Score (%)"},
+                  {"fieldName": "meta_pct", "displayName": "Meta (%)"},
+                  {"fieldName": "rules_count", "displayName": "Regras"},
+                  {"fieldName": "nivel_implementacao", "displayName": "Camada"},
+                  {"fieldName": "status", "displayName": "Status"}
                 ]
               },
               "frame": {"showTitle": true, "title": "Detalhe das 12 Dimensoes R.18"}
@@ -343,37 +560,11 @@
       "layout": [
         {
           "widget": {
-            "name": "filter-dt-base",
-            "queries": [{
-              "name": "ds_scorecard_latest_dt_base",
-              "query": {
-                "datasetName": "ds_scorecard_latest",
-                "fields": [{"name": "dt_base", "expression": "`dt_base`"}],
-                "disaggregated": false
-              }
-            }],
-            "spec": {
-              "version": 2,
-              "widgetType": "filter-single-select",
-              "encodings": {
-                "fields": [{
-                  "fieldName": "dt_base",
-                  "displayName": "Data-Base",
-                  "queryName": "ds_scorecard_latest_dt_base"
-                }]
-              },
-              "frame": {"showTitle": true, "title": "Data-Base"}
-            }
-          },
-          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
-        },
-        {
-          "widget": {
             "name": "filter-dimensao",
             "queries": [{
-              "name": "ds_scorecard_latest_dimensao",
+              "name": "ds_dimensoes_status_dimensao",
               "query": {
-                "datasetName": "ds_scorecard_latest",
+                "datasetName": "ds_dimensoes_status",
                 "fields": [{"name": "dimensao", "expression": "`dimensao`"}],
                 "disaggregated": false
               }
@@ -385,10 +576,36 @@
                 "fields": [{
                   "fieldName": "dimensao",
                   "displayName": "Dimensao",
-                  "queryName": "ds_scorecard_latest_dimensao"
+                  "queryName": "ds_dimensoes_status_dimensao"
                 }]
               },
               "frame": {"showTitle": true, "title": "Dimensao"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-status",
+            "queries": [{
+              "name": "ds_dimensoes_status_status",
+              "query": {
+                "datasetName": "ds_dimensoes_status",
+                "fields": [{"name": "status", "expression": "`status`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "status",
+                  "displayName": "Status",
+                  "queryName": "ds_dimensoes_status_status"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Status"}
             }
           },
           "position": {"x": 2, "y": 0, "width": 2, "height": 2}

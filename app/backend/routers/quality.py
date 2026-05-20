@@ -58,12 +58,26 @@ def _safe_dim_int(roman_or_int) -> int:
         return roman_or_int
     return _DIM_ROMAN_TO_INT.get(str(roman_or_int), 0)
 
-_MOCK_SCORES = [95.0, 92.5, 98.0, 88.0, 100.0, 91.0, 89.5, 85.0, 78.0, 90.0, 93.0, 97.0]
-_MOCK_TARGETS = [90.0, 95.0, 95.0, 95.0, 100.0, 95.0, 90.0, 90.0, 85.0, 90.0, 95.0, 95.0]
-_MOCK_STATUSES = ["conforme", "atencao", "conforme", "atencao", "conforme", "conforme", "atencao", "atencao", "nao_conforme", "conforme", "conforme", "conforme"]
+# Mock alinhado ao seed atual: apenas II (Acurácia, score=92.0, 1 regra) e III
+# (Adaptabilidade, score=96.5, 3 regras) têm regras DQX vinculadas — demais
+# dimensões ficam com score=None (sem dados) e status='sem_regras'. A UI
+# (DimensionCard.svelte) renderiza score=None como "—" e badge "Sem regras",
+# diferenciando "não medido" de "0% conforme".
+_MOCK_SCORES: list[float | None] = [None, 92.0, 96.5, None, None, None, None, None, None, None, None, None]
+_MOCK_TARGETS = [90.0, 95.0, 90.0, 95.0, 95.0, 95.0, 90.0, 90.0, 85.0, 90.0, 95.0, 95.0]
+_MOCK_STATUSES = ["sem_regras", "atencao", "conforme", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras"]
+# Regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml por dimensao_id.
+_MOCK_RULES: dict[int, list[str]] = {
+    2: ["dia_atraso_nao_negativo"],
+    3: ["autorzc_in_dominio", "porte_cli_in_dominio_por_tipo", "tp_ctrl_in_dominio"],
+}
 
 
-def _mock_trend(base_score: float) -> list[TrendPoint]:
+def _mock_trend(base_score: float | None) -> list[TrendPoint]:
+    # Sem score (sem_regras) não há histórico — devolve lista vazia para que o
+    # RadarChart/SparkLine renderizem como "—" em vez de uma linha falsa.
+    if base_score is None:
+        return []
     return [
         TrendPoint(month=f"2025-{m:02d}", score=round(base_score - (6 - i) * 2.5, 1))
         for i, m in enumerate([10, 11, 12])
@@ -82,18 +96,21 @@ async def get_quality_dimensions(
     if USE_MOCK:
         dims = []
         for i, d in enumerate(_R18_DIMENSIONS):
+            score = _MOCK_SCORES[i]
             dims.append(DimensionDetail(
                 id=d["id"],
                 code=d["code"],
                 name=d["name"],
                 description=d["description"],
-                score=_MOCK_SCORES[i],
+                score=score,
                 target=_MOCK_TARGETS[i],
                 status=_MOCK_STATUSES[i],
                 metrics={},
-                trend=_mock_trend(_MOCK_SCORES[i]),
+                rules=_MOCK_RULES.get(d["id"], []),
+                trend=_mock_trend(score),
             ))
-        overall = round(sum(_MOCK_SCORES) / len(_MOCK_SCORES), 1)
+        measured = [s for s in _MOCK_SCORES if s is not None]
+        overall = round(sum(measured) / len(measured), 1) if measured else 0.0
         return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
     # Real mode: aggregate per dimension from the latest DQX Studio runs.
@@ -255,8 +272,14 @@ async def get_quality_dimension_detail(
     status = _MOCK_STATUSES[dimension_id - 1]
 
     if USE_MOCK:
+        # Dimensão sem regras: sem score, sem violações, sem trend.
+        if status == "sem_regras":
+            return DimensionDetailResponse(
+                dimension=d, score=None, target=target, status=status,
+                metrics={}, violations=[], trend=[],
+            )
         violations = []
-        if status in ("atencao", "nao_conforme"):
+        if status in ("atencao", "nao_conforme") and score is not None:
             violations = [
                 Violation(
                     rule_id=f"SEM_{dimension_id:03d}",
@@ -271,7 +294,7 @@ async def get_quality_dimension_detail(
             score=score,
             target=target,
             status=status,
-            metrics={"taxa_conformidade_pct": score, "registros_nao_conformes": 42.0},
+            metrics={"taxa_conformidade_pct": float(score or 0.0), "registros_nao_conformes": 42.0},
             violations=violations,
             trend=_mock_trend(score),
         )
@@ -308,8 +331,9 @@ async def get_quality_trend(
 ):
     """Return overall quality score trend over time."""
     if USE_MOCK:
-        overall = round(sum(_MOCK_SCORES) / len(_MOCK_SCORES), 1)
-        return {"data_base": data_base, "trend": _mock_trend(overall)}
+        measured = [s for s in _MOCK_SCORES if s is not None]
+        overall = round(sum(measured) / len(measured), 1) if measured else 0.0
+        return {"data_base": data_base, "trend": _mock_trend(overall) if measured else []}
 
     # Trend baseado em dq_metrics: para cada YYYY-MM, agrupa o score overall
     # de TODAS as runs do mes (não apenas latest). Limita ao último ano.

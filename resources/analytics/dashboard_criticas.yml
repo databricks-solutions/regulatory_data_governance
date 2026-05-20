@@ -1,7 +1,7 @@
-# Monitor de Críticas — placeholder
+# Monitor de Incidentes de Qualidade R.18 (DQX) — placeholder
 resources:
   dashboards:
     monitor_criticas:
-      display_name: "Monitor de Críticas"
+      display_name: "Monitor de Incidentes de Qualidade R.18"
       file_path: ../../dashboards/monitor_criticas.lvdash.json
       warehouse_id: ${var.warehouse_id}

@@ -30,27 +30,31 @@ router = APIRouter()
 # --- Mock data ---
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2.
+# Reflete o seed atual: apenas II (Acurácia, 1 regra) e III (Adaptabilidade,
+# 3 regras) têm regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml.
+# As demais ficam em `sem_regras` (score 0) e NÃO entram no compliance médio.
 _MOCK_DIMENSIONS = [
-    DimensionScore(id=1, name="Acessibilidade", score=95.0, status="conforme"),
+    DimensionScore(id=1, name="Acessibilidade", score=0.0, status="sem_regras"),
     DimensionScore(id=2, name="Acurácia", score=92.5, status="atencao"),
     DimensionScore(id=3, name="Adaptabilidade", score=98.0, status="conforme"),
-    DimensionScore(id=4, name="Clareza", score=88.0, status="atencao"),
-    DimensionScore(id=5, name="Comparabilidade", score=100.0, status="conforme"),
-    DimensionScore(id=6, name="Completude", score=91.0, status="conforme"),
-    DimensionScore(id=7, name="Confiabilidade", score=89.5, status="atencao"),
-    DimensionScore(id=8, name="Consistência", score=85.0, status="atencao"),
-    DimensionScore(id=9, name="Integridade", score=78.0, status="nao_conforme"),
-    DimensionScore(id=10, name="Rastreabilidade", score=90.0, status="conforme"),
-    DimensionScore(id=11, name="Relevância", score=93.0, status="conforme"),
-    DimensionScore(id=12, name="Tempestividade", score=97.0, status="conforme"),
+    DimensionScore(id=4, name="Clareza", score=0.0, status="sem_regras"),
+    DimensionScore(id=5, name="Comparabilidade", score=0.0, status="sem_regras"),
+    DimensionScore(id=6, name="Completude", score=0.0, status="sem_regras"),
+    DimensionScore(id=7, name="Confiabilidade", score=0.0, status="sem_regras"),
+    DimensionScore(id=8, name="Consistência", score=0.0, status="sem_regras"),
+    DimensionScore(id=9, name="Integridade", score=0.0, status="sem_regras"),
+    DimensionScore(id=10, name="Rastreabilidade", score=0.0, status="sem_regras"),
+    DimensionScore(id=11, name="Relevância", score=0.0, status="sem_regras"),
+    DimensionScore(id=12, name="Tempestividade", score=0.0, status="sem_regras"),
 ]
 
 
 def _mock_kpis(data_base: str) -> DashboardKPIs:
-    scores = [d.score for d in _MOCK_DIMENSIONS]
+    # Mesma semântica do real-mode: dimensões `sem_regras` ficam fora da média.
+    measured = [d.score for d in _MOCK_DIMENSIONS if d.status != "sem_regras"]
     return DashboardKPIs(
         data_base=data_base,
-        compliance_score=round(sum(scores) / len(scores), 1),
+        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
         dimensions=_MOCK_DIMENSIONS,
         pending_validations=PendingValidations(scr3040=3, scr3050=1),
         last_submission=LastSubmission(
@@ -314,7 +318,7 @@ DASHBOARD_KEY_MAP = {
 }
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",
-    "criticas": "Monitor de Críticas SCR",
+    "criticas": "Monitor de Incidentes de Qualidade R.18",
     "genie": "Consulta Natural — SCR R.18",
 }
 
@@ -372,14 +376,14 @@ async def list_dashboards():
             DashboardInfo(
                 id=os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
                 name="Painel de Conformidade R.18",
-                description="12 dimensoes com scores, tendencias e targets",
+                description="Score das 12 dimensoes R.18 derivado de governance.incidents (DQX Studio)",
                 type="compliance",
                 last_published="2026-04-01T08:00:00Z",
             ),
             DashboardInfo(
                 id=os.getenv("DASHBOARD_ID_CRITICAS", ""),
-                name="Monitor de Criticas",
-                description="Taxa de aprovacao/rejeicao por documento, categoria de regra e severidade",
+                name="Monitor de Incidentes de Qualidade R.18",
+                description="Ciclo de vida dos incidentes DQX por dimensao R.18 (funil, TMR, top violacoes)",
                 type="criticas",
                 last_published="2026-04-01T08:00:00Z",
             ),
