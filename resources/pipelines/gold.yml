@@ -5,6 +5,7 @@ resources:
       name: "r18-gold-${bundle.target}"
       catalog: "${var.catalog}"
       schema: "${resources.schemas.gold_schema.name}"
+      serverless: true
       configuration:
         # Resolve every schema via bundle resource references so dev-mode prefixing
         # (`dev_<user>_<name>`) is picked up consistently — both for the gold
