@@ -5,9 +5,6 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$PROJECT_ROOT/.venv"
 BACKEND_DIR="$PROJECT_ROOT/app/backend"
 FRONTEND_DIR="$PROJECT_ROOT/app/frontend"
-BACKEND_PORT=8000
-FRONTEND_PORT=5173
-
 # Load .env from project root if present, exporting every var to the child processes.
 if [ -f "$PROJECT_ROOT/.env" ]; then
   echo "==> Loading environment from .env"
@@ -16,6 +13,11 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
   source "$PROJECT_ROOT/.env"
   set +a
 fi
+
+# Ports are configurable via .env; defaults preserve previous behavior. Export
+# BACKEND_PORT so vite.config.js can read it when wiring the /api proxy.
+export BACKEND_PORT="${BACKEND_PORT:-8000}"
+export FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
 # Default to mock mode only when nothing else has set it.
 export USE_MOCK_BACKEND="${USE_MOCK_BACKEND:-true}"

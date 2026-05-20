@@ -10,15 +10,24 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="dim-card" style="border-left-color: {statusInfo.color}" class:clickable={!!onclick} onclick={onclick}>
+<div class="dim-card" class:no-rules={dimension.status === 'sem_regras'} style="border-left-color: {statusInfo.color}" class:clickable={!!onclick} onclick={onclick}>
   <div class="dim-header">
     <span class="dim-number">{dimension.id}.</span>
     <span class="dim-name">{dimension.name}</span>
   </div>
-  <div class="dim-score">{dimension.score?.toFixed(1)}<span class="dim-unit">%</span></div>
-  <div class="dim-target">Meta: {dimension.target?.toFixed(1)}%</div>
+  {#if dimension.score == null}
+    <div class="dim-score-empty">—</div>
+    <div class="dim-target">Sem regras vinculadas</div>
+  {:else}
+    <div class="dim-score">{dimension.score?.toFixed(1)}<span class="dim-unit">%</span></div>
+    <div class="dim-target">Meta: {dimension.target?.toFixed(1)}% · {dimension.rules?.length || 0} regra(s)</div>
+  {/if}
   <div class="dim-footer">
-    <Badge label={statusInfo.label} variant={dimension.status === 'conforme' ? 'success' : dimension.status === 'atencao' ? 'warning' : 'error'} />
+    {#if dimension.status === 'sem_regras'}
+      <Badge label="Sem regras" variant="default" />
+    {:else}
+      <Badge label={statusInfo.label} variant={dimension.status === 'conforme' ? 'success' : dimension.status === 'atencao' ? 'warning' : 'error'} />
+    {/if}
     {#if trendValues.length > 1}
       <SparkLine values={trendValues} color={statusInfo.color} />
     {/if}
@@ -62,6 +71,13 @@
     color: var(--gray-900);
     line-height: 1.1;
   }
+  .dim-score-empty {
+    font-size: var(--font-size-2xl);
+    font-weight: 700;
+    color: var(--gray-400);
+    line-height: 1.1;
+  }
+  .dim-card.no-rules { opacity: 0.7; }
   .dim-unit {
     font-size: var(--font-size-md);
   }

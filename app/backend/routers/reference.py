@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Query
 
-from db import CATALOG, SCHEMA_REFERENCE, USE_MOCK, execute_query
+from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_REFERENCE, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when reference tables haven't been seeded yet (setup_job not run).
+from db import execute_query_or_empty as execute_query
+from rc18_rule_meta import meta_for
 from models import (
     CalendarioDay,
     CalendarioResponse,
@@ -63,13 +69,16 @@ _MOCK_DOMINIOS = [
     ]),
 ]
 
+# 4 regras iniciais do acelerador (mesmas semeadas em
+# `${var.catalog}.quality.dqx_checks` a partir de
+# `pipelines/silver/dqx_checks/scr3040.yml`). Novas regras serão criadas via
+# DQX Studio (Motor de Regras) e aparecerão aqui assim que o pipeline silver
+# as executar.
 _MOCK_CRITICAS = [
-    CriticaRule(rule_id="S10_001", document="3040", rule_type="syntactic", severity="error", dimension_r18=6, dimension_name="Completude", expression="DtContr IS NOT NULL", description="Campo DtContr (Data de Contratacao) e obrigatorio para todas as operacoes", bcb_reference="SCR3040_Criticas.xls, regra S10", layout_version="V11"),
-    CriticaRule(rule_id="S10_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=6, dimension_name="Completude", expression="LENGTH(CNPJ_IF) = 8", description="CNPJ da IF deve ter exatamente 8 digitos", bcb_reference="SCR3040_Criticas.xls, regra S10", layout_version="V11"),
-    CriticaRule(rule_id="SEM_014", document="3040", rule_type="semantic", severity="error", dimension_r18=2, dimension_name="Acurácia", expression="IPOC components match operation fields", description="Componentes do IPOC devem corresponder aos campos da operacao", bcb_reference="SCR3040_Criticas.xls, regra SEM14", layout_version="V11"),
-    CriticaRule(rule_id="SEM_020", document="3040", rule_type="semantic", severity="error", dimension_r18=8, dimension_name="Consistência", expression="DtVencOp >= DtContr", description="Data de vencimento nao pode ser anterior a data de contratacao", bcb_reference="SCR3040_Criticas.xls, regra SEM20", layout_version="V11"),
-    CriticaRule(rule_id="CR1_001", document="3050", rule_type="syntactic", severity="error", dimension_r18=6, dimension_name="Completude", expression="encargo IS NOT NULL", description="Campo encargo obrigatorio para todas as concessoes TXB", bcb_reference="Criticas_TXB_V11.xlsx", layout_version="V11"),
-    CriticaRule(rule_id="CR4_001", document="3050", rule_type="semantic", severity="error", dimension_r18=2, dimension_name="Acurácia", expression="valor_concessao > 0", description="Valor de concessao deve ser positivo", bcb_reference="Criticas_TXB_V11.xlsx", layout_version="V11"),
+    CriticaRule(rule_id="S20_001", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="autorzc IN ('S','N')", description="Autorzc deve pertencer ao dominio oficial {'S','N'} do leiaute SCR 3040", bcb_reference="SCR3040_Dominios.xlsx, Anexo Autorzc", layout_version="V1"),
+    CriticaRule(rule_id="S20_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="CASE WHEN is_pf THEN porte_cli IN ('0'..'8') WHEN is_pj THEN porte_cli IN ('0'..'4') ELSE FALSE END", description="PorteCli condicional ao tipo de cliente — PF aceita 0-8; PJ aceita 0-4", bcb_reference="SCR3040_Dominios.xlsx, Anexo PorteCli", layout_version="V1"),
+    CriticaRule(rule_id="S20_003", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="tp_ctrl IN ('01','02','03','04')", description="TpCtrl deve pertencer ao dominio oficial {'01','02','03','04'} do leiaute SCR 3040", bcb_reference="SCR3040_Dominios.xlsx, Anexo TpCtrl", layout_version="V1"),
+    CriticaRule(rule_id="S10_004", document="3040", rule_type="syntactic", severity="error", dimension_r18=2, dimension_name="Acurácia", expression="dia_atraso >= 0", description="DiaAtraso (dias em atraso) deve ser inteiro nao negativo", bcb_reference="SCR3040_Leiaute.xlsx, campo DiaAtraso", layout_version="V1"),
 ]
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2 (Art. 2, §2 of Joint Resolution 18).
@@ -144,38 +153,134 @@ async def get_criticas(
             rules = [r for r in rules if search_lower in r.description.lower()]
         return CriticasResponse(total=len(rules), rules=rules)
 
+    # Lê da tabela autoritativa de regras (DQX Studio `dq_quality_rules`).
+    # Schema: rule_id, table_fqn, checks (JSON ARRAY), version, status, source.
+    # Studio considera "active" tanto status='active' (snapshot inicial) quanto
+    # 'approved' (workflow padrão da UI após aprovação). Outros estados
+    # ('draft', 'archived', etc.) ficam fora.
     rows = await execute_query(
-        "SELECT critica_id, documento, grupo, descricao, expressao_sql, "
-        "campo_alvo, severidade, acao_dlt, dimensao_r18, artigo_r18, "
-        "mensagem_erro, leiaute_versao, is_active "
-        f"FROM {CATALOG}.{SCHEMA_REFERENCE}.validation_rules "
-        "WHERE (:documento IS NULL OR documento = :documento) "
-        "AND (:grupo IS NULL OR grupo = :grupo) "
-        "AND (:severidade IS NULL OR severidade = :severidade) "
-        "AND is_active = TRUE ORDER BY documento, critica_id",
-        {"documento": document, "grupo": rule_type, "severidade": severity},
+        "SELECT rule_id, table_fqn, checks, status, version, source, updated_at "
+        f"FROM {DQX_CHECKS_TABLE} "
+        "WHERE status IN ('active', 'approved') "
+        "ORDER BY table_fqn, rule_id",
+        {},
     )
-    # validation_rules.dimensao_r18 is a Roman numeral string ('I'..'XII'); convert to int.
-    _ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
-                     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
-    # Normalize Portuguese severity vocabulary to UI-facing vocabulary.
-    _SEV_MAP = {"BLOQUEANTE": "error", "ALERTA": "warning", "INFO": "info"}
-    rules = []
-    for r in rows:
-        dim_raw = r.get("dimensao_r18")
-        dim_int = (
-            dim_raw if isinstance(dim_raw, int)
-            else _ROMAN_TO_INT.get(str(dim_raw), 0)
-        )
-        sev_raw = r.get("severidade") or ""
-        rules.append(CriticaRule(
-            rule_id=r["critica_id"], document=r["documento"], rule_type=r["grupo"],
-            severity=_SEV_MAP.get(sev_raw, sev_raw.lower() if sev_raw else "info"),
-            dimension_r18=dim_int, dimension_name="",
-            expression=r.get("expressao_sql", ""), description=r["descricao"],
-            bcb_reference="", layout_version=r.get("leiaute_versao", "V11"),
-        ))
+    rules = _parse_dq_quality_rules_rows(rows)
+    # Apply filters in Python — set is small (10s of rules) so this is fine.
+    if document:
+        rules = [r for r in rules if r.document == document]
+    if rule_type:
+        rules = [r for r in rules if r.rule_type == rule_type]
+    if severity:
+        rules = [r for r in rules if r.severity == severity]
+    if dimension_r18:
+        rules = [r for r in rules if r.dimension_r18 == dimension_r18]
+    if search:
+        s = search.lower()
+        rules = [r for r in rules if s in r.description.lower()]
     return CriticasResponse(total=len(rules), rules=rules)
+
+
+# Dimension Roman → int — duplicated from validation.py to avoid a cross-router
+# import dependency. Keep in sync with docs/spec/01_requirements.md §1.2.
+_ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+                 "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
+_DIM_NAMES = {1: "Acessibilidade", 2: "Acurácia", 3: "Adaptabilidade",
+              4: "Clareza", 5: "Comparabilidade", 6: "Completude",
+              7: "Confiabilidade", 8: "Consistência", 9: "Integridade",
+              10: "Rastreabilidade", 11: "Relevância", 12: "Tempestividade"}
+# Mapping run_config_name prefix → document. Longest prefix wins to avoid
+# `silver_3050` accidentally matching `silver_3040` (it doesn't, but be safe).
+_DOC_FROM_RUN = [
+    ("silver_3050", "3050"),
+    ("silver_3040_", "3040"),
+]
+
+
+def _doc_from_table_fqn(table_fqn: str) -> str:
+    """Derive '3040' or '3050' from a silver table FQN.
+
+    Examples:
+      rc18_catalog.silver.scr3040_clientes → '3040'
+      rc18_catalog.silver.scr3050          → '3050'
+      __sql_check__/<name>                 → '' (SQL-query checks; doc-agnostic)
+    """
+    if not table_fqn:
+        return ""
+    lower = table_fqn.lower()
+    if "scr3040" in lower or ".3040" in lower:
+        return "3040"
+    if "scr3050" in lower or ".3050" in lower:
+        return "3050"
+    return ""
+
+
+def _parse_dq_quality_rules_rows(rows: list[dict]) -> list[CriticaRule]:
+    """Translate dq_quality_rules rows (Studio's JSON ARRAY shape) → CriticaRule.
+
+    Studio stores each rule's `checks` column as a **JSON array** of check
+    definitions (usually 1 element, but multi-check rows are valid). Each
+    check carries the DQX library shape (`name`, `criticality`, `check`,
+    optional `filter`, optional `user_metadata`, optional `run_config_name`).
+
+    UI-created rules may omit `run_config_name` and `user_metadata` entirely
+    — the binding is then the row's `table_fqn`. We accommodate both shapes.
+    """
+    out: list[CriticaRule] = []
+    for r in rows:
+        chk_raw = r.get("checks")
+        try:
+            parsed = json.loads(chk_raw) if isinstance(chk_raw, str) else (chk_raw or [])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        # Coerce: legacy seed wrote a single object; Studio writes an array.
+        if isinstance(parsed, dict):
+            checks_list = [parsed]
+        elif isinstance(parsed, list):
+            checks_list = parsed
+        else:
+            continue
+
+        table_fqn = r.get("table_fqn") or ""
+        # Prefer document derived from run_config_name (precise), fall back to
+        # table_fqn (works for UI rules that lack a run_config).
+        doc_from_table = _doc_from_table_fqn(table_fqn)
+
+        for chk in checks_list:
+            if not isinstance(chk, dict):
+                continue
+            um = chk.get("user_metadata") or {}
+            args = (chk.get("check") or {}).get("arguments") or {}
+            check_name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None) or ""
+            sev = "error" if chk.get("criticality") == "error" else "warning"
+            expr = ""
+            if isinstance(args, dict):
+                expr = str(args.get("expression") or args.get("query") or "")[:300]
+            # Structural metadata sourced from rc18_rule_meta (RC18 hard-codes
+            # the 4 initial rules). User-authored Studio rules get safe defaults.
+            meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
+            doc = meta["document"] or doc_from_table
+            description = um.get("descricao") or um.get("mensagem_erro") or args.get("msg") or check_name or ""
+            out.append(CriticaRule(
+                rule_id=meta["critica_id"] or check_name or r.get("rule_id") or "",
+                document=doc,
+                rule_type=meta["rule_type"],
+                severity=sev,
+                dimension_r18=meta["dimension_r18"],
+                dimension_name=meta["dimension_name"],
+                expression=expr,
+                description=description,
+                bcb_reference="",
+                layout_version="V1" if doc == "3040" else ("V11" if doc == "3050" else ""),
+            ))
+    return out
+
+
+_NIVEL_TO_RULE_TYPE = {
+    "1": "syntactic",
+    "2": "inter_document",
+    "3": "business",
+}
 
 
 @router.get("/calendario", response_model=CalendarioResponse)

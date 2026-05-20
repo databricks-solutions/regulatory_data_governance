@@ -29,7 +29,6 @@ from routers import (
     lineage,
     quality,
     reference,
-    rule_engine,
     submissions,
     validation,
     xml_processing,
@@ -50,6 +49,14 @@ async def lifespan(app: FastAPI):
     logger.info("USE_MOCK_BACKEND=%s", os.getenv("USE_MOCK_BACKEND", "true"))
     logger.info("CATALOG=%s", os.getenv("DATABRICKS_CATALOG", "rc18_catalog"))
     yield
+    # Close the SQL connection pool (no-op in mock mode — pool only initializes
+    # lazily on the first real query).
+    try:
+        from db import close_pool
+
+        close_pool()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Falha ao fechar connection pool no shutdown: %s", exc)
     logger.info("R.18 Compliance Accelerator shutting down")
 
 
@@ -86,7 +93,6 @@ app.include_router(xml_processing.router, prefix="/api/v1/xml", tags=["xml"])
 app.include_router(reference.router, prefix="/api/v1/reference", tags=["reference"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["submissions"])
 app.include_router(governance.router, prefix="/api/v1/governance", tags=["governance"])
-app.include_router(rule_engine.router, prefix="/api/v1/rules", tags=["rule-engine"])
 app.include_router(branding.router, prefix="/api/v1/brand", tags=["brand"])
 
 # --- Brand static assets (uploaded logos) ---

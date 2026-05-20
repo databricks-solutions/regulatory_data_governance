@@ -14,7 +14,11 @@ async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail || 'Falha na requisicao');
+    const err = new ApiError(res.status, body.detail || 'Falha na requisicao');
+    // Surface the parsed body so callers can read e.g. the `existing_incident_id`
+    // returned with HTTP 409 conflicts (incident dedup) per spec 08 §4.2.
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
@@ -31,6 +35,13 @@ export function getQualityDimensions(dataBase, trendMonths = 6) {
   if (dataBase) params.set('data_base', dataBase);
   params.set('trend_months', trendMonths);
   return apiFetch(`/quality/dimensions?${params}`);
+}
+
+export function getQualityTrend(dataBase, months = 6) {
+  const params = new URLSearchParams();
+  if (dataBase) params.set('data_base', dataBase);
+  params.set('months', months);
+  return apiFetch(`/quality/trend?${params}`);
 }
 
 export function getQualityDimension(dimensionId, dataBase) {
@@ -124,126 +135,37 @@ export function getIrregularityDetail(id) {
   return apiFetch(`/governance/irregularities/${encodeURIComponent(id)}`);
 }
 
-export function getActionPlans(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  return apiFetch(`/governance/action-plans?${params}`);
-}
-
-export function getGovernanceReports() {
-  return apiFetch('/governance/reports');
-}
-
-// Rule Engine — Datasets
-export function getRuleEngineDatasets(search) {
-  const params = search ? `?search=${encodeURIComponent(search)}` : '';
-  return apiFetch(`/rules/datasets${params}`);
-}
-
-export function createRuleEngineDataset(body) {
-  return apiFetch('/rules/datasets', {
+// Create an incident from a DQX validation row (Críticas SCR "Criar Incidente" button).
+// Dedup key per docs/spec/08_dqx_app_integration.md §4.1:
+//   (critica_id, run_config_name, dt_base) WHERE status NOT IN ('resolved','validated')
+// On dedup hit the backend returns HTTP 409 with body { existing_incident_id, detail }.
+export function createIncident(payload) {
+  return apiFetch('/governance/incidents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(payload)
   });
 }
 
-export function getRuleEngineDataset(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}`);
-}
-
-export function getRuleEngineDatasetColumns(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/columns`);
-}
-
-export function deleteRuleEngineDataset(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}`, { method: 'DELETE' });
-}
-
-// Rule Engine — Rules
-export function getRuleEngineRules(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/${qs ? '?' + qs : ''}`);
-}
-
-export function createRuleEngineRule(body) {
-  return apiFetch('/rules/', {
-    method: 'POST',
+// Transition an incident through the FSM (spec 08 §4.3 / spec 07 §12.4).
+// Body shape: { status, owner?, comment?, root_cause?, remedial_action?, escalated_to? }
+// Allowed target statuses: 'assigned' | 'in_progress' | 'resolved' | 'validated'
+// | 'escalated' | 'reopened' | 'open'. Rejects illegal transitions with HTTP 400.
+export function updateIncidentStatus(incidentId, payload) {
+  return apiFetch(`/governance/incidents/${encodeURIComponent(incidentId)}/status`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(payload)
   });
 }
 
-export function getRuleEngineRule(ruleId) {
-  return apiFetch(`/rules/${ruleId}`);
-}
+// =============================================================================
+// Branding + embed config
+//
+// Returns brand-related fields plus runtime URLs for embedded external apps
+// (currently `dqx_studio_url` — empty string when not configured).
+// =============================================================================
 
-export function updateRuleEngineRule(ruleId, body) {
-  return apiFetch(`/rules/${ruleId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function deleteRuleEngineRule(ruleId) {
-  return apiFetch(`/rules/${ruleId}`, { method: 'DELETE' });
-}
-
-export function validateExpression(expression) {
-  return apiFetch('/rules/validate-expression', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expression })
-  });
-}
-
-// Rule Engine — Bindings
-export function getDatasetBindings(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings`);
-}
-
-export function createBinding(datasetId, body) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-}
-
-export function deleteBinding(datasetId, bindingId) {
-  return apiFetch(`/rules/datasets/${datasetId}/bindings/${bindingId}`, { method: 'DELETE' });
-}
-
-// Rule Engine — Execution
-export function triggerRuleEngineRun(datasetId) {
-  return apiFetch(`/rules/datasets/${datasetId}/run`, { method: 'POST' });
-}
-
-export function getRuleEngineRunStatus(runId) {
-  return apiFetch(`/rules/runs/${runId}`);
-}
-
-export function getRuleEngineRunResults(runId) {
-  return apiFetch(`/rules/runs/${runId}/results`);
-}
-
-export function getRuleEngineExceptions(runId, filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/runs/${runId}/exceptions${qs ? '?' + qs : ''}`);
-}
-
-export function getRuleEngineRuns(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  const qs = params.toString();
-  return apiFetch(`/rules/runs${qs ? '?' + qs : ''}`);
-}
-
-export function seedRuleEngineRules() {
-  return apiFetch('/rules/seed', { method: 'POST' });
+export function getBrandConfig() {
+  return apiFetch('/brand/config');
 }

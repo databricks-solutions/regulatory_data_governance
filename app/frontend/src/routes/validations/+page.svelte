@@ -5,8 +5,9 @@
   import DataTable from '$lib/components/data/DataTable.svelte';
   import Pagination from '$lib/components/data/Pagination.svelte';
   import { appState } from '$lib/stores.svelte.js';
-  import { getValidationResults } from '$lib/api.js';
+  import { getValidationResults, createIncident, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
 
   let activeTab = $state('3040');
   const tabs = [
@@ -22,6 +23,7 @@
 
   let runSummary = $state({ run_id: '', run_completed_at: '', total_rules: 0, passed: 0, failed: 0, warnings: 0, pass_rate_pct: 0 });
   let results = $state([]);
+  let studioUrl = $state(null);
   let activeNivel = $state(null); // null = all levels
 
   let filterValues = $state({});
@@ -29,22 +31,64 @@
   let totalPages = $state(1);
   let expandedRow = $state(null);
 
+  // Per-row inflight tracking so the button can show a spinner and prevent
+  // double-submits without forcing a full results refetch.
+  let incidentPending = $state({}); // { [rule_id]: true }
+  // Toast UI state. We don't depend on a global toast lib — small inline
+  // component below renders a single transient message.
+  let toast = $state(null); // { kind: 'success' | 'error' | 'info', message, href, hrefLabel } | null
+  let toastTimer = null;
+
   const filterDefs = [
-    { key: 'severity', label: 'Severidade', type: 'select', options: [{ value: 'error', label: 'Error' }, { value: 'warning', label: 'Warning' }, { value: 'info', label: 'Info' }] },
+    { key: 'severity', label: 'Bloqueio', type: 'select', options: [{ value: 'error', label: 'Bloqueante' }, { value: 'warning', label: 'Alerta' }, { value: 'info', label: 'Info' }] },
     { key: 'rule_type', label: 'Tipo', type: 'select', options: [{ value: 'syntactic', label: 'Sintática' }, { value: 'semantic', label: 'Semântica' }, { value: 'inter_document', label: 'Inter-documento' }, { value: 'business', label: 'Regra Negocial' }] },
     { key: 'dimension_r18', label: 'Dimensão R.18', type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
     { key: 'modality', label: 'Modalidade', type: 'text', placeholder: 'Ex: 0201' }
   ];
 
+  // Two distinct visual concepts:
+  //   • Severidade — PROPERTY of the rule (Bloqueante/Alerta) → neutral chip.
+  //   • Status     — RESULT of last run (Aprovado/Reprovado) → colored
+  //     status badge with icon. Binário: como todas as regras iniciais usam
+  //     `criticality: error`, não há estado intermediário "atenção"; qualquer
+  //     violação é Reprovado.
   const columns = [
     { key: 'rule_id', label: 'Regra', sortable: true, width: '100px' },
     { key: 'rule_name', label: 'Descrição', sortable: true },
     { key: 'nivel_verificacao', label: 'Nível', sortable: true, width: '80px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
-    { key: 'rule_type', label: 'Tipo', sortable: true, width: '110px', render: (v) => v === 'business' ? 'Negocial' : v === 'inter_document' ? 'Inter-doc' : v === 'syntactic' ? 'Sintática' : 'Semântica' },
     { key: 'dimension_name', label: 'Dimensão R.18', sortable: true, width: '120px' },
-    { key: 'severity', label: 'Sev.', sortable: true, width: '80px', render: (v) => `<span class="sev-${v}">${v}</span>` },
-    { key: 'status', label: 'Status', sortable: true, width: '80px', render: (v) => v === 'fail' ? '<span class="sev-error">fail</span>' : v === 'warning' || v === 'warn' ? '<span class="sev-warning">warn</span>' : '<span class="sev-success">pass</span>' },
-    { key: 'affected_records', label: 'Registros', sortable: true, width: '90px' }
+    { key: 'severity', label: 'Bloqueio', sortable: true, width: '100px',
+      render: (v) => {
+        const label = v === 'error' ? 'Bloqueante' : v === 'warning' ? 'Alerta' : 'Info';
+        return `<span class="severity-chip">${label}</span>`;
+      }
+    },
+    { key: 'status', label: 'Status', sortable: true, width: '140px',
+      render: (v) => {
+        // Binário: aprovado vs reprovado. Como as regras iniciais usam todas
+        // `criticality: error`, não há um estado intermediário "atenção". Caso
+        // alguma run venha como `warning`/`warn` (regra warn-level com
+        // violações), tratamos como reprovação também — um violation é um
+        // violation, independente da severidade da regra.
+        if (v === 'fail' || v === 'warning' || v === 'warn') {
+          return '<span class="status-badge status-fail">✗ Reprovado</span>';
+        }
+        return '<span class="status-badge status-pass">✓ Aprovado</span>';
+      }
+    },
+    // Execução: mostra "inconsistencias / registros checados" — torna explícito
+    // que houve uma run e quantas linhas foram avaliadas.
+    // O número de "inconsistências" é SEMPRE vermelho (mais escuro quando >0,
+    // mais leve quando =0) — afinal a coluna conta problemas, não acertos.
+    // A leitura "tudo OK" vem do badge ✓ Aprovado da coluna Status, não daqui.
+    { key: 'affected_records', label: 'Inconsistências / Total', sortable: true, width: '160px',
+      render: (v, row) => {
+        const total = row?.total_records ?? 0;
+        const affected = v ?? 0;
+        const cls = affected > 0 ? 'inc-strong' : 'inc-muted';
+        return `<span class="${cls}">${affected.toLocaleString('pt-BR')}</span> <span class="run-sep-inline">/</span> <span class="run-total">${total.toLocaleString('pt-BR')}</span>`;
+      }
+    }
   ];
 
   let filteredResults = $derived.by(() => {
@@ -79,11 +123,71 @@
     filterValues = {};
   }
 
+  function showToast(t, durationMs = 5500) {
+    toast = t;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast = null; }, durationMs);
+  }
+
+  function canCreateIncident(row) {
+    // Botão sempre visível quando temos run_config_name e identificador da regra.
+    // Quando status=pass (sem inconsistências), o caller renderiza o botão
+    // disabled com tooltip para que o usuário entenda que a feature existe.
+    return !!row?.run_config_name && !!(row?.critica_id || row?.rule_id);
+  }
+
+  function shouldDisableIncident(row) {
+    return !(row?.affected_records > 0);
+  }
+
+  async function handleCreateIncident(row, e) {
+    // Stop the row's expand toggle (button lives inside the table row).
+    e?.stopPropagation?.();
+    const key = row.rule_id || row.critica_id;
+    if (!key || incidentPending[key]) return;
+    incidentPending = { ...incidentPending, [key]: true };
+    try {
+      const payload = {
+        critica_id: row.critica_id || row.rule_id,
+        run_config_name: row.run_config_name,
+        data_base: appState.dataBase,
+        severity: row.severity,
+        description: row.description || row.rule_name,
+        check_name: row.check_name || null,
+        source: 'manual'
+      };
+      const inc = await createIncident(payload);
+      const id = inc?.id || inc?.incident_id || '';
+      showToast({
+        kind: 'success',
+        message: id ? `Incidente ${id} criado` : 'Incidente criado',
+        href: id ? `/governance?incident=${encodeURIComponent(id)}` : null,
+        hrefLabel: 'Abrir'
+      });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const existing = err.body?.existing_incident_id || err.body?.incident_id || '';
+        showToast({
+          kind: 'info',
+          message: 'Incidente já existe para esta crítica',
+          href: existing ? `/governance?incident=${encodeURIComponent(existing)}` : null,
+          hrefLabel: existing ? `Ver ${existing}` : null
+        });
+      } else {
+        showToast({ kind: 'error', message: err?.message || 'Falha ao criar incidente' });
+      }
+    } finally {
+      const { [key]: _drop, ...rest } = incidentPending;
+      incidentPending = rest;
+    }
+  }
+
   async function loadResults() {
     try {
       const data = await getValidationResults(activeTab, appState.dataBase, filterValues);
       if (data?.results) results = data.results;
-      if (data?.summary) runSummary = { ...runSummary, ...data.summary };
+      if (data?.summary) runSummary = { ...runSummary, ...data.summary, run_id: data.run_id, run_completed_at: data.run_completed_at };
+      studioUrl = data?.studio_url || null;
     } catch {}
   }
 
@@ -101,22 +205,24 @@
   <!-- Run Summary -->
   <div class="card run-summary">
     <div class="run-info">
-      <span class="run-source">Resultados da pipeline DLT</span>
+      <span class="run-source">Resultados DQX Studio (última execução por tabela)</span>
       <span class="run-sep">|</span>
-      <span class="run-id">Run: {runSummary.run_id}</span>
+      <span class="run-id">Run: {runSummary.run_id ? runSummary.run_id.slice(0, 12) + '…' : '—'}</span>
       <span class="run-sep">|</span>
-      <span>Concluído: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ')}</span>
+      <span>Concluído: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ') || '—'}</span>
+      {#if studioUrl}
+        <span class="run-sep">|</span>
+        <a class="studio-link" href={studioUrl} target="_blank" rel="noopener noreferrer">Ver no DQX Studio ↗</a>
+      {/if}
     </div>
     <div class="run-stats">
       Total: {runSummary.total_rules} regras
       <span class="run-sep">|</span>
-      <span class="stat-pass">{runSummary.passed} pass</span>
+      <span class="stat-pass">✓ {runSummary.passed} aprovadas</span>
       <span class="run-sep">|</span>
-      <span class="stat-warn">{runSummary.warnings ?? 0} warning</span>
+      <span class="stat-fail">✗ {(runSummary.failed ?? 0) + (runSummary.warnings ?? 0)} reprovadas</span>
       <span class="run-sep">|</span>
-      <span class="stat-fail">{runSummary.failed} fail</span>
-      <span class="run-sep">|</span>
-      Pass Rate: <strong>{runSummary.pass_rate_pct}%</strong>
+      Taxa de aprovação: <strong>{runSummary.pass_rate_pct}%</strong>
     </div>
   </div>
 
@@ -139,9 +245,8 @@
         <div class="nivel-stats">
           <span>{counts.total} regras</span>
           <span class="run-sep">|</span>
-          {#if counts.fail > 0}<span class="stat-fail">{counts.fail} fail</span>{/if}
-          {#if counts.warn > 0}<span class="stat-warn">{counts.warn} warn</span>{/if}
-          <span class="stat-pass">{counts.pass} pass</span>
+          {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {counts.fail + counts.warn} reprov.</span>{/if}
+          <span class="stat-pass">✓ {counts.pass} aprov.</span>
         </div>
       </button>
     {/each}
@@ -168,8 +273,50 @@
     >
       {#snippet expandSnippet(row)}
         <div class="expand-detail">
-          <p><strong>{row.rule_id}</strong> — {row.rule_name}</p>
+          <div class="expand-header">
+            <div class="expand-title">
+              <strong>{row.rule_id}</strong> — {row.rule_name}
+            </div>
+            {#if canCreateIncident(row)}
+              {@const disabled = incidentPending[row.rule_id || row.critica_id] || shouldDisableIncident(row)}
+              <button
+                type="button"
+                class="btn-incident"
+                {disabled}
+                onclick={(e) => handleCreateIncident(row, e)}
+                title={shouldDisableIncident(row) ? 'Sem inconsistências nesta execução — nada a registrar' : 'Criar incidente em Gestão de Incidentes'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                {incidentPending[row.rule_id || row.critica_id] ? 'Criando…' : 'Criar Incidente'}
+              </button>
+            {/if}
+          </div>
           <p class="expand-desc">{row.description}</p>
+          <div class="expand-dqx">
+            {#if row.check_name}
+              <span class="dqx-chip" title="DQX check name (expectation_name)">
+                <span class="dqx-chip-label">DQX check</span>
+                <code>{row.check_name}</code>
+              </span>
+            {/if}
+            {#if row.dqx_check_function}
+              <span class="dqx-chip" title="DQX check function">
+                <span class="dqx-chip-label">função</span>
+                <code>{row.dqx_check_function}</code>
+              </span>
+            {/if}
+            {#if row.run_config_name}
+              <span class="dqx-chip" title="DQX run_config_name (dataset binding)">
+                <span class="dqx-chip-label">dataset</span>
+                <code>{row.run_config_name}</code>
+              </span>
+            {/if}
+            {#if row.dqx_check_url}
+              <a class="studio-link" href={row.dqx_check_url} target="_blank" rel="noopener noreferrer">Editar regra no DQX Studio ↗</a>
+            {/if}
+          </div>
           <p class="expand-meta">
             <span class="nivel-badge nivel-{row.nivel_verificacao}">Nível {row.nivel_verificacao}</span>
             Dimensão R.18: {row.dimension_r18} ({row.dimension_name}) | Registros afetados: {row.affected_records?.toLocaleString('pt-BR')}
@@ -180,6 +327,18 @@
     <Pagination page={currentPage} {totalPages} onchange={(p) => currentPage = p} />
   </div>
 </div>
+
+{#if toast}
+  <div class="toast toast-{toast.kind}" role="status" aria-live="polite">
+    <span class="toast-msg">{toast.message}</span>
+    {#if toast.href}
+      <button type="button" class="toast-link" onclick={() => { const h = toast.href; toast = null; goto(h); }}>
+        {toast.hrefLabel || 'Abrir'}
+      </button>
+    {/if}
+    <button type="button" class="toast-close" aria-label="Fechar" onclick={() => toast = null}>×</button>
+  </div>
+{/if}
 
 <style>
   .validations-page { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -194,6 +353,13 @@
   .stat-pass { color: var(--success); font-weight: 600; }
   .stat-warn { color: var(--warning); font-weight: 600; }
   .stat-fail { color: var(--error); font-weight: 600; }
+  .studio-link {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+  }
+  .studio-link:hover { text-decoration: underline; }
 
   /* Nivel Cards (Pyramid layout - N3 on top, N1 on bottom) */
   .nivel-cards {
@@ -286,11 +452,151 @@
   :global(.nivel-2) { background: var(--warning, #F59E0B); }
   :global(.nivel-3) { background: var(--error, #EF4444); }
 
-  .expand-detail { padding: var(--space-2) 0; }
-  .expand-desc { font-size: var(--font-size-sm); color: var(--gray-700); margin: var(--space-2) 0; }
-  .expand-meta { font-size: var(--font-size-xs); color: var(--gray-500); display: flex; align-items: center; gap: var(--space-2); }
+  .expand-detail { padding: var(--space-2) 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .expand-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .expand-title { font-size: var(--font-size-sm); color: var(--gray-800); }
+  .expand-desc { font-size: var(--font-size-sm); color: var(--gray-700); margin: 0; }
+  .expand-dqx {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+  }
+  .dqx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    padding: 2px var(--space-2);
+    color: var(--gray-700);
+  }
+  .dqx-chip-label { color: var(--gray-500); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+  .dqx-chip code { font-family: var(--font-mono); color: var(--gray-800); }
+
+  .expand-meta {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .btn-incident {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--primary);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 6px var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+  }
+  .btn-incident:hover:not(:disabled) { background: var(--blue-900, #163559); }
+  .btn-incident:disabled { opacity: 0.6; cursor: progress; }
 
   :global(.sev-error) { color: var(--error); font-weight: 600; }
   :global(.sev-warning) { color: var(--warning); font-weight: 600; }
   :global(.sev-success) { color: var(--success); font-weight: 600; }
+
+  /* Coluna "Inconsistências / Total" — número de inconsistências sempre em
+   * tom vermelho (o nome da coluna conta problemas). >0 = vermelho forte;
+   * =0 = vermelho dessaturado para sinalizar que tem dado mas sem violações. */
+  :global(.inc-strong) { color: var(--error, #dc2626); font-weight: 700; }
+  :global(.inc-muted)  { color: rgba(220, 38, 38, 0.45); font-weight: 600; }
+  :global(.run-sep-inline) { color: var(--gray-400, #9ca3af); margin: 0 2px; }
+  :global(.run-total) { color: var(--gray-600, #4b5563); font-weight: 500; }
+
+  /* "Bloqueio" — propriedade da regra. Cinza neutro pra NÃO competir com o status. */
+  :global(.severity-chip) {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--gray-100, #f1f3f5);
+    color: var(--gray-700, #495057);
+    border-radius: var(--radius-sm, 4px);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    border: 1px solid var(--gray-200, #e9ecef);
+  }
+
+  /* "Status" — resultado da última execução. Cor dominante (verde/vermelho/amarelo). */
+  :global(.status-badge) {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  :global(.status-badge.status-pass) {
+    background: rgba(34, 197, 94, 0.12);
+    color: var(--success, #16a34a);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+  :global(.status-badge.status-fail) {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--error, #dc2626);
+    border-color: rgba(220, 38, 38, 0.3);
+  }
+  :global(.status-badge.status-warn) {
+    background: rgba(234, 179, 8, 0.15);
+    color: var(--warning, #ca8a04);
+    border-color: rgba(234, 179, 8, 0.35);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: var(--space-5);
+    right: var(--space-5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--white);
+    border-left: 4px solid var(--primary);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    min-width: 280px;
+    max-width: 420px;
+    font-size: var(--font-size-sm);
+  }
+  .toast-success { border-left-color: var(--success); }
+  .toast-error { border-left-color: var(--error); }
+  .toast-info { border-left-color: var(--warning); }
+  .toast-msg { flex: 1; color: var(--gray-800); }
+  .toast-link {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: var(--font-size-sm);
+    padding: 0;
+  }
+  .toast-close {
+    background: none;
+    border: none;
+    color: var(--gray-500);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 var(--space-1);
+  }
 </style>

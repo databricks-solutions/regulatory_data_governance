@@ -19,6 +19,7 @@
 
 # COMMAND ----------
 
+import glob
 import os
 import shutil
 
@@ -52,22 +53,30 @@ os.makedirs(DEST_3050, exist_ok=True)
 
 # COMMAND ----------
 
-def copy_one(src_name: str, dest_dir: str) -> str:
-    src = os.path.join(SOURCE_DIR, src_name)
-    dest = os.path.join(dest_dir, src_name)
-    if not os.path.isfile(src):
-        raise FileNotFoundError(f"Sample file not found: {src}")
-    shutil.copyfile(src, dest)
-    size = os.path.getsize(dest)
-    print(f"  copied {src_name} -> {dest} ({size:,} bytes)")
-    return dest
+def copy_pattern(pattern: str, dest_dir: str, label: str) -> list[str]:
+    """Copia todos os arquivos do `SOURCE_DIR` que casam com `pattern` (glob)
+    para `dest_dir`. Permite adicionar samples didáticos novos (e.g.
+    `Doc3040_*_2026-04_R1_P1.xml`) sem editar este notebook."""
+    matches = sorted(glob.glob(os.path.join(SOURCE_DIR, pattern)))
+    if not matches:
+        print(f"  [{label}] nenhum match para {pattern!r} — pulando.")
+        return []
+    copied = []
+    for src in matches:
+        name = os.path.basename(src)
+        dest = os.path.join(dest_dir, name)
+        shutil.copyfile(src, dest)
+        size = os.path.getsize(dest)
+        print(f"  [{label}] copied {name} -> {dest} ({size:,} bytes)")
+        copied.append(dest)
+    return copied
 
 
-print("Copying Doc 3040 sample…")
-copy_one("Doc3040_99999999_2026-03_R1_P1.xml", DEST_3040)
+print("Copying Doc 3040 samples (Doc3040_*.xml)…")
+copy_pattern("Doc3040_*.xml", DEST_3040, "3040")
 
-print("Copying Doc 3050 sample…")
-copy_one("Doc3050_99999999_2026-03_R1_P1.xml", DEST_3050)
+print("Copying Doc 3050 samples (Doc3050_*.xml)…")
+copy_pattern("Doc3050_*.xml", DEST_3050, "3050")
 
 # COMMAND ----------
 

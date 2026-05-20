@@ -1,4 +1,4 @@
-# Gold curation pipeline — produces position tables, governance scorecard, criticas summary
+# Gold curation pipeline — produces position tables.
 resources:
   pipelines:
     gold:
@@ -18,5 +18,3 @@ resources:
       libraries:
         - notebook:
             path: ../../pipelines/gold/transformations/posicao_mensal.py
-        - notebook:
-            path: ../../pipelines/gold/transformations/quality_scorecard.py

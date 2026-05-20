@@ -1,0 +1,195 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Sample didatico CADOC 3040 — replica reduzida de Doc3040_99999999_2026-03_R1_P1.xml
+  com violacoes propositais para demonstrar as 4 regras DQX iniciais do RC18:
+
+    autorzc_in_dominio (S ou N)       : LIMPA  todos os clientes com Autorzc valido
+    porte_cli_in_dominio_por_tipo     : 5 violacoes  PJ com PorteCli>4; PF com PorteCli>8/A
+    tp_ctrl_in_dominio (01..04)       : 3 violacoes  TpCtrl=05, 99, AA
+    dia_atraso_nao_negativo (>=0)     : 3 violacoes  DiaAtraso=-1, -30, -180
+
+  DtBase = 2026-04 (diferente do sample original 2026-03) para os 2 arquivos
+  coexistirem no landing volume sem colidir.
+-->
+<Doc3040 DtBase="2026-04" CNPJ="99999999" Remessa="1" Parte="1" TpArq="F" NomeResp="Equipe Governanca SCR" EmailResp="scr.governanca@exemplo.com.br" TelResp="1133000000" TotalCli="15" MetodApPE="C" MetodDifTJE="N">
+
+  <!-- ============================================================ -->
+  <!-- BLOCO 1 — Clientes CONSISTENTES (PJ e PF) — todas as 4 regras passam -->
+  <!-- ============================================================ -->
+
+  <Cli Tp="2" Cd="00000001" Autorzc="S" PorteCli="0" TpCtrl="01" IniRelactCli="2022-01-28" FatAnual="37206749.74">
+    <Op DetCli="00000001786598" Contrt="000100016" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="31" PercIndx="100.00" VarCamb="790" DtVencOp="2028-12-13" CEP="15879094" TaxEft="50.00" DtContr="2024-06-07" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000001000100016">
+      <Venc v165="144762.69"/>
+      <Gar Tp="0901" Ident="32277521310" PercGar="49.83"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="144762.69" TJE="50.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <Cli Tp="2" Cd="00000002" Autorzc="N" PorteCli="2" TpCtrl="02" IniRelactCli="2016-07-19" FatAnual="7407127.46">
+    <Op DetCli="00000002626500" Contrt="000200094" NatuOp="01" Mod="0101" OrigemRec="0199" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-09-28" CEP="87274567" TaxEft="50.00" DtContr="2024-02-22" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000002000200094">
+      <Venc v165="34712.22"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="34712.22" TJE="50.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <Cli Tp="2" Cd="00000003" Autorzc="S" PorteCli="4" TpCtrl="04" IniRelactCli="2018-10-19" FatAnual="29729379.37">
+    <Op DetCli="00000003318303" Contrt="000300076" NatuOp="01" Mod="0101" OrigemRec="0299" Indx="32" PercIndx="100.00" VarCamb="790" DtVencOp="2027-08-21" CEP="40428661" TaxEft="50.00" DtContr="2021-12-31" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000003000300076">
+      <Venc v160="346342.18"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="346342.18" TJE="50.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PF (Tp=1) — PorteCli aceita 0..8, todos validos abaixo -->
+  <Cli Tp="1" Cd="00000004" Autorzc="S" PorteCli="7" TpCtrl="01" IniRelactCli="2019-03-15" FatAnual="85000.00">
+    <Op DetCli="00000004001001" Contrt="000400010" NatuOp="01" Mod="0204" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-10-30" CEP="01310100" TaxEft="35.00" DtContr="2024-09-10" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990204100000004000400010">
+      <Venc v160="12500.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="12500.00" TJE="35.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <Cli Tp="1" Cd="00000005" Autorzc="N" PorteCli="8" TpCtrl="03" IniRelactCli="2020-06-22" FatAnual="120000.00">
+    <Op DetCli="00000005002002" Contrt="000500020" NatuOp="01" Mod="0204" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-04-15" CEP="22070001" TaxEft="40.00" DtContr="2023-11-20" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990204100000005000500020">
+      <Venc v165="8200.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="8200.00" TJE="40.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- ============================================================ -->
+  <!-- BLOCO 2 — Violacoes de PorteCli (PJ: deve ser 0..4)          -->
+  <!-- ============================================================ -->
+
+  <!-- PJ com PorteCli=5 (fora do dominio PJ {0..4}) -->
+  <Cli Tp="2" Cd="00000006" Autorzc="S" PorteCli="5" TpCtrl="01" IniRelactCli="2021-04-10" FatAnual="2500000.00">
+    <Op DetCli="00000006003003" Contrt="000600030" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-12-01" CEP="04567000" TaxEft="50.00" DtContr="2022-01-15" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000006000600030">
+      <Venc v160="58000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="58000.00" TJE="50.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PJ com PorteCli=6 (fora do dominio PJ {0..4}) -->
+  <Cli Tp="2" Cd="00000007" Autorzc="S" PorteCli="6" TpCtrl="02" IniRelactCli="2018-08-05" FatAnual="180000000.00">
+    <Op DetCli="00000007004004" Contrt="000700040" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-06-30" CEP="01411000" TaxEft="45.00" DtContr="2023-03-20" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000007000700040">
+      <Venc v160="320000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="320000.00" TJE="45.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PJ com PorteCli=8 (fora do dominio PJ {0..4}; valor seria valido se fosse PF) -->
+  <Cli Tp="2" Cd="00000008" Autorzc="N" PorteCli="8" TpCtrl="03" IniRelactCli="2017-12-12" FatAnual="500000000.00">
+    <Op DetCli="00000008005005" Contrt="000800050" NatuOp="01" Mod="0101" OrigemRec="0201" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2029-01-20" CEP="03178200" TaxEft="42.00" DtContr="2021-09-08" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000008000800050">
+      <Venc v160="780000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="780000.00" TJE="42.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- ============================================================ -->
+  <!-- BLOCO 3 — Violacoes de PorteCli (PF: deve ser 0..8)          -->
+  <!-- ============================================================ -->
+
+  <!-- PF com PorteCli=9 (fora do dominio PF {0..8}) -->
+  <Cli Tp="1" Cd="00000009" Autorzc="S" PorteCli="9" TpCtrl="01" IniRelactCli="2022-05-18" FatAnual="65000.00">
+    <Op DetCli="00000009006006" Contrt="000900060" NatuOp="01" Mod="0204" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-07-15" CEP="20040002" TaxEft="38.00" DtContr="2024-01-25" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990204100000009000900060">
+      <Venc v165="4500.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="4500.00" TJE="38.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PF com PorteCli=A (valor nao numerico — viola dominio em qualquer interpretacao) -->
+  <Cli Tp="1" Cd="00000010" Autorzc="N" PorteCli="A" TpCtrl="02" IniRelactCli="2021-11-03" FatAnual="48000.00">
+    <Op DetCli="00000010007007" Contrt="001000070" NatuOp="01" Mod="0204" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-03-22" CEP="30130100" TaxEft="36.00" DtContr="2023-07-12" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990204100000010001000070">
+      <Venc v165="3100.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="3100.00" TJE="36.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- ============================================================ -->
+  <!-- BLOCO 4 — Violacoes de TpCtrl (deve ser 01, 02, 03 ou 04)    -->
+  <!-- ============================================================ -->
+
+  <!-- PJ com TpCtrl=05 -->
+  <Cli Tp="2" Cd="00000011" Autorzc="S" PorteCli="0" TpCtrl="05" IniRelactCli="2019-09-30" FatAnual="950000.00">
+    <Op DetCli="00000011008008" Contrt="001100080" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-05-10" CEP="80250903" TaxEft="48.00" DtContr="2022-06-18" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000011001100080">
+      <Venc v160="42000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="42000.00" TJE="48.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PJ com TpCtrl=99 -->
+  <Cli Tp="2" Cd="00000012" Autorzc="S" PorteCli="1" TpCtrl="99" IniRelactCli="2020-02-14" FatAnual="6800000.00">
+    <Op DetCli="00000012009009" Contrt="001200090" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-02-28" CEP="60160230" TaxEft="44.00" DtContr="2023-12-05" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000012001200090">
+      <Venc v160="115000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="115000.00" TJE="44.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- PF com TpCtrl=AA (string alfa — viola dominio) -->
+  <Cli Tp="1" Cd="00000013" Autorzc="N" PorteCli="3" TpCtrl="AA" IniRelactCli="2023-01-20" FatAnual="72000.00">
+    <Op DetCli="00000013010010" Contrt="001300100" NatuOp="01" Mod="0204" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-11-08" CEP="69005140" TaxEft="37.00" DtContr="2024-04-30" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990204100000013001300100">
+      <Venc v165="5800.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="5800.00" TJE="37.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- ============================================================ -->
+  <!-- BLOCO 5 — Violacoes de DiaAtraso (deve ser inteiro >= 0)     -->
+  <!-- ============================================================ -->
+
+  <!-- Cliente OK; operacoes com DiaAtraso=-1 e DiaAtraso=-30 -->
+  <Cli Tp="2" Cd="00000014" Autorzc="S" PorteCli="0" TpCtrl="01" IniRelactCli="2018-04-25" FatAnual="3200000.00">
+    <Op DetCli="00000014011011" Contrt="001400110" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-09-30" CEP="29010002" TaxEft="49.00" DtContr="2022-08-22" ProvConsttd="0.00" DiaAtraso="-1" IPOC="999999990101200000014001400110">
+      <Venc v160="89000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="89000.00" TJE="49.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+    <Op DetCli="00000014011012" Contrt="001400111" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-03-15" CEP="29010002" TaxEft="46.00" DtContr="2023-02-10" ProvConsttd="0.00" DiaAtraso="-30" IPOC="999999990101200000014001400111">
+      <Venc v160="62000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="62000.00" TJE="46.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+  <!-- Cliente OK; uma operacao com DiaAtraso=-180 e outra com DiaAtraso=0 -->
+  <Cli Tp="2" Cd="00000015" Autorzc="N" PorteCli="1" TpCtrl="02" IniRelactCli="2017-10-08" FatAnual="14500000.00">
+    <Op DetCli="00000015012012" Contrt="001500120" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2027-12-31" CEP="59020010" TaxEft="47.00" DtContr="2021-11-15" ProvConsttd="0.00" DiaAtraso="-180" IPOC="999999990101200000015001500120">
+      <Venc v160="240000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="240000.00" TJE="47.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+    <Op DetCli="00000015012013" Contrt="001500121" NatuOp="01" Mod="0101" OrigemRec="0101" Indx="11" PercIndx="100.00" VarCamb="790" DtVencOp="2028-08-12" CEP="59020010" TaxEft="43.00" DtContr="2024-03-05" ProvConsttd="0.00" DiaAtraso="0" IPOC="999999990101200000015001500121">
+      <Venc v165="95000.00"/>
+      <ContInstFinRes4966 ClasAtFin="1" EstInstFin="1" CartProvMin="C1" VlrContBr="95000.00" TJE="43.00" RendMes="0.00">
+        <Estagio Motivo="101" DtAlocacao="2026-04"/>
+      </ContInstFinRes4966>
+    </Op>
+  </Cli>
+
+</Doc3040>

@@ -1,324 +1,283 @@
 <script>
-  import Tabs from '$lib/components/ui/Tabs.svelte';
-  import Badge from '$lib/components/ui/Badge.svelte';
-  import DataTable from '$lib/components/data/DataTable.svelte';
-  import FilterBar from '$lib/components/data/FilterBar.svelte';
-  import Modal from '$lib/components/ui/Modal.svelte';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
-  import RuleBuilder from '$lib/components/domain/RuleBuilder.svelte';
-  import { getRuleEngineDatasets, getRuleEngineRules, createRuleEngineDataset, createRuleEngineRule } from '$lib/api.js';
-  import { appState } from '$lib/stores.svelte.js';
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  /**
+   * Motor de Regras (DQX Studio).
+   *
+   * Embeds the DQX Studio Databricks App via iframe when `DQX_STUDIO_URL` is
+   * configured (exposed by `GET /api/v1/brand/config`). When the URL is empty
+   * or the destination refuses to be framed (X-Frame-Options/CSP), we fall
+   * back to an explanation panel with a "open in new tab" button.
+   *
+   * Detection of framing failure uses both `onerror` AND a 5s `onload`
+   * timeout — most browsers swallow the X-Frame-Options/CSP block silently
+   * (no `onerror` event), so the timeout is the primary safety net while the
+   * `onerror` covers true network/DNS errors.
+   */
+  import { onMount, onDestroy } from 'svelte';
+  import { getBrandConfig } from '$lib/api.js';
+  import { appState, setHeaderAction } from '$lib/stores.svelte.js';
 
-  let activeTab = $state('dados');
-  const tabs = [
-    { key: 'dados', label: 'Dados' },
-    { key: 'regras', label: 'Regras' }
-  ];
+  let studioUrl = $state('');
+  let configLoaded = $state(false);
+  let iframeLoaded = $state(false);
+  let iframeBlocked = $state(false);
+  let timeoutHandle = null;
 
-  const NIVEL_LABELS = {
-    1: { label: 'Nível 1', subtitle: 'Verificações básicas', color: 'var(--primary)' },
-    2: { label: 'Nível 2', subtitle: 'Coerência temporal', color: 'var(--warning)' },
-    3: { label: 'Nível 3', subtitle: 'Regras negociais', color: 'var(--error)' },
-  };
+  // O usuário entra no Motor de Regras esperando ver a lista de regras ativas
+  // (não a home da Studio). Apontamos iframe + botão "Abrir em nova aba" pra
+  // /rules/active. Quando studioUrl é vazio, mantemos vazio.
+  let studioEntryUrl = $derived(studioUrl ? `${studioUrl.replace(/\/$/, '')}/rules/active` : '');
 
-  const dimensionNames = ['Acessibilidade','Acurácia','Adaptabilidade','Clareza','Comparabilidade','Completude','Confiabilidade','Consistência','Integridade','Rastreabilidade','Relevância','Tempestividade'];
+  // Bumped whenever the sidebar toggles, used as a key on the iframe so it
+  // remounts at the new width. Cross-origin iframes (DQX Studio) don't always
+  // reflow internally on container resize, so a remount is the reliable fix.
+  let iframeKey = $state(0);
+  let prevSidebarCollapsed = appState.sidebarCollapsed;
+  const SIDEBAR_TRANSITION_MS = 250;
 
-  // Data-Base options (6 months back)
-  const dataBaseOptions = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
-  });
+  const DOCS_URL = 'https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/';
+  const FRAME_TIMEOUT_MS = 5000;
 
-  // --- Dados state ---
-  let datasets = $state([]);
-  let showAddDataset = $state(false);
-  let newDataset = $state({ name: '', source_path: '', tipo: 'table', data_base: appState.dataBase || '2026-03' });
+  let showIframe = $derived(configLoaded && studioUrl && !iframeBlocked);
+  let showEmptyState = $derived(configLoaded && !studioUrl);
+  let showFallback = $derived(configLoaded && studioUrl && iframeBlocked);
 
-  // --- Regras state ---
-  let rules = $state([]);
-
-  let ruleFilters = $state({});
-  let expandedRule = $state(null);
-  let showRuleBuilder = $state(false);
-
-  const ruleFilterDefs = [
-    { key: 'nivel_verificacao', label: 'Nível', type: 'select', options: [
-      { value: '1', label: 'N1 — Básico' },
-      { value: '2', label: 'N2 — Temporal' },
-      { value: '3', label: 'N3 — Negocial' }
-    ]},
-    { key: 'rule_type', label: 'Tipo', type: 'select', options: [
-      { value: 'syntactic', label: 'Sintática' },
-      { value: 'semantic', label: 'Semântica' },
-      { value: 'inter_document', label: 'Inter-documento' },
-      { value: 'business', label: 'Regra Negocial' }
-    ]},
-    { key: 'severity', label: 'Severidade', type: 'select', options: [
-      { value: 'error', label: 'Error' },
-      { value: 'warning', label: 'Warning' },
-      { value: 'info', label: 'Info' }
-    ]},
-    { key: 'search', label: 'Buscar', type: 'text', placeholder: 'Nome da regra...' }
-  ];
-
-  const RULE_TYPE_LABELS = { syntactic: 'Sintática', semantic: 'Semântica', inter_document: 'Inter-doc', business: 'Negocial' };
-
-  const ruleColumns = [
-    { key: 'rule_id', label: 'Regra', sortable: true, width: '80px', render: (v) => `<span style="font-family:var(--font-mono);font-size:var(--font-size-xs)">${v}</span>` },
-    { key: 'name', label: 'Descrição', sortable: true },
-    { key: 'nivel_verificacao', label: 'Nível', sortable: true, width: '70px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
-    { key: 'rule_type', label: 'Tipo', sortable: true, width: '100px', render: (v) => RULE_TYPE_LABELS[v] || v },
-    { key: 'dimension_r18', label: 'Dim. R.18', sortable: true, width: '130px', render: (v) => v ? `${v} - ${dimensionNames[v-1] || ''}` : '-' },
-    { key: 'severity', label: 'Sev.', sortable: true, width: '70px', render: (v) => `<span class="sev-${v}">${v}</span>` },
-    { key: 'is_seeded', label: '', width: '80px', render: (v) => v ? '<span class="seeded-badge">Semeada</span>' : '' }
-  ];
-
-  let filteredRules = $derived.by(() => {
-    let r = rules;
-    if (ruleFilters.nivel_verificacao) r = r.filter(x => String(x.nivel_verificacao) === ruleFilters.nivel_verificacao);
-    if (ruleFilters.rule_type) r = r.filter(x => x.rule_type === ruleFilters.rule_type);
-    if (ruleFilters.severity) r = r.filter(x => x.severity === ruleFilters.severity);
-    if (ruleFilters.search) r = r.filter(x => x.name.toLowerCase().includes(ruleFilters.search.toLowerCase()));
-    return r;
-  });
-
-  function handleRuleFilter(key, value) {
-    ruleFilters = { ...ruleFilters, [key]: value };
-  }
-  function resetRuleFilters() {
-    ruleFilters = {};
+  function handleIframeLoad() {
+    iframeLoaded = true;
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
   }
 
-  function tipoVariant(tipo) {
-    return tipo === 'table' ? 'info' : 'warning';
-  }
-  function tipoLabel(tipo) {
-    return tipo === 'table' ? 'Tabela' : 'Arquivo';
-  }
-
-  function statusVariant(status) {
-    if (status === 'completed') return 'success';
-    if (status === 'failed') return 'error';
-    if (status === 'running') return 'info';
-    return 'neutral';
+  function handleIframeError() {
+    iframeBlocked = true;
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
   }
 
-  async function handleRuleSave(rule) {
-    try {
-      const created = await createRuleEngineRule(rule);
-      if (created) rules = [...rules, created];
-    } catch {}
-    showRuleBuilder = false;
-  }
-
-  async function handleAddDataset() {
-    try {
-      const created = await createRuleEngineDataset(newDataset);
-      if (created) datasets = [...datasets, { ...created, bindings_count: 0, last_run_status: null }];
-    } catch {}
-    showAddDataset = false;
-    newDataset = { name: '', source_path: '', tipo: 'table', data_base: appState.dataBase || '2026-03' };
+  function openInNewTab() {
+    if (studioEntryUrl) {
+      window.open(studioEntryUrl, '_blank', 'noopener,noreferrer');
+    }
   }
 
   onMount(async () => {
     try {
-      const [dsData, rulesData] = await Promise.all([
-        getRuleEngineDatasets(),
-        getRuleEngineRules()
-      ]);
-      if (dsData?.datasets) datasets = dsData.datasets;
-      if (rulesData?.rules) rules = rulesData.rules;
-    } catch {}
+      const cfg = await getBrandConfig();
+      studioUrl = (cfg?.dqx_studio_url || '').trim();
+    } catch {
+      studioUrl = '';
+    }
+    configLoaded = true;
+
+    // Start the framing-failure timeout AFTER the iframe is mounted.
+    // Browsers block via X-Frame-Options/CSP without firing `onerror`, so
+    // we treat "no onload within 5s" as blocked.
+    if (studioUrl) {
+      timeoutHandle = setTimeout(() => {
+        if (!iframeLoaded) {
+          iframeBlocked = true;
+        }
+      }, FRAME_TIMEOUT_MS);
+    }
+  });
+
+  // Register the "Abrir em nova aba" button into the global header whenever
+  // DQX Studio is actually embeddable. Cleared on route exit.
+  $effect(() => {
+    if (configLoaded && studioUrl && !iframeBlocked) {
+      setHeaderAction({
+        label: 'Abrir em nova aba ↗',
+        title: 'Abrir DQX Studio em nova aba',
+        onClick: openInNewTab
+      });
+    } else {
+      setHeaderAction(null);
+    }
+  });
+
+  onDestroy(() => setHeaderAction(null));
+
+  $effect(() => {
+    const collapsed = appState.sidebarCollapsed;
+    if (collapsed === prevSidebarCollapsed) return;
+    prevSidebarCollapsed = collapsed;
+    const id = setTimeout(() => { iframeKey++; }, SIDEBAR_TRANSITION_MS);
+    return () => clearTimeout(id);
   });
 </script>
 
 <div class="rules-page">
-  <div class="page-intro">
-    <h2>Motor de Regras</h2>
-    <p class="intro-text">Gerencie regras de validação de dados e execute verificações contra seus datasets registrados.</p>
-  </div>
-
-  <Tabs {tabs} active={activeTab} onchange={(k) => activeTab = k} />
-
-  {#if activeTab === 'dados'}
-    <!-- Datasets Tab -->
-    <div class="section-header">
-      <span class="section-count">{datasets.length} datasets registrados</span>
-      <button class="btn-primary" onclick={() => showAddDataset = true}>+ Registrar Dataset</button>
-    </div>
-
-    <div class="dataset-grid">
-      {#each datasets as ds}
-        <button class="card dataset-card" onclick={() => goto(`/rules/datasets/${ds.dataset_id}`)}>
-          <div class="ds-header">
-            <span class="ds-name">{ds.name}</span>
-            <div class="ds-badges">
-              <Badge label={tipoLabel(ds.tipo)} variant={tipoVariant(ds.tipo)} />
-              {#if ds.data_base}
-                <Badge label={ds.data_base} variant="neutral" />
-              {/if}
-            </div>
-          </div>
-          <div class="ds-source-path">{ds.source_path}</div>
-          <div class="ds-stats">
-            <div class="ds-stat">
-              <span class="ds-stat-value">{ds.row_count_approx ? (ds.row_count_approx / 1000000).toFixed(1) + 'M' : '-'}</span>
-              <span class="ds-stat-label">registros</span>
-            </div>
-            <div class="ds-stat">
-              <span class="ds-stat-value">{ds.bindings_count ?? 0}</span>
-              <span class="ds-stat-label">regras vinculadas</span>
-            </div>
-            <div class="ds-stat">
-              {#if ds.last_run_status}
-                <Badge label={ds.last_run_status} variant={statusVariant(ds.last_run_status)} />
-              {:else}
-                <span class="ds-stat-value">-</span>
-              {/if}
-              <span class="ds-stat-label">última execução</span>
-            </div>
-          </div>
-        </button>
-      {/each}
-    </div>
-
-    <Modal open={showAddDataset} title="Registrar Dataset" onclose={() => showAddDataset = false}>
-      <div class="form-group">
-        <label for="ds-name">Nome</label>
-        <input id="ds-name" type="text" bind:value={newDataset.name} placeholder="Ex: Operações Validadas" />
-      </div>
-      <div class="form-group">
-        <label for="ds-tipo">Tipo</label>
-        <select id="ds-tipo" bind:value={newDataset.tipo}>
-          <option value="table">Tabela (Unity Catalog)</option>
-          <option value="file">Arquivo (Volume)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="ds-source">{newDataset.tipo === 'table' ? 'Tabela (Unity Catalog)' : 'Caminho do Volume'}</label>
-        <input id="ds-source" type="text" bind:value={newDataset.source_path}
-          placeholder={newDataset.tipo === 'table' ? 'Ex: rc18_catalog.silver.operacoes_validadas' : 'Ex: /Volumes/rc18_catalog/bronze/xmls/'} />
-      </div>
-      <div class="form-group">
-        <label for="ds-database">Data-Base</label>
-        <select id="ds-database" bind:value={newDataset.data_base}>
-          {#each dataBaseOptions as db}
-            <option value={db}>{db}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="form-actions">
-        <button class="btn-secondary" onclick={() => showAddDataset = false}>Cancelar</button>
-        <button class="btn-primary" onclick={handleAddDataset} disabled={!newDataset.name || !newDataset.source_path}>Registrar</button>
-      </div>
-    </Modal>
-
-  {:else}
-    <!-- Regras Tab -->
-    <div class="section-header">
-      <span class="section-count">{filteredRules.length} regras</span>
-      <button class="btn-primary" onclick={() => showRuleBuilder = true}>+ Criar Regra</button>
-    </div>
-
-    <FilterBar filters={ruleFilterDefs} values={ruleFilters} onchange={handleRuleFilter} onreset={resetRuleFilters} />
-
-    <div class="card">
-      <DataTable
-        columns={ruleColumns}
-        data={filteredRules}
-        expandedRow={expandedRule}
-        onRowClick={(row, i) => expandedRule = expandedRule === i ? null : i}
-        emptyMessage="Nenhuma regra encontrada"
-      >
-        {#snippet expandSnippet(row)}
-          <div class="expand-detail">
-            <p><strong>{row.rule_id}</strong> — {row.name}</p>
-            <p class="expand-meta">
-              Nível: N{row.nivel_verificacao} |
-              Tipo: {RULE_TYPE_LABELS[row.rule_type] || row.rule_type} |
-              Modo: {row.authoring_mode === 'structured' ? 'Estruturada' : 'Expressão'} |
-              Dimensão R.18: {row.dimension_r18 ? `${row.dimension_r18} (${dimensionNames[row.dimension_r18 - 1]})` : 'N/A'}
-            </p>
-            {#if row.tags?.length}
-              <p class="expand-tags">
-                {#each row.tags as tag}
-                  <span class="tag">{tag}</span>
-                {/each}
-              </p>
-            {/if}
-          </div>
-        {/snippet}
-      </DataTable>
+  {#if !configLoaded}
+    <div class="loading-pane">Carregando…</div>
+  {:else if showEmptyState}
+    <section class="empty-state card">
+      <h3>DQX Studio ainda não está configurado</h3>
+      <p>
+        O <strong>DQX Studio</strong> é a interface oficial do
+        <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Databricks Labs DQX</a>
+        para criar, editar e monitorar regras de qualidade aplicadas no pipeline silver
+        (<code>${'{catalog}'}.quality.dqx_checks</code>). Ele é entregue como uma
+        <em>Databricks App</em> separada, mantida pela equipe DQX, e este acelerador
+        embute essa UI ao invés de duplicar a funcionalidade.
+      </p>
+      <p>
+        Para habilitar o módulo, faça o deploy do DQX Studio no seu workspace
+        seguindo o guia oficial em
+        <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">{DOCS_URL}</a>
+        e configure a URL pública do app na variável de ambiente
+        <code>DQX_STUDIO_URL</code>:
+      </p>
+      <ul class="steps">
+        <li>
+          <strong>Local dev:</strong> defina <code>DQX_STUDIO_URL=https://&lt;dqx-studio-app&gt;.databricksapps.com</code>
+          em <code>.env</code> e reinicie o backend (<code>./run_local.sh</code>).
+        </li>
+        <li>
+          <strong>Deploy bundle:</strong> defina <code>DQX_STUDIO_URL</code> em
+          <code>resources/app.yml</code> (bloco <code>apps.config.env</code>) e
+          rode <code>databricks bundle deploy</code>.
+        </li>
+      </ul>
+      <p class="hint">
+        Após configurar a URL, esta página passa a renderizar o DQX Studio embarcado.
+        Caso o navegador rejeite o embed (políticas X-Frame-Options/CSP do destino),
+        oferecemos um botão para abrir em nova aba.
+      </p>
+    </section>
+  {:else if showFallback}
+    <section class="fallback-state card">
+      <h3>O DQX Studio não pôde ser exibido embarcado</h3>
+      <p>
+        Este navegador bloqueou o iframe do DQX Studio — provavelmente por causa
+        das políticas de segurança <code>X-Frame-Options</code> ou
+        <code>Content-Security-Policy</code> configuradas no destino
+        (Databricks Apps usa cabeçalhos restritivos por padrão).
+      </p>
+      <p>
+        Abra o DQX Studio em uma nova aba para gerenciar suas regras DQX:
+      </p>
+      <button type="button" class="btn-primary" onclick={openInNewTab}>
+        Abrir DQX Studio
+      </button>
+      <p class="hint">
+        Endpoint configurado: <code>{studioUrl}</code>
+      </p>
+    </section>
+  {:else if showIframe}
+    <div class="studio-frame-wrap">
+      {#key iframeKey}
+        <iframe
+          class="studio-frame"
+          src={studioEntryUrl}
+          title="DQX Studio — Regras Ativas"
+          onload={handleIframeLoad}
+          onerror={handleIframeError}
+          referrerpolicy="no-referrer-when-downgrade"
+          sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-downloads allow-modals"
+        ></iframe>
+      {/key}
     </div>
   {/if}
-
-  <RuleBuilder open={showRuleBuilder} onclose={() => showRuleBuilder = false} onsave={handleRuleSave} />
 </div>
 
 <style>
-  .rules-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .rules-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    height: calc(100vh - 96px);
+    min-height: 500px;
+    margin-bottom: calc(var(--space-6) * -1);
+  }
 
-  .page-intro { margin-bottom: var(--space-2); }
-  .page-intro h2 { font-size: var(--font-size-2xl); font-weight: 700; color: var(--gray-900); margin: 0; }
-  .intro-text { font-size: var(--font-size-base); color: var(--gray-500); margin-top: var(--space-1); }
+  .loading-pane {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+  }
 
-  .section-header { display: flex; align-items: center; justify-content: space-between; }
-  .section-count { font-size: var(--font-size-sm); color: var(--gray-500); }
+  .card {
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-6);
+  }
+  .empty-state, .fallback-state {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-width: 820px;
+  }
+  .empty-state h3, .fallback-state h3 {
+    margin: 0 0 var(--space-1);
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--gray-900);
+  }
+  .empty-state p, .fallback-state p {
+    margin: 0;
+    color: var(--gray-700);
+    font-size: var(--font-size-base);
+    line-height: 1.55;
+  }
+  .empty-state code, .fallback-state code, .page-sub code {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    background: var(--gray-100);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .empty-state a, .fallback-state a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .empty-state a:hover, .fallback-state a:hover { text-decoration: underline; }
+
+  .steps {
+    margin: var(--space-2) 0 0 0;
+    padding-left: var(--space-5);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    line-height: 1.7;
+  }
+  .steps li { margin-bottom: var(--space-2); }
+  .hint { font-size: var(--font-size-sm); color: var(--gray-500); margin-top: var(--space-2) !important; }
+
+  .studio-frame-wrap {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--white);
+    min-height: 500px;
+    overflow: hidden;
+    position: relative;
+  }
+  .studio-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--white);
+  }
 
   .btn-primary {
-    padding: var(--space-2) var(--space-5); background: var(--primary);
-    color: white; border: none; border-radius: var(--radius-sm);
-    font-weight: 600; font-size: var(--font-size-sm); cursor: pointer;
+    align-self: flex-start;
+    padding: var(--space-2) var(--space-5);
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    text-decoration: none;
   }
   .btn-primary:hover { background: var(--blue-500); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary {
-    padding: var(--space-2) var(--space-5); background: var(--gray-100);
-    color: var(--gray-700); border: 1px solid var(--gray-300);
-    border-radius: var(--radius-sm); font-weight: 600; font-size: var(--font-size-sm); cursor: pointer;
-  }
-
-  /* Dataset grid */
-  .dataset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-4); }
-  .dataset-card {
-    text-align: left; cursor: pointer;
-    border: var(--border-width) solid var(--border-color);
-    transition: box-shadow 0.15s, border-color 0.15s;
-  }
-  .dataset-card:hover { box-shadow: var(--shadow-md); border-color: var(--primary); }
-  .ds-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
-  .ds-badges { display: flex; gap: var(--space-2); }
-  .ds-name { font-weight: 700; font-size: var(--font-size-md); color: var(--gray-900); }
-  .ds-source-path { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--gray-500); margin-bottom: var(--space-4); }
-  .ds-stats { display: flex; gap: var(--space-5); border-top: 1px solid var(--gray-100); padding-top: var(--space-3); }
-  .ds-stat { display: flex; flex-direction: column; gap: 2px; }
-  .ds-stat-value { font-weight: 700; font-size: var(--font-size-md); color: var(--gray-900); }
-  .ds-stat-label { font-size: var(--font-size-xs); color: var(--gray-500); }
-
-  /* Regras */
-  .expand-detail { padding: var(--space-2) 0; }
-  .expand-meta { font-size: var(--font-size-sm); color: var(--gray-500); margin-top: var(--space-2); }
-  .expand-tags { margin-top: var(--space-2); display: flex; gap: var(--space-2); }
-  .tag { font-family: var(--font-mono); font-size: var(--font-size-xs); background: var(--blue-100); color: var(--primary); padding: 2px 8px; border-radius: var(--radius-full); }
-
-  :global(.seeded-badge) { font-size: var(--font-size-xs); background: var(--orange-100); color: var(--orange-900); padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600; }
-  :global(.sev-error) { color: var(--error); font-weight: 600; }
-  :global(.sev-warning) { color: var(--warning); font-weight: 600; }
-  :global(.sev-info) { color: var(--info); font-weight: 600; }
-  :global(.nivel-badge) { display: inline-block; padding: 2px 8px; border-radius: var(--radius-full); color: white; font-size: var(--font-size-xs); font-weight: 700; }
-  :global(.nivel-1) { background: var(--primary); }
-  :global(.nivel-2) { background: var(--warning); }
-  :global(.nivel-3) { background: var(--error); }
-
-  /* Modal form */
-  .form-group { margin-bottom: var(--space-4); }
-  .form-group label { display: block; font-size: var(--font-size-sm); font-weight: 600; color: var(--gray-700); margin-bottom: var(--space-1); }
-  .form-group input, .form-group select { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--gray-300); border-radius: var(--radius-sm); font-size: var(--font-size-base); font-family: var(--font-primary); }
-  .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--blue-100); }
-  .form-actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-5); }
 </style>

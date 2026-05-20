@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 # --- Pagination ---
@@ -101,11 +101,17 @@ class DimensionDetail(BaseModel):
     code: str
     name: str
     description: str
-    score: float
+    # `score` é null para dimensões sem regras vinculadas (status='sem_regras').
+    # Um valor `0.0` seria interpretado pela UI como "todas falharam"; queremos
+    # diferenciar "sem dado" de "0% conforme".
+    score: float | None = None
     target: float
     status: str
     metrics: dict[str, float] = {}
     trend: list[TrendPoint] = []
+    # Regras DQX vinculadas a esta dimensão (lista de check_names) — torna o
+    # link regra→dimensão visível no JSON da API e no detalhe da dimensão.
+    rules: list[str] = []
 
 
 class QualityDimensionsResponse(BaseModel):
@@ -124,7 +130,7 @@ class Violation(BaseModel):
 
 class DimensionDetailResponse(BaseModel):
     dimension: dict[str, Any]
-    score: float
+    score: float | None = None  # null quando dimensão não tem regras vinculadas
     target: float
     status: str
     metrics: dict[str, float] = {}
@@ -156,6 +162,13 @@ class ValidationResult(BaseModel):
     description: str
     sample_ipocs: list[str] = []
     nivel_verificacao: int = 1  # 1=Básico, 2=Coerência temporal, 3=Regras negociais
+    # DQX integration (per docs/spec/08_dqx_app_integration.md §3.2):
+    check_name: str | None = None        # dqx_checks.name (expectation_name from view)
+    dqx_check_function: str | None = None # e.g. regex_match, foreign_key, sql_expression
+    dqx_check_url: str | None = None     # linkback to DQX Studio (or None when DQX_STUDIO_URL unset)
+    run_config_name: str | None = None   # silver_3040_operacoes | silver_3050 — dedup key for incidents
+    dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
+    critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
 
 
 class ValidationResultsResponse(BaseModel):
@@ -166,6 +179,8 @@ class ValidationResultsResponse(BaseModel):
     summary: ValidationSummary
     results: list[ValidationResult]
     pagination: Pagination
+    # Linkback to DQX Studio for the whole run (no run_config_name filter applied).
+    studio_url: str | None = None
 
 
 # --- Validation Trigger / Run ---
@@ -591,6 +606,14 @@ class Irregularity(BaseModel):
     timeline: list[IncidentEvent] = []
     bcb_communication_required: bool = False
     included_in_report: str | None = None
+    # DQX traceability (post Phase-7 — see docs/spec/08_dqx_app_integration.md §1.6 / §4)
+    critica_id: str | None = None
+    run_config_name: str | None = None
+    dqx_check_name: str | None = None
+    dqx_check_function: str | None = None
+    studio_url: str | None = None
+    affected_records: int | None = None
+    last_seen_run_id: str | None = None
 
 
 class IrregularitiesResponse(BaseModel):
@@ -598,6 +621,37 @@ class IrregularitiesResponse(BaseModel):
     irregularities: list[Irregularity]
     summary: IrregularitySummary
     pagination: Pagination
+
+
+class IncidentCreateRequest(BaseModel):
+    """Payload for POST /api/v1/governance/incidents (manual creation from
+    Críticas SCR drilldown). See docs/spec/08_dqx_app_integration.md §4.2."""
+    model_config = {"populate_by_name": True}
+
+    critica_id: str | None = None
+    run_config_name: str
+    # Accepts either ``dt_base`` (DB column name in governance.incidents) or
+    # ``data_base`` (app-wide convention used by Críticas SCR + validation router).
+    dt_base: str = Field(alias="data_base", validation_alias=AliasChoices("dt_base", "data_base"))
+    severity: str                             # 'high' | 'medium' | 'low' | 'error' | 'warning' | 'info'
+    description: str
+    affected_records: int | None = None
+    sample_keys: list[str] = []
+    dimension_r18: int | None = None          # 1..12 (already int from Críticas SCR)
+    dqx_check_name: str | None = None
+    dqx_check_function: str | None = None
+    document: str | None = None               # '3040' | '3050' (optional; inferred from run_config_name)
+    owner: str | None = None
+
+
+class IncidentStatusUpdateRequest(BaseModel):
+    """Payload for PATCH /api/v1/governance/incidents/{id}/status. See §4.3."""
+    status: str                               # target FSM state (open|in_progress|resolved|validated|escalated|reopened|assigned)
+    owner: str | None = None
+    comment: str | None = None
+    root_cause: str | None = None
+    remedial_action: str | None = None
+    escalated_to: str | None = None
 
 
 class GovernanceReport(BaseModel):
@@ -696,223 +750,3 @@ class AppConfig(BaseModel):
     deadline: str = "2026-12-31"
     language: str = "pt-BR"
 
-
-# --- Rule Engine ---
-
-class RECondition(BaseModel):
-    column: str
-    operator: str
-    value: Any = None
-    value_is_column: bool = False
-
-
-class REStructuredDefinition(BaseModel):
-    version: int = 1
-    operator: str = "AND"
-    conditions: list[RECondition] = []
-
-
-class REParameter(BaseModel):
-    name: str
-    type: str = "any"
-    description: str = ""
-
-
-class RERuleCreate(BaseModel):
-    name: str
-    description: str | None = None
-    nivel_verificacao: int = 1  # 1=Básico, 2=Coerência temporal, 3=Regras negociais
-    rule_type: str = "syntactic"  # syntactic | semantic | inter_document | business
-    dimension_r18: int | None = None
-    severity: str = "error"  # error | warning | info
-    authoring_mode: str = "structured"  # "structured" or "expression"
-    structured_definition: REStructuredDefinition | None = None
-    expression: str | None = None
-    parameters: list[REParameter] | None = None
-    tags: list[str] | None = None
-
-
-class RERule(BaseModel):
-    rule_id: str
-    name: str
-    description: str | None = None
-    nivel_verificacao: int = 1
-    rule_type: str = "syntactic"
-    dimension_r18: int | None = None
-    severity: str = "error"
-    authoring_mode: str = "structured"
-    structured_definition: dict | None = None
-    expression: str | None = None
-    parameters: list[REParameter] | None = None
-    tags: list[str] | None = None
-    is_seeded: bool = False
-    source_critica_id: str | None = None
-    created_by: str
-    created_at: str
-    updated_at: str
-    is_active: bool = True
-
-
-class RERuleListResponse(BaseModel):
-    total: int
-    rules: list[RERule]
-
-
-class REDataset(BaseModel):
-    dataset_id: str
-    name: str
-    source_path: str  # UC table name or volume path
-    tipo: str  # "table" or "file"
-    data_base: str | None = None  # YYYY-MM reference month
-    description: str | None = None
-    row_count_approx: int | None = None
-    last_profiled_at: str | None = None
-    registered_by: str
-    registered_at: str
-
-
-class REDatasetListResponse(BaseModel):
-    total: int
-    datasets: list[REDataset]
-
-
-class REColumn(BaseModel):
-    name: str
-    type: str
-    nullable: bool = True
-    description: str | None = None
-
-
-class REColumnListResponse(BaseModel):
-    dataset_id: str
-    table_name: str
-    columns: list[REColumn]
-
-
-class REDatasetDetail(BaseModel):
-    dataset: REDataset
-    columns: list[REColumn]
-    bindings_count: int = 0
-    last_run: str | None = None
-
-
-class REBindingCreate(BaseModel):
-    rule_id: str
-    column_bindings: dict[str, str]
-    override_name: str | None = None
-    override_severity: str | None = None
-
-
-class REBinding(BaseModel):
-    binding_id: str
-    rule_id: str
-    dataset_id: str
-    rule_name: str
-    column_bindings: dict[str, str]
-    override_name: str | None = None
-    override_severity: str | None = None
-    is_active: bool = True
-    created_by: str
-    created_at: str
-
-
-class REBindingListResponse(BaseModel):
-    total: int
-    bindings: list[REBinding]
-
-
-class RETriggerRunResponse(BaseModel):
-    run_id: str
-    job_run_id: int | None = None
-    status: str
-    dataset_id: str
-    total_bindings: int
-    triggered_by: str
-    triggered_at: str
-
-
-class RERunStatus(BaseModel):
-    run_id: str
-    dataset_id: str
-    dataset_name: str
-    job_run_id: int | None = None
-    status: str
-    total_rules: int | None = None
-    total_records: int | None = None
-    triggered_by: str
-    triggered_at: str
-    started_at: str | None = None
-    completed_at: str | None = None
-    duration_seconds: int | None = None
-    error_message: str | None = None
-
-
-class RERunResult(BaseModel):
-    result_id: str
-    binding_id: str
-    rule_id: str
-    rule_name: str
-    status: str
-    total_records: int
-    passed_records: int
-    failed_records: int
-    pass_rate_pct: float
-    severity: str
-    dimension_r18: int | None = None
-    execution_time_ms: int | None = None
-    expression_used: str | None = None
-
-
-class RERunResultsSummary(BaseModel):
-    total_rules: int
-    passed: int
-    failed: int
-    warnings: int
-    pass_rate_pct: float
-    total_records: int
-    total_exceptions: int
-
-
-class RERunResultsResponse(BaseModel):
-    run_id: str
-    dataset_name: str
-    status: str
-    summary: RERunResultsSummary
-    results: list[RERunResult]
-
-
-class REException(BaseModel):
-    exception_id: str
-    result_id: str
-    binding_id: str
-    rule_name: str
-    row_identifier: dict[str, Any]
-    failed_columns: list[str] | None = None
-    row_snapshot: dict[str, Any] | None = None
-    failure_reason: str | None = None
-
-
-class REExceptionsResponse(BaseModel):
-    run_id: str
-    result_id: str | None = None
-    total: int = 0
-    exceptions: list[REException]
-    pagination: Pagination
-
-
-class RERunListResponse(BaseModel):
-    total: int
-    runs: list[RERunStatus]
-
-
-class RESeedResponse(BaseModel):
-    rules_created: int
-    bindings_created: int
-    rule_ids: list[str]
-
-
-class REExpressionValidation(BaseModel):
-    expression: str
-    is_valid: bool
-    error_message: str | None = None
-    resolved_expression: str | None = None

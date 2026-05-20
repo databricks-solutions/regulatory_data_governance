@@ -1,5 +1,5 @@
 <script>
-  let { title = '', onToggleSidebar, dataBase = '2026-03', onDataBaseChange, alertCount = 0, onOpenBrandSettings, theme = 'light', onToggleTheme } = $props();
+  let { title = '', onToggleSidebar, dataBase = '2026-03', onDataBaseChange, alertCount = 0, onOpenBrandSettings, theme = 'light', onToggleTheme, action = null } = $props();
 
   const dataBaseOptions = [
     '2026-03', '2026-02', '2026-01', '2025-12', '2025-11', '2025-10'
@@ -25,6 +25,18 @@
   </div>
 
   <div class="header-right">
+    {#if action}
+      <button
+        type="button"
+        class="header-action"
+        onclick={action.onClick}
+        title={action.title ?? action.label}
+      >
+        {action.label}
+      </button>
+      <div class="header-divider"></div>
+    {/if}
+
     <div class="db-selector">
       <svg class="db-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
@@ -111,6 +123,21 @@
   }
   .header-right { display: flex; align-items: center; gap: var(--space-3); }
   .header-divider { width: 1px; height: 24px; background: var(--gray-200); }
+
+  .header-action {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    color: var(--primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-primary);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+  }
+  .header-action:hover { background: var(--blue-50); border-color: var(--primary); }
 
   .db-selector {
     display: flex;

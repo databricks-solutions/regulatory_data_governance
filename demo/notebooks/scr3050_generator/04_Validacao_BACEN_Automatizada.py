@@ -26,19 +26,23 @@
 # MAGIC 5. **Relatórios:** stdout/stderr copiados para `<volume_out>/validacao/<timestamp>/`.
 
 # COMMAND ----------
+import os
+_validators_dir = "/Workspace" + os.path.normpath(
+    os.path.dirname(
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    ) + "/../../assets/validators"
+)
 
 dbutils.widgets.text("dt_base",       "2026-03", "Data-base (YYYY-MM)")
 dbutils.widgets.text("cnpj_if",       "99999999", "CNPJ-base da IF")
 dbutils.widgets.text("volume_out",    "/Volumes/rc18_catalog/reference/scr3050_out",
                      "Dir. do XML gerado em 03")
-dbutils.widgets.text("validador_zip",
-                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/SCR3050_Validador.bin",
+dbutils.widgets.text("validador_zip", f"{_validators_dir}/SCR3050_Validador.bin",
                      "Caminho do ZIP do validador MDR (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("validador_main_class",
                      "br.gov.bcb.mdr.validador.entrada.linhacomando.ValidadorLinhaComando",
                      "Entry point Java CLI do ValidadorMDR")
-dbutils.widgets.text("xsd_path",
-                     "/Workspace/Users/luiz.braz@databricks.com/.bundle/rc18-demo/dev-azure/files/demo/assets/validators/Schema_TXB_V11.xsd",
+dbutils.widgets.text("xsd_path", f"{_validators_dir}/Schema_TXB_V11.xsd",
                      "XSD do Doc 3050/TXB V11 (sincronizado pelo bundle a partir de demo/assets/validators)")
 dbutils.widgets.text("fail_on_error", "true", "Falhar task se validador reportar erro")
 

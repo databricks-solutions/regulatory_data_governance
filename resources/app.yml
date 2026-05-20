@@ -25,15 +25,13 @@ resources:
             value: ${var.catalog}
           - name: DATABRICKS_WAREHOUSE_ID
             value: ${var.warehouse_id}
-          # Schema names are sourced from the schema RESOURCES (not raw vars) so
-          # that DABs `mode: development` prefixing (`dev_<user>_<schema>`) is
-          # honored consistently across the pipeline targets AND the app's env.
-          # Without this, the deployed app reads bare `gold`/`silver` while the
-          # pipeline writes to `dev_<user>_gold` — TABLE_OR_VIEW_NOT_FOUND.
-          # Customers using bring-your-own-catalog (commenting out
-          # resources/uc_assets.yml) must replace these resource refs with
-          # ${var.schema_*} (defaults to bronze/silver/gold) and also set
-          # SCHEMA_REFERENCE to their existing reference schema.
+          # Schema names sourced from the schema RESOURCES (not raw vars) so
+          # the app's env stays in sync with whatever the bundle deployed —
+          # currently literal `bronze`/`silver`/`gold`/`quality`/`reference`
+          # since `mode: development` is not used. If a customer brings their
+          # own catalog (commenting out resources/uc_assets.yml), replace
+          # these resource refs with ${var.schema_*} and set SCHEMA_REFERENCE
+          # to point at their existing reference schema.
           - name: SCHEMA_BRONZE
             value: ${resources.schemas.bronze_schema.name}
           - name: SCHEMA_SILVER
@@ -44,6 +42,11 @@ resources:
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
             value: ${resources.schemas.reference.name}
+          # FQN da tabela onde a DQX Studio mantém as regras (autoria + estado).
+          # O backend RC18 lê dessa tabela para popular o catálogo de Críticas SCR,
+          # garantindo bi-direção: regras criadas no Studio aparecem em RC18.
+          - name: DQX_CHECKS_TABLE
+            value: ${var.dqx_checks_table}
           - name: DASHBOARD_ID_CONFORMIDADE
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
@@ -53,6 +56,13 @@ resources:
           # without one. To enable the Genie tab, set it post-deploy with:
           #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
           # or re-add this block once you have a non-empty default for the var.
+
+          # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
+          # via `var.dqx_studio_url`. Default aponta pro Studio compartilhado
+          # do workspace `azure`. Override por target setando a var no perfil ou
+          # via --var dqx_studio_url=<url>.
+          - name: DQX_STUDIO_URL
+            value: ${var.dqx_studio_url}
 
       permissions:
         - level: CAN_USE

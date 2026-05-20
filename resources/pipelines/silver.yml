@@ -1,4 +1,4 @@
-# Silver validation pipeline — placeholder
+# Silver validation pipeline — pure ELT (quality runs externally in DQX Studio).
 resources:
   pipelines:
     silver:
@@ -14,11 +14,10 @@ resources:
         silver_schema: "${resources.schemas.silver_schema.name}"
         reference_schema: "${resources.schemas.reference.name}"
       libraries:
+        # Pipeline notebooks — files with @dlt.table decorators. Pure ELT
+        # bronze→silver transforms; nenhuma quality logic embutida (DQX Studio
+        # gerencia quality fora dos pipelines).
         - notebook:
-            path: ../../pipelines/silver/transformations/expectations.py
+            path: ../../pipelines/silver/transformations/scr3040.py
         - notebook:
-            path: ../../pipelines/silver/transformations/quality_metrics.py
-        - notebook:
-            path: ../../pipelines/silver/transformations/scr3040_validated.py
-        - notebook:
-            path: ../../pipelines/silver/transformations/scr3050_validated.py
+            path: ../../pipelines/silver/transformations/scr3050.py

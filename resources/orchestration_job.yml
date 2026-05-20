@@ -2,19 +2,24 @@
 #
 # Chains the existing assets in dependency order so a single
 # `databricks bundle run rc18_end_to_end` brings the whole stack
-# from a fresh deploy to populated gold tables:
+# from a fresh deploy to populated gold tables + DQX rules semeadas:
 #
-#   setup_reference  →  load_sample_xmls  →  bronze  →  silver  →  gold
+#   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#                    └─→  seed_dqx_checks (paralelo; popula as 4 regras RC18
+#                                          em dqx_catalog.dqx_app.dq_quality_rules)
 #
-# Each step waits for its predecessor to complete successfully. The
-# DLT pipelines are referenced through bundle resource IDs so dev-mode
-# name prefixing is picked up automatically.
+# Cada step espera o predecessor concluir com sucesso. As DLT pipelines são
+# referenciadas via bundle resource IDs para o prefixing dev-mode ser aplicado
+# automaticamente.
+#
+# Pré-requisito do `seed_dqx_checks` (rodar UMA vez como admin do dqx_catalog):
+#   notebooks/setup/grant_dqx_studio_access.sql
 
 resources:
   jobs:
     rc18_end_to_end:
       name: "r18-end-to-end-${bundle.target}"
-      description: "Runs the full RC18 stack in order: reference seed + sample XML load, then bronze → silver → gold DLT pipelines."
+      description: "Runs the full RC18 stack: reference seed + sample XML load + DQX rules seed, then bronze → silver → gold DLT pipelines."
       tasks:
         - task_key: "setup_reference"
           notebook_task:
@@ -32,6 +37,32 @@ resources:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
               source_dir: ${workspace.file_path}/sample
+
+        - task_key: "seed_dqx_checks"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/seed_dqx_checks.py
+            base_parameters:
+              # FQN externo da tabela DQX Studio (override via var.dqx_checks_table).
+              # Requer GRANT cross-catalog (USE CATALOG/SCHEMA + SELECT/MODIFY) —
+              # ver notebooks/setup/grant_dqx_studio_access.sql.
+              dqx_checks_table: ${var.dqx_checks_table}
+              checks_dir: ${workspace.file_path}/pipelines/silver/dqx_checks
+
+        - task_key: "grant_warehouse_perms"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            # Concede CAN_USE no warehouse + SQL GRANTs cross-catalog em
+            # dqx_catalog.dqx_app.dq_quality_rules para o SP do app. Necessário
+            # porque `bundle destroy` recria o SP a cada ciclo e nem o ACL do
+            # warehouse nem os grants em dqx_catalog persistem. Idempotente.
+            notebook_path: ../notebooks/setup/grant_warehouse_perms.py
+            base_parameters:
+              app_name: ${resources.apps.r18_compliance_app.name}
+              warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
+              dqx_checks_table: ${var.dqx_checks_table}
 
         - task_key: "bronze"
           depends_on:

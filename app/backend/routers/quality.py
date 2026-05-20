@@ -1,10 +1,22 @@
-"""Quality dimension endpoints."""
+"""Quality dimension endpoints.
+
+Post-DQX-Studio integration: scores são computados em runtime a partir da
+última execução DQX por tabela (`dqx_catalog.dqx_app.dq_validation_runs` +
+`dq_metrics`), agrupados por dimensão R.18 conforme metadados do
+`rc18_rule_meta`. Não dependemos mais de `gold.qualidade_dimensoes_mensal`
+(pipeline silver→gold ainda não aplica DQX inline).
+"""
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query
 
-from db import CATALOG, SCHEMA_GOLD, USE_MOCK, execute_query
+from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
+# Tolerant variant aliased as `execute_query` so handlers degrade to empty
+# results when gold/silver tables haven't been populated yet (pipelines not run).
+from db import execute_query_or_empty as execute_query
 from models import (
     DimensionDetail,
     DimensionDetailResponse,
@@ -12,12 +24,13 @@ from models import (
     TrendPoint,
     Violation,
 )
+from rc18_rule_meta import meta_for
 
 router = APIRouter()
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2 (Art. 2, §2 of Joint Resolution 18).
-# Aligned with the Roman-numeral seed in `notebooks/setup/setup_reference_tables.py` and the
-# scorecard emitted by `pipelines/silver/transformations/quality_metrics.py`.
+# Aligned with the Roman-numeral seed in `notebooks/setup/setup_reference_tables.py`.
+# Quality scorecards (when present) are produced externally by DQX Studio.
 _R18_DIMENSIONS = [
     {"id": 1, "code": "acessibilidade", "name": "Acessibilidade", "description": "Condicoes para obter informacoes, incluindo local, forma, prazos e tratamento PcD", "article": "Art. 2, par.2, I"},
     {"id": 2, "code": "acuracia", "name": "Acurácia", "description": "Medida em que a informacao reflete a realidade de forma precisa, conforme metodologia", "article": "Art. 2, par.2, II"},
@@ -83,28 +96,148 @@ async def get_quality_dimensions(
         overall = round(sum(_MOCK_SCORES) / len(_MOCK_SCORES), 1)
         return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
-    # Note: `valor_metrica` was added by Phase 1 simplification but isn't load-bearing
-    # for this endpoint — we don't need to project it.
-    rows = await execute_query(
-        "SELECT dimensao_id, dimensao_nome, metrica_principal, "
-        "score_pct, meta_pct, status, total_registros, registros_conformes, registros_nao_conformes "
-        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal WHERE dt_base = :data_base "
-        "ORDER BY dimensao_id",
-        {"data_base": data_base},
-    )
+    # Real mode: aggregate per dimension from the latest DQX Studio runs.
+    by_dim = await _aggregate_by_dimension()
+    target = 95.0  # default; could be sourced from reference.dimensoes_r18
     dims = []
-    for r in rows:
-        dim_int = _safe_dim_int(r["dimensao_id"])
-        meta = _R18_DIMENSIONS[dim_int - 1] if 1 <= dim_int <= 12 else {"code": "", "description": ""}
+    for d in _R18_DIMENSIONS:
+        agg = by_dim.get(d["id"], {"total": 0, "invalid": 0, "rules": 0, "rule_names": []})
+        total = agg["total"]
+        invalid = agg["invalid"]
+        if agg["rules"] == 0:
+            # Sem regras vinculadas — score é "não-medido", não 100%.
+            score: float | None = None
+            status = "sem_regras"
+        else:
+            score = round(100 * (total - invalid) / total, 1) if total else 100.0
+            status = (
+                "conforme" if score >= target
+                else "atencao" if score >= target - 10
+                else "nao_conforme"
+            )
         dims.append(DimensionDetail(
-            id=dim_int, code=meta["code"],
-            name=r["dimensao_nome"] or meta.get("name", ""),
-            description=meta["description"],
-            score=float(r["score_pct"] or 0), target=float(r["meta_pct"] or 0),
-            status=r["status"] or "",
+            id=d["id"], code=d["code"], name=d["name"],
+            description=d["description"],
+            score=score, target=target, status=status,
+            metrics={
+                "total_registros": float(total),
+                "registros_conformes": float(total - invalid),
+                "registros_nao_conformes": float(invalid),
+                "regras_avaliadas": float(agg["rules"]),
+            },
+            rules=sorted(agg.get("rule_names", [])),
+            trend=[],
         ))
-    overall = round(sum(d.score for d in dims) / max(len(dims), 1), 1)
+    # Overall score = média APENAS das dimensões medidas (com regras). Dims sem
+    # regras não distorcem o agregado para cima.
+    measured = [d.score for d in dims if d.score is not None]
+    overall = round(sum(measured) / len(measured), 1) if measured else 0.0
     return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
+
+
+async def _load_rule_user_metadata() -> dict[str, dict]:
+    """Return {check_name: user_metadata_dict} for ALL active/approved rules.
+
+    Used by `_aggregate_by_dimension` to honor the authoritative
+    `dimensao_r18` tag authored in DQX Studio (falling back to
+    `RC18_RULE_META` only if the tag is missing).
+    """
+    rows = await execute_query(
+        f"SELECT checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
+        {},
+    )
+    out: dict[str, dict] = {}
+    for r in rows:
+        raw = r.get("checks")
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        items = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+        for chk in items:
+            if not isinstance(chk, dict):
+                continue
+            args = (chk.get("check") or {}).get("arguments") or {}
+            name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None)
+            if name:
+                out[name] = chk.get("user_metadata") or {}
+    return out
+
+
+async def _aggregate_by_dimension() -> dict[int, dict]:
+    """Aggregate (total_rows, invalid_rows, n_rules, rule_names) per R.18 dimension.
+
+    For each source_table_fqn, takes the LATEST SUCCESS run, parses its
+    `check_metrics` and looks up each check's dimension via `rc18_rule_meta`.
+    Rules without a known dimension fall into the "Outras" bucket (id=0).
+    """
+    # Latest SUCCESS run per source_table_fqn (any RC18 silver table).
+    runs = await execute_query(
+        "WITH ranked AS ("
+        "  SELECT run_id, source_table_fqn, total_rows, created_at,"
+        "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
+        "  FROM dqx_catalog.dqx_app.dq_validation_runs"
+        "  WHERE status = 'SUCCESS'"
+        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
+        {},
+    )
+    if not runs:
+        return {}
+
+    quoted = ",".join(f"'{r['run_id']}'" for r in runs)
+    metrics_rows = await execute_query(
+        "SELECT run_id, metric_value AS check_metrics_json "
+        "FROM dqx_catalog.dqx_app.dq_metrics "
+        f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
+        {},
+    )
+    metrics_by_run = {m["run_id"]: m for m in metrics_rows}
+
+    # Pre-load user_metadata por check_name uma única vez — `dimensao_r18` da
+    # DQX Studio é a fonte autoritativa para o agrupamento por dimensão.
+    rule_meta_cache = await _load_rule_user_metadata()
+
+    out: dict[int, dict] = {}
+    for r in runs:
+        total = int(r.get("total_rows") or 0)
+        cm = metrics_by_run.get(r["run_id"])
+        if not cm:
+            continue
+        try:
+            check_metrics = json.loads(cm["check_metrics_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(check_metrics, list):
+            continue
+        for cmrow in check_metrics:
+            check_name = cmrow.get("check_name")
+            if not check_name:
+                continue
+            # Filtra check_metrics de runs cujas regras foram deletadas de
+            # dq_quality_rules — mesma semântica de /validations/*/results
+            # e /dashboard/kpis. Sem isso, dimensões podiam ser inflacionadas
+            # por execuções históricas de regras stale (source='ui' apagadas).
+            if check_name not in rule_meta_cache:
+                continue
+            um = rule_meta_cache[check_name]
+            meta = meta_for(
+                check_name,
+                table_fqn=r.get("source_table_fqn", ""),
+                user_metadata=um,
+            )
+            dim_id = meta["dimension_r18"]
+            err = int(cmrow.get("error_count") or 0)
+            warn = int(cmrow.get("warning_count") or 0)
+            bucket = out.setdefault(dim_id, {"total": 0, "invalid": 0, "rules": 0, "rule_names": set()})
+            bucket["total"] += total
+            bucket["invalid"] += (err + warn)
+            bucket["rules"] += 1
+            bucket["rule_names"].add(check_name)
+    # Convert sets to lists so the response can be serialized cleanly.
+    for v in out.values():
+        v["rule_names"] = sorted(v.get("rule_names", set()))
+    return out
 
 
 @router.get("/dimensions/{dimension_id}", response_model=DimensionDetailResponse)
@@ -143,25 +276,28 @@ async def get_quality_dimension_detail(
             trend=_mock_trend(score),
         )
 
-    # gold.qualidade_dimensoes_mensal.dimensao_id is a Roman numeral string ('I'..'XII').
-    _INT_TO_ROMAN = {v: k for k, v in _DIM_ROMAN_TO_INT.items()}
-    roman_id = _INT_TO_ROMAN.get(dimension_id, "")
-    rows = await execute_query(
-        "SELECT score_pct, meta_pct, status, metrica_principal, "
-        "total_registros, registros_conformes, registros_nao_conformes "
-        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
-        "WHERE dt_base = :data_base AND dimensao_id = :dimension_id",
-        {"data_base": data_base, "dimension_id": roman_id},
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="No data for this dimension/data_base")
-    r = rows[0]
+    by_dim = await _aggregate_by_dimension()
+    agg = by_dim.get(dimension_id, {"total": 0, "invalid": 0, "rules": 0, "rule_names": []})
+    target = 95.0
+    if agg["rules"] == 0:
+        score = None
+        status = "sem_regras"
+    else:
+        score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 1) if agg["total"] else 100.0
+        status = (
+            "conforme" if score >= target
+            else "atencao" if score >= target - 10
+            else "nao_conforme"
+        )
     return DimensionDetailResponse(
-        dimension=d,
-        score=float(r["score_pct"] or 0),
-        target=float(r["meta_pct"] or 0),
-        status=r["status"] or "",
-        metrics={}, violations=[], trend=[],
+        dimension=d, score=score, target=target, status=status,
+        metrics={
+            "total_registros": float(agg["total"]),
+            "registros_conformes": float(agg["total"] - agg["invalid"]),
+            "registros_nao_conformes": float(agg["invalid"]),
+            "regras_avaliadas": float(agg["rules"]),
+        },
+        violations=[], trend=[],
     )
 
 
@@ -175,10 +311,22 @@ async def get_quality_trend(
         overall = round(sum(_MOCK_SCORES) / len(_MOCK_SCORES), 1)
         return {"data_base": data_base, "trend": _mock_trend(overall)}
 
+    # Trend baseado em dq_metrics: para cada YYYY-MM, agrupa o score overall
+    # de TODAS as runs do mes (não apenas latest). Limita ao último ano.
     rows = await execute_query(
-        "SELECT dt_base, AVG(score_pct) as avg_score "
-        f"FROM {CATALOG}.{SCHEMA_GOLD}.qualidade_dimensoes_mensal "
-        "WHERE dt_base >= :start GROUP BY dt_base ORDER BY dt_base",
-        {"start": data_base},
+        "WITH per_run AS ("
+        "  SELECT m.run_id,"
+        "         SUBSTRING(date_format(MIN(m.run_time), 'yyyy-MM-dd'), 1, 7) AS month,"
+        "         MAX(CASE WHEN metric_name = 'input_row_count'  THEN CAST(metric_value AS BIGINT) END) AS total_rows,"
+        "         MAX(CASE WHEN metric_name = 'error_row_count'  THEN CAST(metric_value AS BIGINT) END) AS error_rows,"
+        "         MAX(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warn_rows"
+        "  FROM dqx_catalog.dqx_app.dq_metrics m"
+        "  WHERE metric_name IN ('input_row_count','error_row_count','warning_row_count')"
+        "  GROUP BY m.run_id"
+        ") SELECT month, "
+        "    ROUND(100.0 * (SUM(total_rows) - SUM(COALESCE(error_rows,0)) - SUM(COALESCE(warn_rows,0))) / NULLIF(SUM(total_rows), 0), 1) AS score "
+        "FROM per_run WHERE month IS NOT NULL "
+        "GROUP BY month ORDER BY month",
+        {},
     )
-    return {"data_base": data_base, "trend": [{"month": r["dt_base"], "score": round(float(r["avg_score"] or 0), 1)} for r in rows]}
+    return {"data_base": data_base, "trend": [{"month": r["month"], "score": float(r["score"] or 0)} for r in rows]}
