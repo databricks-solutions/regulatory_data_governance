@@ -6,9 +6,10 @@ import json
 import os
 from datetime import datetime, timezone, date
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
@@ -48,22 +49,45 @@ _MOCK_DIMENSIONS = [
     DimensionScore(id=12, name="Tempestividade", score=0.0, status="sem_regras"),
 ]
 
+# English mirror of _MOCK_DIMENSIONS — same ids/scores/status codes, only the
+# human-readable `name` is translated (see GLOSSARY in CLAUDE/spec).
+_MOCK_DIMENSIONS_EN = [
+    DimensionScore(id=1, name="Accessibility", score=0.0, status="sem_regras"),
+    DimensionScore(id=2, name="Accuracy", score=92.5, status="atencao"),
+    DimensionScore(id=3, name="Adaptability", score=98.0, status="conforme"),
+    DimensionScore(id=4, name="Clarity", score=0.0, status="sem_regras"),
+    DimensionScore(id=5, name="Comparability", score=0.0, status="sem_regras"),
+    DimensionScore(id=6, name="Completeness", score=0.0, status="sem_regras"),
+    DimensionScore(id=7, name="Reliability", score=0.0, status="sem_regras"),
+    DimensionScore(id=8, name="Consistency", score=0.0, status="sem_regras"),
+    DimensionScore(id=9, name="Integrity", score=0.0, status="sem_regras"),
+    DimensionScore(id=10, name="Traceability", score=0.0, status="sem_regras"),
+    DimensionScore(id=11, name="Relevance", score=0.0, status="sem_regras"),
+    DimensionScore(id=12, name="Timeliness", score=0.0, status="sem_regras"),
+]
 
-def _mock_kpis(data_base: str) -> DashboardKPIs:
+
+def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
     # Mesma semântica do real-mode: dimensões `sem_regras` ficam fora da média.
-    measured = [d.score for d in _MOCK_DIMENSIONS if d.status != "sem_regras"]
-    return DashboardKPIs(
-        data_base=data_base,
-        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
-        dimensions=_MOCK_DIMENSIONS,
-        pending_validations=PendingValidations(scr3040=3, scr3050=1),
-        last_submission=LastSubmission(
-            document="SCR 3050",
-            data_base="2026-03-28",
-            status="aceito",
-            submitted_at="2026-03-30T14:22:00Z",
-        ),
-        alerts=[
+    en = locale == "en"
+    dimensions = _MOCK_DIMENSIONS_EN if en else _MOCK_DIMENSIONS
+    measured = [d.score for d in dimensions if d.status != "sem_regras"]
+    if en:
+        alerts = [
+            Alert(
+                severity="warning",
+                message="Reconciliation 3040 vs COSIF: 0.08% divergence in the total balance",
+                created_at="2026-03-29T10:00:00Z",
+            ),
+            Alert(
+                severity="info",
+                message="New 3050 V11 layout version active as of 07/11/2025",
+                created_at="2026-03-28T08:00:00Z",
+            ),
+        ]
+        phase = "Phase 1 - Foundation"
+    else:
+        alerts = [
             Alert(
                 severity="warning",
                 message="Reconciliacao 3040 vs COSIF: divergencia 0.08% no saldo total",
@@ -74,11 +98,24 @@ def _mock_kpis(data_base: str) -> DashboardKPIs:
                 message="Nova versao de leiaute 3050 V11 ativa a partir de 07/11/2025",
                 created_at="2026-03-28T08:00:00Z",
             ),
-        ],
+        ]
+        phase = "Fase 1 - Fundacao"
+    return DashboardKPIs(
+        data_base=data_base,
+        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
+        dimensions=dimensions,
+        pending_validations=PendingValidations(scr3040=3, scr3050=1),
+        last_submission=LastSubmission(
+            document="SCR 3050",
+            data_base="2026-03-28",
+            status="aceito",
+            submitted_at="2026-03-30T14:22:00Z",
+        ),
+        alerts=alerts,
         deadline=Deadline(
             date="2026-12-31",
             days_remaining=274,
-            phase="Fase 1 - Fundacao",
+            phase=phase,
         ),
     )
 
@@ -87,10 +124,13 @@ def _mock_kpis(data_base: str) -> DashboardKPIs:
 
 
 @router.get("/kpis", response_model=DashboardKPIs)
-async def get_dashboard_kpis(data_base: str = Query("2026-03", description="Reference month (YYYY-MM)")):
+async def get_dashboard_kpis(
+    data_base: str = Query("2026-03", description="Reference month (YYYY-MM)"),
+    locale: str = Depends(get_locale),
+):
     """Return executive summary KPIs for the home page."""
     if USE_MOCK:
-        return _mock_kpis(data_base)
+        return _mock_kpis(data_base, locale)
 
     # Real-mode: agrega das tabelas de execução do DQX Studio.
     return await _build_kpis_from_dqx_studio(data_base)
@@ -265,9 +305,18 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
 
 
 @router.get("/alerts", response_model=list[Alert])
-async def get_dashboard_alerts(limit: int = Query(10, ge=1, le=50)):
+async def get_dashboard_alerts(
+    limit: int = Query(10, ge=1, le=50),
+    locale: str = Depends(get_locale),
+):
     """Return recent quality alerts."""
     if USE_MOCK:
+        if locale == "en":
+            return [
+                Alert(severity="warning", message="Reconciliation 3040 vs COSIF: 0.08% divergence", created_at="2026-03-29T10:00:00Z"),
+                Alert(severity="error", message="Critica SEM_014: 127 operations with divergent IPOC", created_at="2026-03-28T22:00:00Z"),
+                Alert(severity="info", message="Bronze pipeline completed successfully", created_at="2026-03-28T06:00:00Z"),
+            ][:limit]
         return [
             Alert(severity="warning", message="Reconciliacao 3040 vs COSIF: divergencia 0.08%", created_at="2026-03-29T10:00:00Z"),
             Alert(severity="error", message="Critica SEM_014: 127 operacoes com IPOC divergente", created_at="2026-03-28T22:00:00Z"),

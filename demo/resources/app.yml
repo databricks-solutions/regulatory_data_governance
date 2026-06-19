@@ -18,6 +18,14 @@ resources:
         env:
           - name: USE_MOCK_BACKEND
             value: "true"
+          # --- Live DQX Studio (optional, for the demo's rule-authoring story) ---
+          # The "Motor de Regras" (/rules) page embeds DQX Studio via iframe when
+          # this is set; otherwise it shows a deploy empty-state. To author rules
+          # live during the demo, deploy DQX Studio and UNCOMMENT the two lines
+          # below with its public app URL. Do NOT leave the value empty — the
+          # Apps API rejects env entries with an empty `value`.
+          # - name: DQX_STUDIO_URL
+          #   value: "https://<your-dqx-studio-app>.databricksapps.com"
 
       permissions:
         - level: CAN_USE

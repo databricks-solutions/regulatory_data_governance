@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_REFERENCE, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when reference tables haven't been seeded yet (setup_job not run).
 from db import execute_query_or_empty as execute_query
@@ -69,6 +70,45 @@ _MOCK_DOMINIOS = [
     ]),
 ]
 
+# English (en-US) variant — only the human-readable descriptions/labels are
+# translated. All `code` values stay byte-identical with the pt set above.
+_MOCK_DOMINIOS_EN = [
+    DominioField(field="Mod", description="Credit operation modality", values=[
+        DominioValue(code="0101", description="Advance to depositors"),
+        DominioValue(code="0201", description="Loans - Working capital with maturity up to 365 days"),
+        DominioValue(code="0202", description="Loans - Working capital with maturity over 365 days"),
+        DominioValue(code="0204", description="Loans - Non-payroll personal credit"),
+        DominioValue(code="0301", description="Discounted notes"),
+        DominioValue(code="0401", description="Real estate financing - SFH"),
+        DominioValue(code="0402", description="Real estate financing - SFI"),
+    ]),
+    DominioField(field="TpCli", description="Client type", values=[
+        DominioValue(code="1", description="CPF (Individual)"),
+        DominioValue(code="2", description="CNPJ base (8 digits)"),
+        DominioValue(code="3", description="CEI"),
+        DominioValue(code="4", description="Non-resident"),
+        DominioValue(code="5", description="CNPJ full (14 digits)"),
+        DominioValue(code="6", description="BCB Code"),
+    ]),
+    DominioField(field="NatuOp", description="Operation nature", values=[
+        DominioValue(code="01", description="Normal (holder)"),
+        DominioValue(code="04", description="Assignee"),
+        DominioValue(code="11", description="Assignor with co-obligation"),
+        DominioValue(code="12", description="Assignor without co-obligation"),
+    ]),
+    DominioField(field="ClassOp", description="Operation risk classification", values=[
+        DominioValue(code="AA", description="Minimum risk"),
+        DominioValue(code="A", description="Very low risk"),
+        DominioValue(code="B", description="Low risk"),
+        DominioValue(code="C", description="Medium-low risk"),
+        DominioValue(code="D", description="Medium risk"),
+        DominioValue(code="E", description="Medium-high risk"),
+        DominioValue(code="F", description="High risk"),
+        DominioValue(code="G", description="Very high risk"),
+        DominioValue(code="H", description="Maximum risk (loss)"),
+    ]),
+]
+
 # 4 regras iniciais do acelerador (mesmas semeadas em
 # `${var.catalog}.quality.dqx_checks` a partir de
 # `pipelines/silver/dqx_checks/scr3040.yml`). Novas regras serão criadas via
@@ -79,6 +119,16 @@ _MOCK_CRITICAS = [
     CriticaRule(rule_id="S20_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="CASE WHEN is_pf THEN porte_cli IN ('0'..'8') WHEN is_pj THEN porte_cli IN ('0'..'4') ELSE FALSE END", description="PorteCli condicional ao tipo de cliente — PF aceita 0-8; PJ aceita 0-4", bcb_reference="SCR3040_Dominios.xlsx, Anexo PorteCli", layout_version="V1"),
     CriticaRule(rule_id="S20_003", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="tp_ctrl IN ('01','02','03','04')", description="TpCtrl deve pertencer ao dominio oficial {'01','02','03','04'} do leiaute SCR 3040", bcb_reference="SCR3040_Dominios.xlsx, Anexo TpCtrl", layout_version="V1"),
     CriticaRule(rule_id="S10_004", document="3040", rule_type="syntactic", severity="error", dimension_r18=2, dimension_name="Acurácia", expression="dia_atraso >= 0", description="DiaAtraso (dias em atraso) deve ser inteiro nao negativo", bcb_reference="SCR3040_Leiaute.xlsx, campo DiaAtraso", layout_version="V1"),
+]
+
+# English (en-US) variant — only `dimension_name` and `description` are
+# translated. rule_id, document, rule_type, severity, dimension_r18,
+# expression, bcb_reference, and layout_version stay byte-identical.
+_MOCK_CRITICAS_EN = [
+    CriticaRule(rule_id="S20_001", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptability", expression="autorzc IN ('S','N')", description="Autorzc must belong to the official domain {'S','N'} of the SCR 3040 layout", bcb_reference="SCR3040_Dominios.xlsx, Anexo Autorzc", layout_version="V1"),
+    CriticaRule(rule_id="S20_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptability", expression="CASE WHEN is_pf THEN porte_cli IN ('0'..'8') WHEN is_pj THEN porte_cli IN ('0'..'4') ELSE FALSE END", description="PorteCli conditional on client type — individuals accept 0-8; legal entities accept 0-4", bcb_reference="SCR3040_Dominios.xlsx, Anexo PorteCli", layout_version="V1"),
+    CriticaRule(rule_id="S20_003", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptability", expression="tp_ctrl IN ('01','02','03','04')", description="TpCtrl must belong to the official domain {'01','02','03','04'} of the SCR 3040 layout", bcb_reference="SCR3040_Dominios.xlsx, Anexo TpCtrl", layout_version="V1"),
+    CriticaRule(rule_id="S10_004", document="3040", rule_type="syntactic", severity="error", dimension_r18=2, dimension_name="Accuracy", expression="dia_atraso >= 0", description="DiaAtraso (days overdue) must be a non-negative integer", bcb_reference="SCR3040_Leiaute.xlsx, campo DiaAtraso", layout_version="V1"),
 ]
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2 (Art. 2, §2 of Joint Resolution 18).
@@ -97,16 +147,36 @@ _MOCK_DIMENSIONS = [
     DimensionDefinition(id=12, code="tempestividade", name="Tempestividade", article="Art. 2, par.2, XII", definition="Fornecimento em tempo habil, no prazo estabelecido", implementation="Historico de cumprimento de prazos >= 95%; envio com >= 2 dias uteis de antecedencia", databricks_capability="Workflow SLA monitoring; submission timestamp logs", metrics=[DimensionMetricDef(code="envios_no_prazo_pct", name="Envios no Prazo", target=95.0, unit="%")]),
 ]
 
+# English (en-US) variant — `id`, `code`, `article`, metric `code`, and metric
+# `target` stay byte-identical. Only human-readable text is translated
+# (name, definition, implementation, databricks_capability, metric name, and
+# the free-text unit "por ano" → "per year"; "%"/"count" kept as-is).
+_MOCK_DIMENSIONS_EN = [
+    DimensionDefinition(id=1, code="acessibilidade", name="Accessibility", article="Art. 2, par.2, I", definition="Conditions to obtain information, including location, form, deadlines and treatment of people with disabilities", implementation="Documented SLA for BCB demands; catalog accessible to non-technical users", databricks_capability="Unity Catalog (public catalog) + AI/BI Dashboards with role-based ACLs", metrics=[DimensionMetricDef(code="sla_atendimento_pct", name="Service SLA", target=95.0, unit="%"), DimensionMetricDef(code="catalogo_cobertura_pct", name="Catalog Coverage", target=100.0, unit="%")]),
+    DimensionDefinition(id=2, code="acuracia", name="Accuracy", article="Art. 2, par.2, II", definition="Extent to which information accurately reflects reality, according to methodology", implementation="BCB rejection rate <= 5%; pre-submission reconciliation approved", databricks_capability="DLT Expectations pass/fail rates; reconciliation results", metrics=[DimensionMetricDef(code="taxa_rejeicao_bcb_pct", name="BCB Rejection Rate", target=5.0, unit="%")]),
+    DimensionDefinition(id=3, code="adaptabilidade", name="Adaptability", article="Art. 2, par.2, III", definition="Ability to generate information in a format that meets diverse demands and regulatory changes, including during crises", implementation="Evidence of V10->V11 adaptation within the deadline; tested contingency plan", databricks_capability="Layout version SCD Type 2 table; DR test logs", metrics=[DimensionMetricDef(code="adaptacao_layout_pct", name="On-Time Layout Adaptation", target=100.0, unit="%")]),
+    DimensionDefinition(id=4, code="clareza", name="Clarity", article="Art. 2, par.2, IV", definition="Concise, understandable presentation that meets user needs", implementation="Data dictionary with business-language descriptions; onboarding <= 2 weeks", databricks_capability="UC COMMENT ON COLUMN coverage; AI/BI dashboards", metrics=[DimensionMetricDef(code="coberura_comentarios_pct", name="UC Comment Coverage", target=100.0, unit="%")]),
+    DimensionDefinition(id=5, code="comparabilidade", name="Comparability", article="Art. 2, par.2, V", definition="Ability to identify similarities and differences across periods or domains", implementation="Versioned layout change history; version metadata on every record", databricks_capability="Delta Time Travel; SCD Type 2 for layout versions", metrics=[DimensionMetricDef(code="versao_leiaute_rastreavel_pct", name="Layout Version Coverage", target=100.0, unit="%")]),
+    DimensionDefinition(id=6, code="completude", name="Completeness", article="Art. 2, par.2, VI", definition="Ability to fully address the required aspects", implementation="Zero rejections for mandatory fields; universe reconciliation (operation/client counts)", databricks_capability="DLT expect_or_drop rules (S10/S12/S13); universe count checks", metrics=[DimensionMetricDef(code="campos_obrigatorios_pct", name="Mandatory Fields Filled", target=100.0, unit="%")]),
+    DimensionDefinition(id=7, code="confiabilidade", name="Reliability", article="Art. 2, par.2, VII", definition="Absence of relevant deviation in reviewed data versus the initial value", implementation="Immutable intermediate data; rework rate < 10%", databricks_capability="Delta ACID; append-only audit tables; resubmission count", metrics=[DimensionMetricDef(code="taxa_retrabalho_pct", name="Rework Rate", target=10.0, unit="%")]),
+    DimensionDefinition(id=8, code="consistencia", name="Consistency", article="Art. 2, par.2, VIII", definition="Standardized information free of contradictions, even from different sources", implementation="Automated pipeline: 3040 vs 3050 vs COSIF; divergences above threshold block submission", databricks_capability="Gold reconciliation tables (cross_3040_3050, cosif_t02_t10)", metrics=[DimensionMetricDef(code="taxa_consistencia_pct", name="Consistency Rate", target=99.0, unit="%")]),
+    DimensionDefinition(id=9, code="integridade", name="Integrity", article="Art. 2, par.2, IX", definition="Assurance of authenticity and absence of unauthorized modification", implementation="Least-privilege RBAC; immutable audit log; generate/approve segregation", databricks_capability="UC RBAC configuration; audit logs; SoD matrix", metrics=[DimensionMetricDef(code="acessos_nao_autorizados", name="Unauthorized Accesses", target=0.0, unit="count")]),
+    DimensionDefinition(id=10, code="rastreabilidade", name="Traceability", article="Art. 2, par.2, X", definition="Conditions to trace information from origin to delivery to the end user", implementation="End-to-end lineage >= 95% of the path; audit demonstration in < 30 min", databricks_capability="UC System Tables lineage + External Lineage API (BYOL)", metrics=[DimensionMetricDef(code="cobertura_lineage_pct", name="Lineage Coverage", target=95.0, unit="%")]),
+    DimensionDefinition(id=11, code="relevancia", name="Relevance", article="Art. 2, par.2, XI", definition="Ability to provide useful information that influences decision-making", implementation="Semi-annual report presented to the Board with meeting minutes; indicators reviewed monthly by management", databricks_capability="Semi-annual report generation; CA meeting evidence", metrics=[DimensionMetricDef(code="relatorios_apresentados", name="Reports Presented to the Board", target=2.0, unit="per year")]),
+    DimensionDefinition(id=12, code="tempestividade", name="Timeliness", article="Art. 2, par.2, XII", definition="Delivery in a timely manner, within the established deadline", implementation="Deadline compliance history >= 95%; submission >= 2 business days in advance", databricks_capability="Workflow SLA monitoring; submission timestamp logs", metrics=[DimensionMetricDef(code="envios_no_prazo_pct", name="On-Time Submissions", target=95.0, unit="%")]),
+]
+
 
 @router.get("/dominios", response_model=DominiosResponse)
 async def get_dominios(
     document: str | None = Query(None),
     field: str | None = Query(None),
     version: str | None = Query(None),
+    locale: str = Depends(get_locale),
 ):
     """Return domain values for SCR fields."""
     if USE_MOCK:
-        fields = _MOCK_DOMINIOS
+        fields = _MOCK_DOMINIOS_EN if locale == "en" else _MOCK_DOMINIOS
         if field:
             fields = [f for f in fields if f.field.lower() == field.lower()]
         return DominiosResponse(document=document, version=version or "V11", fields=fields)
@@ -136,10 +206,11 @@ async def get_criticas(
     severity: str | None = Query(None),
     dimension_r18: int | None = Query(None),
     search: str | None = Query(None),
+    locale: str = Depends(get_locale),
 ):
     """Return criticas (validation rules) catalog."""
     if USE_MOCK:
-        rules = _MOCK_CRITICAS
+        rules = _MOCK_CRITICAS_EN if locale == "en" else _MOCK_CRITICAS
         if document:
             rules = [r for r in rules if r.document == document]
         if rule_type:
@@ -287,13 +358,16 @@ _NIVEL_TO_RULE_TYPE = {
 async def get_calendario(
     year: int = Query(2026),
     month: int | None = Query(None, ge=1, le=12),
+    locale: str = Depends(get_locale),
 ):
     """Return BCB business day calendar."""
     if USE_MOCK:
         import calendar as cal
         days = []
         months_to_gen = [month] if month else list(range(1, 13))
-        feriados = {
+        # Only the holiday name (human-readable) is localized. The dates (keys)
+        # and all is_dia_util/is_ultimo_* flags stay identical across locales.
+        feriados_pt = {
             "2026-01-01": "Confraternizacao Universal",
             "2026-02-16": "Carnaval", "2026-02-17": "Carnaval",
             "2026-04-03": "Sexta-feira Santa",
@@ -306,6 +380,20 @@ async def get_calendario(
             "2026-11-15": "Proclamacao da Republica",
             "2026-12-25": "Natal",
         }
+        feriados_en = {
+            "2026-01-01": "New Year's Day",
+            "2026-02-16": "Carnival", "2026-02-17": "Carnival",
+            "2026-04-03": "Good Friday",
+            "2026-04-21": "Tiradentes Day",
+            "2026-05-01": "Labour Day",
+            "2026-06-04": "Corpus Christi",
+            "2026-09-07": "Independence Day",
+            "2026-10-12": "Our Lady of Aparecida",
+            "2026-11-02": "All Souls' Day",
+            "2026-11-15": "Proclamation of the Republic",
+            "2026-12-25": "Christmas",
+        }
+        feriados = feriados_en if locale == "en" else feriados_pt
         total_du = 0
         total_feriados = 0
         for m in months_to_gen:
@@ -356,16 +444,29 @@ async def get_calendario(
 async def get_equivalencia(
     modality_3040: str | None = Query(None),
     category_3050: str | None = Query(None),
+    locale: str = Depends(get_locale),
 ):
     """Return mapping between SCR 3040 modalities and SCR 3050 categories."""
     if USE_MOCK:
-        mappings = [
-            EquivalenciaMapping(modality_3040="0201", modality_3040_description="Emprestimos - Capital de giro ate 365 dias", category_3050="capitalDeGiro", category_3050_description="Capital de Giro", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
-            EquivalenciaMapping(modality_3040="0202", modality_3040_description="Emprestimos - Capital de giro acima 365 dias", category_3050="capitalDeGiro", category_3050_description="Capital de Giro", segment="pesJuridica", credit_type="crdLivre", periodicity="diario", special_rules="Considerar PF se tipo cliente for PJ"),
-            EquivalenciaMapping(modality_3040="0204", modality_3040_description="Credito pessoal nao consignado", category_3050="crdPessoal", category_3050_description="Credito Pessoal", segment="pesFisica", credit_type="crdLivre", periodicity="diario"),
-            EquivalenciaMapping(modality_3040="0301", modality_3040_description="Titulos descontados", category_3050="descDuplicatas", category_3050_description="Desconto de Duplicatas", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
-            EquivalenciaMapping(modality_3040="0401", modality_3040_description="Financiamento imobiliario - SFH", category_3050="aquisicaoImovel", category_3050_description="Aquisicao de Imovel", segment="pesFisica", credit_type="crdDirecionado", periodicity="mensal"),
-        ]
+        # Only the human-readable descriptions are localized. Modality/category
+        # codes, segment, credit_type, periodicity (3050 taxonomy enums) and the
+        # version string stay byte-identical across locales.
+        if locale == "en":
+            mappings = [
+                EquivalenciaMapping(modality_3040="0201", modality_3040_description="Loans - Working capital up to 365 days", category_3050="capitalDeGiro", category_3050_description="Working Capital", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0202", modality_3040_description="Loans - Working capital over 365 days", category_3050="capitalDeGiro", category_3050_description="Working Capital", segment="pesJuridica", credit_type="crdLivre", periodicity="diario", special_rules="Treat as individual if client type is legal entity"),
+                EquivalenciaMapping(modality_3040="0204", modality_3040_description="Non-payroll personal credit", category_3050="crdPessoal", category_3050_description="Personal Credit", segment="pesFisica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0301", modality_3040_description="Discounted notes", category_3050="descDuplicatas", category_3050_description="Trade Note Discounting", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0401", modality_3040_description="Real estate financing - SFH", category_3050="aquisicaoImovel", category_3050_description="Property Acquisition", segment="pesFisica", credit_type="crdDirecionado", periodicity="mensal"),
+            ]
+        else:
+            mappings = [
+                EquivalenciaMapping(modality_3040="0201", modality_3040_description="Emprestimos - Capital de giro ate 365 dias", category_3050="capitalDeGiro", category_3050_description="Capital de Giro", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0202", modality_3040_description="Emprestimos - Capital de giro acima 365 dias", category_3050="capitalDeGiro", category_3050_description="Capital de Giro", segment="pesJuridica", credit_type="crdLivre", periodicity="diario", special_rules="Considerar PF se tipo cliente for PJ"),
+                EquivalenciaMapping(modality_3040="0204", modality_3040_description="Credito pessoal nao consignado", category_3050="crdPessoal", category_3050_description="Credito Pessoal", segment="pesFisica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0301", modality_3040_description="Titulos descontados", category_3050="descDuplicatas", category_3050_description="Desconto de Duplicatas", segment="pesJuridica", credit_type="crdLivre", periodicity="diario"),
+                EquivalenciaMapping(modality_3040="0401", modality_3040_description="Financiamento imobiliario - SFH", category_3050="aquisicaoImovel", category_3050_description="Aquisicao de Imovel", segment="pesFisica", credit_type="crdDirecionado", periodicity="mensal"),
+            ]
         if modality_3040:
             mappings = [m for m in mappings if m.modality_3040 == modality_3040]
         if category_3050:
@@ -392,10 +493,11 @@ async def get_equivalencia(
 
 
 @router.get("/dimensions", response_model=DimensionsResponse)
-async def get_dimensions():
+async def get_dimensions(locale: str = Depends(get_locale)):
     """Return the 12 R.18 quality dimension definitions."""
     if USE_MOCK:
-        return DimensionsResponse(dimensions=_MOCK_DIMENSIONS)
+        dims = _MOCK_DIMENSIONS_EN if locale == "en" else _MOCK_DIMENSIONS
+        return DimensionsResponse(dimensions=dims)
 
     rows = await execute_query(
         "SELECT dimensao_id, nome, definicao_regulatoria, artigo_r18, "

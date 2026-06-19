@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
@@ -46,6 +47,29 @@ _R18_DIMENSIONS = [
     {"id": 12, "code": "tempestividade", "name": "Tempestividade", "description": "Fornecimento em tempo hábil, no prazo estabelecido", "article": "Art. 2, par.2, XII"},
 ]
 
+# English (en-US) parallel catalog — same ids/codes/articles, translated name + description.
+# Mock-mode only; real mode always uses `_R18_DIMENSIONS` above. Do NOT mutate the pt list.
+_R18_DIMENSIONS_EN = [
+    {"id": 1, "code": "acessibilidade", "name": "Accessibility", "description": "Conditions to obtain information, including location, format, deadlines and treatment for persons with disabilities", "article": "Art. 2, par.2, I"},
+    {"id": 2, "code": "acuracia", "name": "Accuracy", "description": "Degree to which the information accurately reflects reality, per methodology", "article": "Art. 2, par.2, II"},
+    {"id": 3, "code": "adaptabilidade", "name": "Adaptability", "description": "Ability to produce information in a format that meets diverse demands and regulatory changes", "article": "Art. 2, par.2, III"},
+    {"id": 4, "code": "clareza", "name": "Clarity", "description": "Concise, understandable presentation that meets the user's needs", "article": "Art. 2, par.2, IV"},
+    {"id": 5, "code": "comparabilidade", "name": "Comparability", "description": "Ability to identify similarities and differences across periods or domains", "article": "Art. 2, par.2, V"},
+    {"id": 6, "code": "completude", "name": "Completeness", "description": "Ability to fully address the required aspects", "article": "Art. 2, par.2, VI"},
+    {"id": 7, "code": "confiabilidade", "name": "Reliability", "description": "Absence of relevant deviation between revised data and the initial value", "article": "Art. 2, par.2, VII"},
+    {"id": 8, "code": "consistencia", "name": "Consistency", "description": "Standardized information free of contradictions, even from different sources", "article": "Art. 2, par.2, VIII"},
+    {"id": 9, "code": "integridade", "name": "Integrity", "description": "Assurance of authenticity and absence of unauthorized modification", "article": "Art. 2, par.2, IX"},
+    {"id": 10, "code": "rastreabilidade", "name": "Traceability", "description": "Conditions to trace the information from its origin to delivery to the end user", "article": "Art. 2, par.2, X"},
+    {"id": 11, "code": "relevancia", "name": "Relevance", "description": "Ability to provide useful information that influences decision-making", "article": "Art. 2, par.2, XI"},
+    {"id": 12, "code": "tempestividade", "name": "Timeliness", "description": "Delivery in a timely manner, within the established deadline", "article": "Art. 2, par.2, XII"},
+]
+
+
+def _dimensions_catalog(locale: str):
+    """Return the locale-matched dimensions catalog (mock-mode use only)."""
+    return _R18_DIMENSIONS_EN if locale == "en" else _R18_DIMENSIONS
+
+
 # `gold.qualidade_dimensoes_mensal.dimensao_id` is stored as a Roman numeral string
 # (matches `reference.dimensoes_r18.dimensao_id`). Map to int for the App's `DimensionDetail.id` int field.
 _DIM_ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
@@ -72,6 +96,16 @@ _MOCK_RULES: dict[int, list[str]] = {
     3: ["autorzc_in_dominio", "porte_cli_in_dominio_por_tipo", "tp_ctrl_in_dominio"],
 }
 
+# Locale-aware free-text template for the mock violation rule_description.
+_MOCK_VIOLATION_DESC = {
+    "pt": "Violacao na dimensao {name}",
+    "en": "Violation in the {name} dimension",
+}
+
+
+def _mock_violation_desc(locale: str, name: str) -> str:
+    return _MOCK_VIOLATION_DESC.get(locale, _MOCK_VIOLATION_DESC["pt"]).format(name=name)
+
 
 def _mock_trend(base_score: float | None) -> list[TrendPoint]:
     # Sem score (sem_regras) não há histórico — devolve lista vazia para que o
@@ -91,11 +125,12 @@ def _mock_trend(base_score: float | None) -> list[TrendPoint]:
 async def get_quality_dimensions(
     data_base: str = Query("2026-03"),
     trend_months: int = Query(6, ge=1, le=24),
+    locale: str = Depends(get_locale),
 ):
     """Return scores for all 12 R.18 quality dimensions."""
     if USE_MOCK:
         dims = []
-        for i, d in enumerate(_R18_DIMENSIONS):
+        for i, d in enumerate(_dimensions_catalog(locale)):
             score = _MOCK_SCORES[i]
             dims.append(DimensionDetail(
                 id=d["id"],
@@ -261,6 +296,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
 async def get_quality_dimension_detail(
     dimension_id: int,
     data_base: str = Query("2026-03"),
+    locale: str = Depends(get_locale),
 ):
     """Return detailed metrics for a single R.18 dimension."""
     if dimension_id < 1 or dimension_id > 12:
@@ -272,6 +308,7 @@ async def get_quality_dimension_detail(
     status = _MOCK_STATUSES[dimension_id - 1]
 
     if USE_MOCK:
+        d = _dimensions_catalog(locale)[dimension_id - 1]
         # Dimensão sem regras: sem score, sem violações, sem trend.
         if status == "sem_regras":
             return DimensionDetailResponse(
@@ -283,7 +320,7 @@ async def get_quality_dimension_detail(
             violations = [
                 Violation(
                     rule_id=f"SEM_{dimension_id:03d}",
-                    rule_description=f"Violacao na dimensao {d['name']}",
+                    rule_description=_mock_violation_desc(locale, d["name"]),
                     severity="error" if status == "nao_conforme" else "warning",
                     count=42 + dimension_id * 10,
                     sample_records=["IPOC_12345678...", "IPOC_87654321..."],
@@ -328,6 +365,7 @@ async def get_quality_dimension_detail(
 async def get_quality_trend(
     data_base: str = Query("2026-03"),
     months: int = Query(6, ge=1, le=24),
+    locale: str = Depends(get_locale),
 ):
     """Return overall quality score trend over time."""
     if USE_MOCK:

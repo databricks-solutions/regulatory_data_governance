@@ -1,3 +1,6 @@
+import { get } from 'svelte/store';
+import { locale } from 'svelte-i18n';
+
 const BASE = '/api/v1';
 
 export class ApiError extends Error {
@@ -7,9 +10,15 @@ export class ApiError extends Error {
   }
 }
 
+// Current UI locale (e.g. 'pt', 'en'). Sent on every request so the backend
+// can serve locale-matched mock data in demo mode (USE_MOCK_BACKEND=true).
+function currentLocale() {
+  try { return get(locale) || 'pt'; } catch (_) { return 'pt'; }
+}
+
 async function apiFetch(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Accept': 'application/json', ...options.headers },
+    headers: { 'Accept': 'application/json', 'X-Locale': currentLocale(), ...options.headers },
     ...options
   });
   if (!res.ok) {
