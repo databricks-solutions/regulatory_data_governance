@@ -2,6 +2,7 @@
   import Badge from '../ui/Badge.svelte';
   import SparkLine from '../charts/SparkLine.svelte';
   import { statusColors } from '$lib/theme.js';
+  import { _ } from 'svelte-i18n';
 
   let { dimension, onclick = null } = $props();
 
@@ -17,14 +18,14 @@
   </div>
   {#if dimension.score == null}
     <div class="dim-score-empty">—</div>
-    <div class="dim-target">Sem regras vinculadas</div>
+    <div class="dim-target">{$_('dimensionCard.noRulesLinked')}</div>
   {:else}
     <div class="dim-score">{dimension.score?.toFixed(1)}<span class="dim-unit">%</span></div>
-    <div class="dim-target">Meta: {dimension.target?.toFixed(1)}% · {dimension.rules?.length || 0} regra(s)</div>
+    <div class="dim-target">{$_('dimensionCard.target', { values: { target: dimension.target?.toFixed(1), count: dimension.rules?.length || 0 } })}</div>
   {/if}
   <div class="dim-footer">
     {#if dimension.status === 'sem_regras'}
-      <Badge label="Sem regras" variant="default" />
+      <Badge label={$_('dimensionCard.noRules')} variant="default" />
     {:else}
       <Badge label={statusInfo.label} variant={dimension.status === 'conforme' ? 'success' : dimension.status === 'atencao' ? 'warning' : 'error'} />
     {/if}

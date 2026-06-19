@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { getLineageGraph, getColumnLineage } from '$lib/api.js';
   import { layerColors, systemColors } from '$lib/theme.js';
 
@@ -146,6 +147,21 @@
   let nodes = $state(initNodes);
   let edges = $state(initEdges);
 
+  // Legend layer entries — descriptive captions translated; system/layer proper-names stay literal
+  const legendLayers = $derived.by(() => [
+    ['origin', 'LOS/CRM'], ['source', 'Oracle/DB2'], ['etl', 'Informatica ETL'],
+    ['bronze', 'Bronze'], ['silver', 'Silver'], ['gold', 'Gold'],
+    ['validator', $_('lineage.legendValidator')], ['output', 'STA/CADIP']
+  ]);
+
+  // SVG fallback layer headers — descriptive captions translated; layer proper-names stay literal
+  const svgLayerHeaders = $derived.by(() => [
+    ['origin', $_('lineage.svgHeaderOrigin'), 40], ['source', 'Oracle/DB2', 290],
+    ['etl', 'ETL', 540], ['bronze', 'Bronze', 790], ['silver', 'Silver', 1040],
+    ['gold', 'Gold', 1290], ['validator', $_('lineage.svgHeaderValidators'), 1540],
+    ['output', 'BCB STA', 1790]
+  ]);
+
   const mockColumns = ['ipoc', 'modalidade', 'tipo_cliente', 'cnpj_if', 'dt_contr', 'vlr_contabil', 'dt_venc_op'];
 
   function handleNodeClick(event) {
@@ -206,21 +222,21 @@
   });
 
   // Side panel: derive layer label
-  const LAYER_LABELS = {
-    origin: 'Originação / CRM', source: 'Fonte Externa', etl: 'ETL / Integração',
+  const LAYER_LABELS = $derived.by(() => ({
+    origin: $_('lineage.layerOrigin'), source: $_('lineage.layerSource'), etl: $_('lineage.layerEtl'),
     bronze: 'Bronze (Databricks)', silver: 'Silver (Databricks)', gold: 'Gold (Databricks)',
-    validator: 'Validador BCB', output: 'Saída BCB'
-  };
+    validator: $_('lineage.layerValidator'), output: $_('lineage.layerOutput')
+  }));
 </script>
 
 <div class="lineage-page">
   <!-- Legend bar -->
   <div class="legend-bar">
-    <span class="legend-title">Linhagem RC18 — BYOL + UC Automático</span>
+    <span class="legend-title">{$_('lineage.legendTitle')}</span>
     <div class="legend-items">
-      <span class="legend-item"><span class="leg-line byol"></span> BYOL (Externo — dashed fixo)</span>
-      <span class="legend-item"><span class="leg-line uc"></span> UC Automático (DLT — dashed animado)</span>
-      {#each [['origin','LOS/CRM'],['source','Oracle/DB2'],['etl','Informatica ETL'],['bronze','Bronze'],['silver','Silver'],['gold','Gold'],['validator','Validador BCB'],['output','STA/CADIP']] as [l, lbl]}
+      <span class="legend-item"><span class="leg-line byol"></span> {$_('lineage.legendByol')}</span>
+      <span class="legend-item"><span class="leg-line uc"></span> {$_('lineage.legendUc')}</span>
+      {#each legendLayers as [l, lbl]}
         {@const c = layerColors[l]}
         <span class="legend-item">
           <span class="leg-node" style="background:{c.bg};border-color:{c.border};"></span>
@@ -285,7 +301,7 @@
             {/each}
 
             <!-- Layer headers -->
-            {#each [['origin','Originacao',40],['source','Oracle/DB2',290],['etl','ETL',540],['bronze','Bronze',790],['silver','Silver',1040],['gold','Gold',1290],['validator','Validadores',1540],['output','BCB STA',1790]] as [l, lbl, lx]}
+            {#each svgLayerHeaders as [l, lbl, lx]}
               {@const c = layerColors[l]}
               <rect x={lx} y="8" width={NODE_W} height="22" rx="4" fill={c.bg} stroke={c.border} />
               <text x={lx + NODE_W/2} y="23" text-anchor="middle" fill={c.text} font-size="10" font-weight="700" font-family="var(--font-primary)">{lbl}</text>
@@ -306,7 +322,7 @@
               </g>
             {/each}
           </svg>
-          <p class="fallback-note">Instale @xyflow/svelte para interatividade completa (pan, zoom, drag)</p>
+          <p class="fallback-note">{$_('lineage.fallbackNote')}</p>
         </div>
       {/if}
     </div>
@@ -331,38 +347,38 @@
 
           {#if selectedNode.data.metadata?.connection}
             <div class="panel-section">
-              <div class="panel-label">Conexão</div>
+              <div class="panel-label">{$_('lineage.connection')}</div>
               <div class="panel-value mono small">{selectedNode.data.metadata.connection}</div>
             </div>
           {/if}
           {#if selectedNode.data.metadata?.update_frequency}
             <div class="panel-section">
-              <div class="panel-label">Frequência</div>
+              <div class="panel-label">{$_('lineage.frequency')}</div>
               <div class="panel-value">{selectedNode.data.metadata.update_frequency}</div>
             </div>
           {/if}
           {#if selectedNode.data.metadata?.row_count != null}
             <div class="panel-section">
-              <div class="panel-label">Linhas</div>
+              <div class="panel-label">{$_('lineage.rows')}</div>
               <div class="panel-value">{selectedNode.data.metadata.row_count?.toLocaleString('pt-BR')}</div>
             </div>
           {/if}
           {#if selectedNode.data.metadata?.last_updated}
             <div class="panel-section">
-              <div class="panel-label">Atualizado</div>
+              <div class="panel-label">{$_('lineage.updated')}</div>
               <div class="panel-value">{selectedNode.data.metadata.last_updated?.slice(0,16).replace('T',' ')}</div>
             </div>
           {/if}
           {#if selectedNode.data.metadata?.expectations_pass_rate}
             <div class="panel-section">
               <div class="panel-label">Expectations</div>
-              <div class="panel-value">{selectedNode.data.metadata.expectations_pass_rate}% pass</div>
+              <div class="panel-value">{$_('lineage.expectationsPass', { values: { rate: selectedNode.data.metadata.expectations_pass_rate } })}</div>
             </div>
           {/if}
 
           {#if selectedNode.data.type === 'table'}
             <div class="panel-section">
-              <div class="panel-label">Linhagem de Colunas</div>
+              <div class="panel-label">{$_('lineage.columnLineage')}</div>
               <div class="column-list">
                 {#each mockColumns as col}
                   <button class="col-btn" class:active={columnLineage?.column === col}
@@ -374,7 +390,7 @@
 
           {#if columnLineage && !columnLineage.loading}
             <div class="panel-section col-lineage-section">
-              <div class="panel-label">↑ upstream: {columnLineage.column}</div>
+              <div class="panel-label">{$_('lineage.upstreamColumn', { values: { column: columnLineage.column } })}</div>
               {#if columnLineage.upstream_columns}
                 {#each columnLineage.upstream_columns as uc}
                   <div class="col-lineage-item">
@@ -385,7 +401,7 @@
                 {/each}
               {/if}
               {#if columnLineage.external_sources?.length}
-                <div class="panel-label" style="margin-top:8px;">↑ fontes externas (BYOL)</div>
+                <div class="panel-label" style="margin-top:8px;">{$_('lineage.externalSources')}</div>
                 {#each columnLineage.external_sources as es}
                   <div class="col-lineage-item ext-source">
                     <span class="col-table">{es.system}</span>
@@ -403,24 +419,24 @@
         {@const isByol = selectedEdge.data?.type === 'external_lineage'}
         <div class="panel-header" style="background:#F8F8FB;border-bottom:2px solid #7A7A8A;">
           <div class="panel-layer-badge" style="color:{isByol ? '#4A4A5A' : '#003D73'};">
-            {isByol ? 'BYOL — Lineage Externo' : 'UC Automático — DLT'}
+            {isByol ? $_('lineage.badgeByol') : $_('lineage.badgeUc')}
           </div>
-          <h3 class="panel-title">{selectedEdge.label || 'Relação de Lineage'}</h3>
+          <h3 class="panel-title">{selectedEdge.label || $_('lineage.lineageRelation')}</h3>
         </div>
         <div class="panel-body">
           <div class="panel-section">
-            <div class="panel-label">Origem</div>
+            <div class="panel-label">{$_('lineage.source')}</div>
             <div class="panel-value mono small">{selectedEdge.source}</div>
           </div>
           <div class="panel-section">
-            <div class="panel-label">Destino</div>
+            <div class="panel-label">{$_('lineage.target')}</div>
             <div class="panel-value mono small">{selectedEdge.target}</div>
           </div>
           {#if selectedEdge.data?.column_mappings?.length}
             <div class="panel-section">
-              <div class="panel-label">Mapeamento de Colunas</div>
+              <div class="panel-label">{$_('lineage.columnMapping')}</div>
               <table class="mapping-table">
-                <thead><tr><th>Origem</th><th>Destino</th></tr></thead>
+                <thead><tr><th>{$_('lineage.source')}</th><th>{$_('lineage.target')}</th></tr></thead>
                 <tbody>
                   {#each selectedEdge.data.column_mappings as m}
                     <tr><td class="mono">{m.source}</td><td class="mono">{m.target}</td></tr>
@@ -430,8 +446,8 @@
             </div>
           {:else}
             <div class="panel-section">
-              <div class="panel-label">Mapeamento</div>
-              <div class="panel-value" style="color:var(--gray-500);font-style:italic;">Mapeamento automático por nome de coluna</div>
+              <div class="panel-label">{$_('lineage.mapping')}</div>
+              <div class="panel-value" style="color:var(--gray-500);font-style:italic;">{$_('lineage.autoColumnMapping')}</div>
             </div>
           {/if}
         </div>
@@ -439,8 +455,8 @@
       {:else}
         <div class="panel-empty">
           <div class="panel-empty-icon">⬡</div>
-          <p>Clique em um nó ou aresta para ver detalhes</p>
-          <p class="panel-empty-hint">Nós = tabelas/sistemas · Arestas = relações de lineage</p>
+          <p>{$_('lineage.emptyPrompt')}</p>
+          <p class="panel-empty-hint">{$_('lineage.emptyHint')}</p>
         </div>
       {/if}
     </div>

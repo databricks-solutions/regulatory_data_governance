@@ -8,6 +8,7 @@
   import { getValidationResults, createIncident, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { _ } from 'svelte-i18n';
 
   let activeTab = $state('3040');
   const tabs = [
@@ -15,11 +16,11 @@
     { key: '3050', label: 'SCR 3050' }
   ];
 
-  const NIVEL_LABELS = {
-    1: { label: 'Nível 1', subtitle: 'Verificações genéricas básicas', desc: 'Completude, Unicidade, Formatos, Privacidade', color: 'var(--primary)' },
-    2: { label: 'Nível 2', subtitle: 'Coerência com meses anteriores', desc: 'Comparação temporal entre arquivos consecutivos', color: 'var(--warning)' },
-    3: { label: 'Nível 3', subtitle: 'Regras negociais', desc: 'Definidas pelo Curador de Dados / Gestor da Informação', color: 'var(--error)' },
-  };
+  const NIVEL_LABELS = $derived.by(() => ({
+    1: { label: $_('validations.levelOne'), subtitle: $_('validations.levelOneSubtitle'), desc: $_('validations.levelOneDesc'), color: 'var(--primary)' },
+    2: { label: $_('validations.levelTwo'), subtitle: $_('validations.levelTwoSubtitle'), desc: $_('validations.levelTwoDesc'), color: 'var(--warning)' },
+    3: { label: $_('validations.levelThree'), subtitle: $_('validations.levelThreeSubtitle'), desc: $_('validations.levelThreeDesc'), color: 'var(--error)' },
+  }));
 
   let runSummary = $state({ run_id: '', run_completed_at: '', total_rules: 0, passed: 0, failed: 0, warnings: 0, pass_rate_pct: 0 });
   let results = $state([]);
@@ -39,12 +40,12 @@
   let toast = $state(null); // { kind: 'success' | 'error' | 'info', message, href, hrefLabel } | null
   let toastTimer = null;
 
-  const filterDefs = [
-    { key: 'severity', label: 'Bloqueio', type: 'select', options: [{ value: 'error', label: 'Bloqueante' }, { value: 'warning', label: 'Alerta' }, { value: 'info', label: 'Info' }] },
-    { key: 'rule_type', label: 'Tipo', type: 'select', options: [{ value: 'syntactic', label: 'Sintática' }, { value: 'semantic', label: 'Semântica' }, { value: 'inter_document', label: 'Inter-documento' }, { value: 'business', label: 'Regra Negocial' }] },
-    { key: 'dimension_r18', label: 'Dimensão R.18', type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
-    { key: 'modality', label: 'Modalidade', type: 'text', placeholder: 'Ex: 0201' }
-  ];
+  const filterDefs = $derived.by(() => [
+    { key: 'severity', label: $_('validations.blocking'), type: 'select', options: [{ value: 'error', label: $_('validations.blockingValue') }, { value: 'warning', label: $_('validations.alert') }, { value: 'info', label: 'Info' }] },
+    { key: 'rule_type', label: $_('validations.type'), type: 'select', options: [{ value: 'syntactic', label: $_('validations.syntactic') }, { value: 'semantic', label: $_('validations.semantic') }, { value: 'inter_document', label: $_('validations.interDocument') }, { value: 'business', label: $_('validations.businessRule') }] },
+    { key: 'dimension_r18', label: $_('validations.dimensionR18'), type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
+    { key: 'modality', label: $_('validations.modality'), type: 'text', placeholder: $_('validations.modalityPlaceholder') }
+  ]);
 
   // Two distinct visual concepts:
   //   • Severidade — PROPERTY of the rule (Bloqueante/Alerta) → neutral chip.
@@ -52,18 +53,18 @@
   //     status badge with icon. Binário: como todas as regras iniciais usam
   //     `criticality: error`, não há estado intermediário "atenção"; qualquer
   //     violação é Reprovado.
-  const columns = [
-    { key: 'rule_id', label: 'Regra', sortable: true, width: '100px' },
-    { key: 'rule_name', label: 'Descrição', sortable: true },
-    { key: 'nivel_verificacao', label: 'Nível', sortable: true, width: '80px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
-    { key: 'dimension_name', label: 'Dimensão R.18', sortable: true, width: '120px' },
-    { key: 'severity', label: 'Bloqueio', sortable: true, width: '100px',
+  const columns = $derived.by(() => [
+    { key: 'rule_id', label: $_('validations.rule'), sortable: true, width: '100px' },
+    { key: 'rule_name', label: $_('validations.description'), sortable: true },
+    { key: 'nivel_verificacao', label: $_('validations.level'), sortable: true, width: '80px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
+    { key: 'dimension_name', label: $_('validations.dimensionR18'), sortable: true, width: '120px' },
+    { key: 'severity', label: $_('validations.blocking'), sortable: true, width: '100px',
       render: (v) => {
-        const label = v === 'error' ? 'Bloqueante' : v === 'warning' ? 'Alerta' : 'Info';
+        const label = v === 'error' ? $_('validations.blockingValue') : v === 'warning' ? $_('validations.alert') : 'Info';
         return `<span class="severity-chip">${label}</span>`;
       }
     },
-    { key: 'status', label: 'Status', sortable: true, width: '140px',
+    { key: 'status', label: $_('common.status'), sortable: true, width: '140px',
       render: (v) => {
         // Binário: aprovado vs reprovado. Como as regras iniciais usam todas
         // `criticality: error`, não há um estado intermediário "atenção". Caso
@@ -71,9 +72,9 @@
         // violações), tratamos como reprovação também — um violation é um
         // violation, independente da severidade da regra.
         if (v === 'fail' || v === 'warning' || v === 'warn') {
-          return '<span class="status-badge status-fail">✗ Reprovado</span>';
+          return `<span class="status-badge status-fail">✗ ${$_('validations.failed')}</span>`;
         }
-        return '<span class="status-badge status-pass">✓ Aprovado</span>';
+        return `<span class="status-badge status-pass">✓ ${$_('validations.passed')}</span>`;
       }
     },
     // Execução: mostra "inconsistencias / registros checados" — torna explícito
@@ -81,7 +82,7 @@
     // O número de "inconsistências" é SEMPRE vermelho (mais escuro quando >0,
     // mais leve quando =0) — afinal a coluna conta problemas, não acertos.
     // A leitura "tudo OK" vem do badge ✓ Aprovado da coluna Status, não daqui.
-    { key: 'affected_records', label: 'Inconsistências / Total', sortable: true, width: '160px',
+    { key: 'affected_records', label: $_('validations.inconsistenciesTotal'), sortable: true, width: '160px',
       render: (v, row) => {
         const total = row?.total_records ?? 0;
         const affected = v ?? 0;
@@ -89,7 +90,7 @@
         return `<span class="${cls}">${affected.toLocaleString('pt-BR')}</span> <span class="run-sep-inline">/</span> <span class="run-total">${total.toLocaleString('pt-BR')}</span>`;
       }
     }
-  ];
+  ]);
 
   let filteredResults = $derived.by(() => {
     let data = results;
@@ -160,21 +161,21 @@
       const id = inc?.id || inc?.incident_id || '';
       showToast({
         kind: 'success',
-        message: id ? `Incidente ${id} criado` : 'Incidente criado',
+        message: id ? $_('validations.incidentCreatedId', { values: { id } }) : $_('validations.incidentCreated'),
         href: id ? `/governance?incident=${encodeURIComponent(id)}` : null,
-        hrefLabel: 'Abrir'
+        hrefLabel: $_('validations.open')
       });
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         const existing = err.body?.existing_incident_id || err.body?.incident_id || '';
         showToast({
           kind: 'info',
-          message: 'Incidente já existe para esta crítica',
+          message: $_('validations.incidentExists'),
           href: existing ? `/governance?incident=${encodeURIComponent(existing)}` : null,
-          hrefLabel: existing ? `Ver ${existing}` : null
+          hrefLabel: existing ? $_('validations.viewId', { values: { id: existing } }) : null
         });
       } else {
-        showToast({ kind: 'error', message: err?.message || 'Falha ao criar incidente' });
+        showToast({ kind: 'error', message: err?.message || $_('validations.incidentCreateFailed') });
       }
     } finally {
       const { [key]: _drop, ...rest } = incidentPending;
@@ -205,24 +206,24 @@
   <!-- Run Summary -->
   <div class="card run-summary">
     <div class="run-info">
-      <span class="run-source">Resultados DQX Studio (última execução por tabela)</span>
+      <span class="run-source">{$_('validations.dqxStudioResults')}</span>
       <span class="run-sep">|</span>
-      <span class="run-id">Run: {runSummary.run_id ? runSummary.run_id.slice(0, 12) + '…' : '—'}</span>
+      <span class="run-id">{$_('validations.runLabel')}: {runSummary.run_id ? runSummary.run_id.slice(0, 12) + '…' : '—'}</span>
       <span class="run-sep">|</span>
-      <span>Concluído: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ') || '—'}</span>
+      <span>{$_('validations.completed')}: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ') || '—'}</span>
       {#if studioUrl}
         <span class="run-sep">|</span>
-        <a class="studio-link" href={studioUrl} target="_blank" rel="noopener noreferrer">Ver no DQX Studio ↗</a>
+        <a class="studio-link" href={studioUrl} target="_blank" rel="noopener noreferrer">{$_('validations.viewInDqxStudio')} ↗</a>
       {/if}
     </div>
     <div class="run-stats">
-      Total: {runSummary.total_rules} regras
+      {$_('validations.totalRules', { values: { n: runSummary.total_rules } })}
       <span class="run-sep">|</span>
-      <span class="stat-pass">✓ {runSummary.passed} aprovadas</span>
+      <span class="stat-pass">✓ {$_('validations.passedCount', { values: { n: runSummary.passed } })}</span>
       <span class="run-sep">|</span>
-      <span class="stat-fail">✗ {(runSummary.failed ?? 0) + (runSummary.warnings ?? 0)} reprovadas</span>
+      <span class="stat-fail">✗ {$_('validations.failedCount', { values: { n: (runSummary.failed ?? 0) + (runSummary.warnings ?? 0) } })}</span>
       <span class="run-sep">|</span>
-      Taxa de aprovação: <strong>{runSummary.pass_rate_pct}%</strong>
+      {$_('validations.passRate')}: <strong>{runSummary.pass_rate_pct}%</strong>
     </div>
   </div>
 
@@ -243,10 +244,10 @@
         </div>
         <div class="nivel-desc">{info.desc}</div>
         <div class="nivel-stats">
-          <span>{counts.total} regras</span>
+          <span>{$_('validations.rulesCount', { values: { n: counts.total } })}</span>
           <span class="run-sep">|</span>
-          {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {counts.fail + counts.warn} reprov.</span>{/if}
-          <span class="stat-pass">✓ {counts.pass} aprov.</span>
+          {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {$_('validations.failedShort', { values: { n: counts.fail + counts.warn } })}</span>{/if}
+          <span class="stat-pass">✓ {$_('validations.passedShort', { values: { n: counts.pass } })}</span>
         </div>
       </button>
     {/each}
@@ -254,8 +255,8 @@
 
   {#if activeNivel !== null}
     <div class="active-nivel-banner" style="border-left-color: {NIVEL_LABELS[activeNivel].color}">
-      Mostrando: <strong>{NIVEL_LABELS[activeNivel].label} — {NIVEL_LABELS[activeNivel].subtitle}</strong>
-      <button class="clear-nivel" onclick={() => activeNivel = null}>Mostrar todos</button>
+      {$_('validations.showing')}: <strong>{NIVEL_LABELS[activeNivel].label} — {NIVEL_LABELS[activeNivel].subtitle}</strong>
+      <button class="clear-nivel" onclick={() => activeNivel = null}>{$_('validations.showAll')}</button>
     </div>
   {/if}
 
@@ -269,7 +270,7 @@
       data={filteredResults}
       {expandedRow}
       onRowClick={(row, i) => expandedRow = expandedRow === i ? null : i}
-      emptyMessage="Nenhum resultado de validação"
+      emptyMessage={$_('validations.noResults')}
     >
       {#snippet expandSnippet(row)}
         <div class="expand-detail">
@@ -284,12 +285,12 @@
                 class="btn-incident"
                 {disabled}
                 onclick={(e) => handleCreateIncident(row, e)}
-                title={shouldDisableIncident(row) ? 'Sem inconsistências nesta execução — nada a registrar' : 'Criar incidente em Gestão de Incidentes'}
+                title={shouldDisableIncident(row) ? $_('validations.noInconsistenciesTooltip') : $_('validations.createIncidentTooltip')}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M12 5v14M5 12h14"/>
                 </svg>
-                {incidentPending[row.rule_id || row.critica_id] ? 'Criando…' : 'Criar Incidente'}
+                {incidentPending[row.rule_id || row.critica_id] ? $_('validations.creating') : $_('validations.createIncident')}
               </button>
             {/if}
           </div>
@@ -303,23 +304,23 @@
             {/if}
             {#if row.dqx_check_function}
               <span class="dqx-chip" title="DQX check function">
-                <span class="dqx-chip-label">função</span>
+                <span class="dqx-chip-label">{$_('validations.function')}</span>
                 <code>{row.dqx_check_function}</code>
               </span>
             {/if}
             {#if row.run_config_name}
               <span class="dqx-chip" title="DQX run_config_name (dataset binding)">
-                <span class="dqx-chip-label">dataset</span>
+                <span class="dqx-chip-label">{$_('validations.dataset')}</span>
                 <code>{row.run_config_name}</code>
               </span>
             {/if}
             {#if row.dqx_check_url}
-              <a class="studio-link" href={row.dqx_check_url} target="_blank" rel="noopener noreferrer">Editar regra no DQX Studio ↗</a>
+              <a class="studio-link" href={row.dqx_check_url} target="_blank" rel="noopener noreferrer">{$_('validations.editRuleInDqxStudio')} ↗</a>
             {/if}
           </div>
           <p class="expand-meta">
-            <span class="nivel-badge nivel-{row.nivel_verificacao}">Nível {row.nivel_verificacao}</span>
-            Dimensão R.18: {row.dimension_r18} ({row.dimension_name}) | Registros afetados: {row.affected_records?.toLocaleString('pt-BR')}
+            <span class="nivel-badge nivel-{row.nivel_verificacao}">{$_('validations.levelN', { values: { n: row.nivel_verificacao } })}</span>
+            {$_('validations.dimensionR18')}: {row.dimension_r18} ({row.dimension_name}) | {$_('validations.affectedRecords')}: {row.affected_records?.toLocaleString('pt-BR')}
           </p>
         </div>
       {/snippet}
@@ -333,10 +334,10 @@
     <span class="toast-msg">{toast.message}</span>
     {#if toast.href}
       <button type="button" class="toast-link" onclick={() => { const h = toast.href; toast = null; goto(h); }}>
-        {toast.hrefLabel || 'Abrir'}
+        {toast.hrefLabel || $_('validations.open')}
       </button>
     {/if}
-    <button type="button" class="toast-close" aria-label="Fechar" onclick={() => toast = null}>×</button>
+    <button type="button" class="toast-close" aria-label={$_('common.close')} onclick={() => toast = null}>×</button>
   </div>
 {/if}
 

@@ -14,6 +14,7 @@
   import { formatDateTime, formatDate } from '$lib/format.js';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { _ } from 'svelte-i18n';
 
   // --- Incidentes state ---
   // Esta página tem APENAS incidentes — as abas "Planos de Ação" e "Relatórios"
@@ -27,37 +28,37 @@
   let showDetailModal = $state(false);
   let selectedIncident = $state(null);
 
-  const STATUS_MAP = {
-    open: { label: 'Aberto', variant: 'error' },
-    in_progress: { label: 'Em Andamento', variant: 'warning' },
-    resolved: { label: 'Resolvido', variant: 'success' },
-    reopened: { label: 'Reaberto', variant: 'error' },
-  };
+  const STATUS_MAP = $derived.by(() => ({
+    open: { label: $_('governance.statusOpen'), variant: 'error' },
+    in_progress: { label: $_('governance.statusInProgress'), variant: 'warning' },
+    resolved: { label: $_('governance.statusResolved'), variant: 'success' },
+    reopened: { label: $_('governance.statusReopened'), variant: 'error' },
+  }));
 
-  const SEVERITY_MAP = {
-    high: { label: 'Alta', variant: 'error' },
-    medium: { label: 'Média', variant: 'warning' },
-    low: { label: 'Baixa', variant: 'success' },
-  };
+  const SEVERITY_MAP = $derived.by(() => ({
+    high: { label: $_('governance.severityHigh'), variant: 'error' },
+    medium: { label: $_('governance.severityMedium'), variant: 'warning' },
+    low: { label: $_('governance.severityLow'), variant: 'success' },
+  }));
 
-  const EVENT_TYPE_MAP = {
-    detected: { label: 'Detectado', color: 'var(--primary)' },
-    in_progress: { label: 'Em Andamento', color: 'var(--warning)' },
-    resolved: { label: 'Resolvido', color: 'var(--success)' },
-    reopened: { label: 'Reaberto', color: 'var(--error)' },
-    comment: { label: 'Comentário', color: 'var(--gray-400)' },
-  };
+  const EVENT_TYPE_MAP = $derived.by(() => ({
+    detected: { label: $_('governance.eventDetected'), color: 'var(--primary)' },
+    in_progress: { label: $_('governance.statusInProgress'), color: 'var(--warning)' },
+    resolved: { label: $_('governance.statusResolved'), color: 'var(--success)' },
+    reopened: { label: $_('governance.statusReopened'), color: 'var(--error)' },
+    comment: { label: $_('governance.eventComment'), color: 'var(--gray-400)' },
+  }));
 
-  const filterDefs = [
-    { key: 'status', label: 'Status', type: 'select', options: [
-      { value: 'open', label: 'Aberto' }, { value: 'in_progress', label: 'Em Andamento' },
-      { value: 'resolved', label: 'Resolvido' }, { value: 'reopened', label: 'Reaberto' }
+  const filterDefs = $derived.by(() => [
+    { key: 'status', label: $_('common.status'), type: 'select', options: [
+      { value: 'open', label: $_('governance.statusOpen') }, { value: 'in_progress', label: $_('governance.statusInProgress') },
+      { value: 'resolved', label: $_('governance.statusResolved') }, { value: 'reopened', label: $_('governance.statusReopened') }
     ]},
-    { key: 'severity', label: 'Severidade', type: 'select', options: [
-      { value: 'high', label: 'Alta' }, { value: 'medium', label: 'Média' }, { value: 'low', label: 'Baixa' }
+    { key: 'severity', label: $_('governance.severity'), type: 'select', options: [
+      { value: 'high', label: $_('governance.severityHigh') }, { value: 'medium', label: $_('governance.severityMedium') }, { value: 'low', label: $_('governance.severityLow') }
     ]},
-    { key: 'dimension_r18', label: 'Dimensão R.18', type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
-  ];
+    { key: 'dimension_r18', label: $_('governance.dimensionR18'), type: 'select', options: Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })) },
+  ]);
 
   // "Detectado por" renders as a compact badge that distinguishes auto-emitted
   // incidents (post-silver DQX job) from incidents created manually from
@@ -65,44 +66,44 @@
   function renderDetectedBy(v) {
     if (!v) return '<span class="inline-badge badge-neutral">-</span>';
     if (v === 'dqx:auto-emit' || v === 'system@dqx-pipeline' || v === 'dlt-pipeline') {
-      return '<span class="inline-badge badge-info" title="Auto-detectado pelo pipeline DQX pós-silver">DQX auto</span>';
+      return `<span class="inline-badge badge-info" title="${$_('governance.detectedByAutoTitle')}">DQX auto</span>`;
     }
     if (v.startsWith('manual:')) {
       const email = v.slice('manual:'.length);
-      return `<span class="inline-badge badge-neutral" title="Criado manualmente por ${email}">Manual · ${email}</span>`;
+      return `<span class="inline-badge badge-neutral" title="${$_('governance.detectedByManualTitle', { values: { email } })}">${$_('governance.detectedByManualLabel')} · ${email}</span>`;
     }
     return `<span class="inline-badge badge-neutral">${v}</span>`;
   }
 
   // "Regra DQX" links to DQX Studio when the row carries a check_name + studio_url.
-  function renderDqxCheck(_, row) {
+  function renderDqxCheck(_v, row) {
     const name = row?.dqx_check_name;
     if (!name) return '<span class="muted-cell">-</span>';
     const safeName = String(name).replace(/</g, '&lt;');
     if (row?.studio_url) {
       const safeUrl = String(row.studio_url).replace(/"/g, '&quot;');
-      return `<a class="dqx-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="Abrir no DQX Studio">${safeName} <span class="dqx-arrow">&#8599;</span></a>`;
+      return `<a class="dqx-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="${$_('governance.openInDqxStudio')}">${safeName} <span class="dqx-arrow">&#8599;</span></a>`;
     }
     return `<span class="muted-cell">${safeName}</span>`;
   }
 
-  const incidentColumns = [
-    { key: 'id', label: 'ID', sortable: true, width: '160px' },
-    { key: 'detected_at', label: 'Detectado', sortable: true, width: '160px', render: (v) => formatDateTime(v) },
-    { key: 'detected_by', label: 'Detectado por', sortable: true, width: '180px', render: renderDetectedBy },
-    { key: 'dqx_check_name', label: 'Regra DQX', sortable: true, width: '220px', render: renderDqxCheck },
-    { key: 'document', label: 'Doc', sortable: true, width: '60px' },
-    { key: 'dimension_name', label: 'Dimensão', sortable: true, width: '120px' },
-    { key: 'severity', label: 'Severidade', sortable: true, width: '100px', render: (v) => {
+  const incidentColumns = $derived.by(() => [
+    { key: 'id', label: $_('governance.colId'), sortable: true, width: '160px' },
+    { key: 'detected_at', label: $_('governance.colDetected'), sortable: true, width: '160px', render: (v) => formatDateTime(v) },
+    { key: 'detected_by', label: $_('governance.colDetectedBy'), sortable: true, width: '180px', render: renderDetectedBy },
+    { key: 'dqx_check_name', label: $_('governance.colDqxRule'), sortable: true, width: '220px', render: renderDqxCheck },
+    { key: 'document', label: $_('governance.colDoc'), sortable: true, width: '60px' },
+    { key: 'dimension_name', label: $_('governance.dimension'), sortable: true, width: '120px' },
+    { key: 'severity', label: $_('governance.severity'), sortable: true, width: '100px', render: (v) => {
       const s = SEVERITY_MAP[v] || { label: v, variant: 'neutral' };
       return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`;
     }},
-    { key: 'status', label: 'Status', sortable: true, width: '120px', render: (v) => {
+    { key: 'status', label: $_('common.status'), sortable: true, width: '120px', render: (v) => {
       const s = STATUS_MAP[v] || { label: v, variant: 'neutral' };
       return `<span class="inline-badge badge-${s.variant}">${s.label}</span>`;
     }},
-    { key: 'owner', label: 'Responsável', sortable: true },
-  ];
+    { key: 'owner', label: $_('governance.responsible'), sortable: true },
+  ]);
 
   // --- Data loading ---
   async function loadIrregularities() {
@@ -145,29 +146,29 @@
   };
   // Metadata para cada ação: rótulo PT-BR, ícone (SVG path) e variante de cor.
   // Usado pra renderizar os botões coloridos do action panel.
-  const TRANSITION_META = {
+  const TRANSITION_META = $derived.by(() => ({
     in_progress: {
-      label: 'Assumir',
-      hint:  'Você fica responsável por investigar e resolver',
+      label: $_('governance.transitionTakeLabel'),
+      hint:  $_('governance.transitionTakeHint'),
       // Person/check icon
       icon:  'M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
       variant: 'primary',
     },
     resolved: {
-      label: 'Marcar Resolvido',
-      hint:  'Você corrigiu a causa raiz da inconsistência',
+      label: $_('governance.transitionResolveLabel'),
+      hint:  $_('governance.transitionResolveHint'),
       // Check-circle
       icon:  'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
       variant: 'success',
     },
     reopened: {
-      label: 'Reabrir',
-      hint:  'A inconsistência voltou ou a resolução estava incompleta',
+      label: $_('governance.transitionReopenLabel'),
+      hint:  $_('governance.transitionReopenHint'),
       // Refresh arrows
       icon:  'M17.65 6.35A7.958 7.958 0 0012 4a8 8 0 00-7.93 7H2l3.89 3.89.07.14L10 11H7c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5c-1.92 0-3.58-1.09-4.43-2.67l-1.46 1.49C7.16 17.32 9.39 19 12 19a8 8 0 000-16c-2.21 0-4.21.9-5.65 2.35z',
       variant: 'warning',
     },
-  };
+  }));
   let transitionLoading = $state(false);
   let transitionError = $state('');
   // Comentário compartilhado entre os botões — capturado quando o usuário
@@ -192,7 +193,7 @@
       irregularities = irregularities.map(r => r.id === updated.id ? updated : r);
       actionComment = '';
     } catch (err) {
-      transitionError = err?.message || 'Falha ao atualizar status do incidente.';
+      transitionError = err?.message || $_('governance.transitionError');
     } finally {
       transitionLoading = false;
     }
@@ -234,16 +235,16 @@
 <div class="governance-page">
     <!-- KPI Cards -->
     <div class="kpi-grid">
-      <KpiCard title="Abertos" value={summary.total_open} status="error" />
-      <KpiCard title="Em Andamento" value={summary.total_in_progress} status="warning" />
-      <KpiCard title="Resolvidos" value={summary.total_resolved} status="success" />
-      <KpiCard title="Tempo Médio Resolução" value={summary.avg_resolution_days} unit=" dias" status="info" />
+      <KpiCard title={$_('governance.kpiOpen')} value={summary.total_open} status="error" />
+      <KpiCard title={$_('governance.kpiInProgress')} value={summary.total_in_progress} status="warning" />
+      <KpiCard title={$_('governance.kpiResolved')} value={summary.total_resolved} status="success" />
+      <KpiCard title={$_('governance.kpiAvgResolution')} value={summary.avg_resolution_days} unit={$_('governance.daysUnit')} status="info" />
     </div>
 
     <FilterBar filters={filterDefs} values={filterValues} onchange={handleFilter} onreset={resetFilters} />
 
     {#if loading}
-      <Spinner message="Carregando incidentes..." />
+      <Spinner message={$_('governance.loadingIncidents')} />
     {:else}
       <div class="card">
         <DataTable
@@ -255,35 +256,35 @@
           {#snippet expandSnippet(row)}
             <div class="incident-expand">
               <div class="expand-info">
-                <p><strong>Descrição:</strong> {row.description}</p>
-                {#if row.root_cause}<p><strong>Causa Raiz:</strong> {row.root_cause}</p>{/if}
-                {#if row.remedial_action}<p><strong>Ação Corretiva:</strong> {row.remedial_action}</p>{/if}
-                {#if row.impact}<p><strong>Impacto:</strong> {row.impact}</p>{/if}
+                <p><strong>{$_('governance.descriptionLabel')}</strong> {row.description}</p>
+                {#if row.root_cause}<p><strong>{$_('governance.rootCauseLabel')}</strong> {row.root_cause}</p>{/if}
+                {#if row.remedial_action}<p><strong>{$_('governance.remedialActionLabel')}</strong> {row.remedial_action}</p>{/if}
+                {#if row.impact}<p><strong>{$_('governance.impactLabel')}</strong> {row.impact}</p>{/if}
               </div>
               <div class="expand-lifecycle">
-                <strong>Ciclo de Vida:</strong>
+                <strong>{$_('governance.lifecycleLabel')}</strong>
                 <div class="lifecycle-grid">
                   <div class="lifecycle-item">
-                    <span class="lifecycle-label">Detectado por</span>
+                    <span class="lifecycle-label">{$_('governance.colDetectedBy')}</span>
                     <span class="lifecycle-value">{row.detected_by || '-'}</span>
                   </div>
                   <div class="lifecycle-item">
-                    <span class="lifecycle-label">Respondido por</span>
+                    <span class="lifecycle-label">{$_('governance.respondedBy')}</span>
                     <span class="lifecycle-value">{row.responded_by || '-'}</span>
                   </div>
                   <div class="lifecycle-item">
-                    <span class="lifecycle-label">Validado por</span>
+                    <span class="lifecycle-label">{$_('governance.validatedBy')}</span>
                     <span class="lifecycle-value">{row.validated_by || '-'}</span>
                   </div>
                   {#if row.escalated_by}
                     <div class="lifecycle-item">
-                      <span class="lifecycle-label">Escalado por</span>
+                      <span class="lifecycle-label">{$_('governance.escalatedBy')}</span>
                       <span class="lifecycle-value">{row.escalated_by}</span>
                     </div>
                   {/if}
                 </div>
               </div>
-              <button class="btn-detail" onclick={() => openDetail(row)}>Ver Timeline Completa</button>
+              <button class="btn-detail" onclick={() => openDetail(row)}>{$_('governance.viewFullTimeline')}</button>
             </div>
           {/snippet}
         </DataTable>
@@ -306,22 +307,22 @@
           {#if selectedIncident.dqx_check_name || selectedIncident.critica_id}
             <div class="detail-dqx">
               {#if selectedIncident.critica_id}
-                <span class="dqx-chip"><strong>Crítica:</strong> {selectedIncident.critica_id}</span>
+                <span class="dqx-chip"><strong>{$_('governance.criticaLabel')}</strong> {selectedIncident.critica_id}</span>
               {/if}
               {#if selectedIncident.run_config_name}
-                <span class="dqx-chip"><strong>Run config:</strong> {selectedIncident.run_config_name}</span>
+                <span class="dqx-chip"><strong>{$_('governance.runConfigLabel')}</strong> {selectedIncident.run_config_name}</span>
               {/if}
               {#if selectedIncident.dqx_check_name}
                 {#if selectedIncident.studio_url}
                   <a class="dqx-chip-link" href={selectedIncident.studio_url} target="_blank" rel="noopener noreferrer">
-                    <strong>Regra DQX:</strong> {selectedIncident.dqx_check_name} <span class="dqx-arrow">↗</span>
+                    <strong>{$_('governance.dqxRuleLabel')}</strong> {selectedIncident.dqx_check_name} <span class="dqx-arrow">↗</span>
                   </a>
                 {:else}
-                  <span class="dqx-chip"><strong>Regra DQX:</strong> {selectedIncident.dqx_check_name}</span>
+                  <span class="dqx-chip"><strong>{$_('governance.dqxRuleLabel')}</strong> {selectedIncident.dqx_check_name}</span>
                 {/if}
               {/if}
               {#if selectedIncident.affected_records != null}
-                <span class="dqx-chip"><strong>Registros afetados:</strong> {selectedIncident.affected_records}</span>
+                <span class="dqx-chip"><strong>{$_('governance.affectedRecordsLabel')}</strong> {selectedIncident.affected_records}</span>
               {/if}
             </div>
           {/if}
@@ -335,12 +336,12 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
                 </svg>
-                <span>Comentário <span class="optional-tag">(opcional)</span></span>
+                <span>{$_('governance.commentLabel')} <span class="optional-tag">{$_('governance.optionalTag')}</span></span>
               </label>
               <textarea
                 id="incident-comment"
                 class="action-comment"
-                placeholder="Descreva o motivo, ação tomada ou contexto desta transição. Vai pro timeline."
+                placeholder={$_('governance.commentPlaceholder')}
                 rows="2"
                 bind:value={actionComment}
                 disabled={transitionLoading}
@@ -365,7 +366,7 @@
                 {/each}
               </div>
               {#if transitionLoading}
-                <div class="action-status">Atualizando incidente…</div>
+                <div class="action-status">{$_('governance.updatingIncident')}</div>
               {/if}
               {#if transitionError}
                 <div class="action-error">{transitionError}</div>
@@ -374,7 +375,7 @@
           {/if}
 
           {#if selectedIncident.timeline?.length}
-            <h4 class="timeline-title">Timeline do Incidente</h4>
+            <h4 class="timeline-title">{$_('governance.incidentTimeline')}</h4>
             <div class="timeline">
               {#each selectedIncident.timeline as event}
                 {@const evtInfo = EVENT_TYPE_MAP[event.event_type] || { label: event.event_type, color: 'var(--gray-400)' }}

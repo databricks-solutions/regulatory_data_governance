@@ -1,12 +1,16 @@
 <script>
-  let { message = 'Carregando...' } = $props();
+  import { _ } from 'svelte-i18n';
+
+  let { message = null } = $props();
+
+  let displayMessage = $derived(message ?? $_('common.loading'));
 </script>
 
 <div class="spinner-wrap">
   <div class="spinner">
     <div class="spinner-ring"></div>
   </div>
-  {#if message}<p class="spinner-msg">{message}</p>{/if}
+  {#if displayMessage}<p class="spinner-msg">{displayMessage}</p>{/if}
 </div>
 
 <style>

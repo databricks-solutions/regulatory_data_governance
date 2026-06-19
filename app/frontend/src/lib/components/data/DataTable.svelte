@@ -1,5 +1,9 @@
 <script>
-  let { columns, data = [], sortable = true, onRowClick = null, emptyMessage = 'Nenhum dado encontrado', expandedRow = null, expandSnippet = null } = $props();
+  import { _ } from 'svelte-i18n';
+
+  let { columns, data = [], sortable = true, onRowClick = null, emptyMessage = null, expandedRow = null, expandSnippet = null } = $props();
+
+  let displayEmptyMessage = $derived(emptyMessage ?? $_('common.noData'));
 
   let sortColumn = $state(null);
   let sortDirection = $state('asc');
@@ -31,7 +35,7 @@
 
 <div class="table-container">
   {#if data.length === 0}
-    <div class="table-empty">{emptyMessage}</div>
+    <div class="table-empty">{displayEmptyMessage}</div>
   {:else}
     <table class="data-table">
       <thead>

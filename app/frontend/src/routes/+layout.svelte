@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
+  import { _ } from 'svelte-i18n';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import Header from '$lib/components/layout/Header.svelte';
   import BrandSettings from '$lib/components/ui/BrandSettings.svelte';
@@ -66,33 +67,33 @@
     writeCache(newConfig);
   }
 
-  // --- Page titles ---
+  // --- Page titles --- (values are i18n keys under `titles.*`)
   const pageTitles = {
-    '/': 'Painel de Conformidade R.18',
-    '/quality': 'Qualidade R.18',
-    '/validations': 'Críticas SCR',
-    '/lineage': 'Lineage',
-    '/xml': 'Visualizador XML',
-    '/genie': 'Consulta Natural',
-    '/dashboards/conformidade': 'Conformidade R.18',
-    '/dashboards/criticas': 'Monitor de Críticas',
-    '/reference': 'Dados de Referência',
-    '/governance': 'Gestão de Incidentes',
-    '/rules': 'Motor de Regras'
+    '/': 'titles.home',
+    '/quality': 'titles.quality',
+    '/validations': 'titles.validations',
+    '/lineage': 'titles.lineage',
+    '/xml': 'titles.xml',
+    '/genie': 'titles.genie',
+    '/dashboards/conformidade': 'titles.dashboardConformidade',
+    '/dashboards/criticas': 'titles.dashboardCriticas',
+    '/reference': 'titles.reference',
+    '/governance': 'titles.governance',
+    '/rules': 'titles.rules'
   };
 
   let currentTitle = $derived.by(() => {
     const path = $page.url.pathname;
-    if (pageTitles[path]) return pageTitles[path];
-    if (path.startsWith('/rules/catalogo/') && path.endsWith('/editar')) return 'Editar Regra';
-    if (path.startsWith('/rules/catalogo')) return 'Catálogo de Regras';
-    if (path.startsWith('/rules/criar/tabela-unica')) return 'Criar Regra';
-    if (path.startsWith('/rules/criar')) return 'Criar Regra';
-    if (path.startsWith('/rules/execucoes/')) return 'Detalhe da Execução';
-    if (path.startsWith('/rules/execucoes')) return 'Execuções';
-    if (path.startsWith('/rules')) return 'Motor de Regras';
-    if (path.startsWith('/quality/')) return 'Dimensao R.18';
-    return 'R.18 Compliance';
+    if (pageTitles[path]) return $_(pageTitles[path]);
+    if (path.startsWith('/rules/catalogo/') && path.endsWith('/editar')) return $_('titles.rulesEdit');
+    if (path.startsWith('/rules/catalogo')) return $_('titles.rulesCatalog');
+    if (path.startsWith('/rules/criar/tabela-unica')) return $_('titles.rulesCreate');
+    if (path.startsWith('/rules/criar')) return $_('titles.rulesCreate');
+    if (path.startsWith('/rules/execucoes/')) return $_('titles.rulesRunDetail');
+    if (path.startsWith('/rules/execucoes')) return $_('titles.rulesRuns');
+    if (path.startsWith('/rules')) return $_('titles.rules');
+    if (path.startsWith('/quality/')) return $_('titles.qualityDimension');
+    return $_('titles.fallback');
   });
 
   function handleDataBaseChange(val) {

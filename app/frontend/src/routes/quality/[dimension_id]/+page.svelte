@@ -8,9 +8,10 @@
   import { getQualityDimension } from '$lib/api.js';
   import { dimensionNames } from '$lib/theme.js';
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
 
   let dimId = $derived(parseInt($page.params.dimension_id));
-  let dimName = $derived(dimensionNames[dimId - 1] || `Dimensão ${dimId}`);
+  let dimName = $derived(dimensionNames[dimId - 1] || $_('quality.dimensionFallback', { values: { id: dimId } }));
 
   let data = $state({
     dimension: { id: 1, name: '', article: '', description: '' },
@@ -22,13 +23,13 @@
     trend: []
   });
 
-  const violationColumns = [
-    { key: 'rule_id', label: 'Regra', sortable: true, width: '100px' },
-    { key: 'rule_description', label: 'Descrição', sortable: true },
-    { key: 'severity', label: 'Severidade', sortable: true, width: '100px', render: (v) => `<span class="sev-${v}">${v}</span>` },
-    { key: 'count', label: 'Registros', sortable: true, width: '100px' },
-    { key: 'status', label: 'Status', sortable: true, width: '80px' }
-  ];
+  const violationColumns = $derived.by(() => [
+    { key: 'rule_id', label: $_('quality.colRule'), sortable: true, width: '100px' },
+    { key: 'rule_description', label: $_('quality.colDescription'), sortable: true },
+    { key: 'severity', label: $_('quality.colSeverity'), sortable: true, width: '100px', render: (v) => `<span class="sev-${v}">${v}</span>` },
+    { key: 'count', label: $_('quality.colRecords'), sortable: true, width: '100px' },
+    { key: 'status', label: $_('common.status'), sortable: true, width: '80px' }
+  ]);
 
   onMount(async () => {
     try {
@@ -38,11 +39,11 @@
   });
 
   let statusVariant = $derived(data.status === 'conforme' ? 'success' : data.status === 'atencao' ? 'warning' : 'error');
-  let statusLabel = $derived(data.status === 'conforme' ? 'Conforme' : data.status === 'atencao' ? 'Atenção' : 'Não Conforme');
+  let statusLabel = $derived(data.status === 'conforme' ? $_('quality.statusConforme') : data.status === 'atencao' ? $_('quality.statusAtencao') : $_('quality.statusNaoConforme'));
 </script>
 
 <div class="dim-detail">
-  <PageHeader breadcrumbs={[{ label: 'Qualidade R.18', href: '/quality' }, { label: dimName }]} />
+  <PageHeader breadcrumbs={[{ label: $_('quality.breadcrumbRoot'), href: '/quality' }, { label: dimName }]} />
 
   <!-- Dimension Header -->
   <div class="card dim-header-card">
@@ -53,7 +54,7 @@
     </div>
     <div class="dim-score-area">
       <div class="score-big">{data.score?.toFixed(1)}%</div>
-      <div class="score-target">Meta: {data.target?.toFixed(1)}%</div>
+      <div class="score-target">{$_('quality.target')}: {data.target?.toFixed(1)}%</div>
       <Badge label={statusLabel} variant={statusVariant} />
     </div>
   </div>
@@ -70,14 +71,14 @@
 
   <!-- Trend Chart -->
   <div class="card">
-    <div class="card-header">Tendência (6 meses)</div>
+    <div class="card-header">{$_('quality.trend6Months')}</div>
     <LineChart data={data.trend} targetValue={data.target} />
   </div>
 
   <!-- Violations Table -->
   <div class="card">
-    <div class="card-header">Violações Associadas</div>
-    <DataTable columns={violationColumns} data={data.violations} emptyMessage="Nenhuma violação encontrada" />
+    <div class="card-header">{$_('quality.associatedViolations')}</div>
+    <DataTable columns={violationColumns} data={data.violations} emptyMessage={$_('quality.noViolations')} />
   </div>
 </div>
 

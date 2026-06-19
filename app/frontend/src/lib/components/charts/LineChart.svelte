@@ -1,4 +1,6 @@
 <script>
+  import { _ } from 'svelte-i18n';
+
   let { data = [], width = 600, height = 280, xKey = 'month', yKey = 'score', targetValue = null, color = 'var(--primary)', showArea = true } = $props();
 
   // Auto-detect compact/sparkline mode when height is small
@@ -91,7 +93,7 @@
       />
       <rect x={width - padding.right + 4} y={scaleY(targetValue) - 9} width="38" height="18" rx="4" fill="var(--error-light)" />
       <text x={width - padding.right + 23} y={scaleY(targetValue) + 1} dominant-baseline="middle" text-anchor="middle" class="target-label">
-        Meta {targetValue}
+        {$_('charts.target', { values: { value: targetValue } })}
       </text>
     {/if}
   {/if}

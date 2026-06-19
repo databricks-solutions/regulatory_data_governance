@@ -1,54 +1,57 @@
 <script>
   import { page } from '$app/stores';
+  import { _ } from 'svelte-i18n';
   import DefaultLogo from '$lib/components/ui/DefaultLogo.svelte';
 
   let { collapsed = false, brandConfig = { name: 'RC18 StarterKit', logo_url: null } } = $props();
 
+  // `title` / `label` hold i18n keys resolved with $_ in the markup so the
+  // sidebar re-renders when the active locale changes.
   const sections = [
     {
       title: null,
       items: [
-        { label: 'Dashboard', href: '/', icon: 'grid' }
+        { label: 'nav.dashboard', href: '/', icon: 'grid' }
       ]
     },
     {
-      title: 'Monitoramento',
+      title: 'nav.sectionMonitoring',
       items: [
-        { label: 'Qualidade R.18', href: '/quality', icon: 'shield' },
-        { label: 'Críticas SCR', href: '/validations', icon: 'check' }
+        { label: 'nav.qualityR18', href: '/quality', icon: 'shield' },
+        { label: 'nav.validationsScr', href: '/validations', icon: 'check' }
       ]
     },
     {
-      title: 'Gestão de Regras',
+      title: 'nav.sectionRules',
       items: [
-        { label: 'Motor de Regras', href: '/rules', icon: 'engine' }
+        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine' }
       ]
     },
     {
-      title: 'Governança',
+      title: 'nav.sectionGovernance',
       items: [
-        { label: 'Gestão de Incidentes', href: '/governance', icon: 'alert' }
+        { label: 'nav.incidentManagement', href: '/governance', icon: 'alert' }
       ]
     },
     {
-      title: 'Exploração',
+      title: 'nav.sectionExploration',
       items: [
-        { label: 'Lineage', href: '/lineage', icon: 'flow' },
-        { label: 'Visualizador XML', href: '/xml', icon: 'code' },
-        { label: 'Consulta Natural', href: '/genie', icon: 'sparkle' }
+        { label: 'nav.lineage', href: '/lineage', icon: 'flow' },
+        { label: 'nav.xmlViewer', href: '/xml', icon: 'code' },
+        { label: 'nav.naturalQuery', href: '/genie', icon: 'sparkle' }
       ]
     },
     {
-      title: 'Painéis',
+      title: 'nav.sectionDashboards',
       items: [
-        { label: 'Conformidade R.18', href: '/dashboards/conformidade', icon: 'chart' },
-        { label: 'Monitor de Críticas', href: '/dashboards/criticas', icon: 'chart' }
+        { label: 'nav.complianceR18', href: '/dashboards/conformidade', icon: 'chart' },
+        { label: 'nav.validationsMonitor', href: '/dashboards/criticas', icon: 'chart' }
       ]
     },
     {
-      title: 'Referência',
+      title: 'nav.sectionReference',
       items: [
-        { label: 'Dados de Referência', href: '/reference', icon: 'book' }
+        { label: 'nav.referenceData', href: '/reference', icon: 'book' }
       ]
     }
   ];
@@ -97,14 +100,14 @@
   <nav class="sidebar-nav">
     {#each sections as section}
       {#if section.title && !collapsed}
-        <div class="nav-section-title">{section.title}</div>
+        <div class="nav-section-title">{$_(section.title)}</div>
       {/if}
       {#each section.items as item}
         <a
           href={item.href}
           class="nav-item"
           class:active={isActive(item.href, $page.url.pathname)}
-          title={collapsed ? item.label : ''}
+          title={collapsed ? $_(item.label) : ''}
         >
           <div class="nav-icon-wrapper" class:active={isActive(item.href, $page.url.pathname)}>
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -112,7 +115,7 @@
             </svg>
           </div>
           {#if !collapsed}
-            <span class="nav-label">{item.label}</span>
+            <span class="nav-label">{$_(item.label)}</span>
           {/if}
           {#if !collapsed && isActive(item.href, $page.url.pathname)}
             <div class="active-indicator"></div>
@@ -126,7 +129,7 @@
     <div class="env-badge">
       {#if !collapsed}
         <span class="env-dot"></span>
-        <span class="env-text">R.18 Compliance</span>
+        <span class="env-text">{$_('nav.envBadge')}</span>
       {:else}
         <span class="env-dot center"></span>
       {/if}
@@ -137,8 +140,8 @@
           <span>JV</span>
         </div>
         <div class="user-detail">
-          <div class="user-name">Analista</div>
-          <div class="user-role">Operacional</div>
+          <div class="user-name">{$_('nav.userName')}</div>
+          <div class="user-role">{$_('nav.userRole')}</div>
         </div>
         <svg class="user-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>

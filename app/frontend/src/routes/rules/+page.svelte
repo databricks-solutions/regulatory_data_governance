@@ -13,6 +13,7 @@
    * `onerror` covers true network/DNS errors.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { getBrandConfig } from '$lib/api.js';
   import { appState, setHeaderAction } from '$lib/stores.svelte.js';
 
@@ -89,8 +90,8 @@
   $effect(() => {
     if (configLoaded && studioUrl && !iframeBlocked) {
       setHeaderAction({
-        label: 'Abrir em nova aba ↗',
-        title: 'Abrir DQX Studio em nova aba',
+        label: $_('rules.openInNewTab'),
+        title: $_('rules.openStudioInNewTab'),
         onClick: openInNewTab
       });
     } else {
@@ -111,59 +112,53 @@
 
 <div class="rules-page">
   {#if !configLoaded}
-    <div class="loading-pane">Carregando…</div>
+    <div class="loading-pane">{$_('common.loading')}</div>
   {:else if showEmptyState}
     <section class="empty-state card">
-      <h3>DQX Studio ainda não está configurado</h3>
+      <h3>{$_('rules.emptyTitle')}</h3>
       <p>
-        O <strong>DQX Studio</strong> é a interface oficial do
+        {$_('rules.emptyDescPre')}<strong>DQX Studio</strong>{$_('rules.emptyDescMid1')}
         <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Databricks Labs DQX</a>
-        para criar, editar e monitorar regras de qualidade aplicadas no pipeline silver
-        (<code>${'{catalog}'}.quality.dqx_checks</code>). Ele é entregue como uma
-        <em>Databricks App</em> separada, mantida pela equipe DQX, e este acelerador
-        embute essa UI ao invés de duplicar a funcionalidade.
+        {$_('rules.emptyDescMid2')}
+        (<code>${'{catalog}'}.quality.dqx_checks</code>){$_('rules.emptyDescMid3')}
+        <em>Databricks App</em>{$_('rules.emptyDescPost')}
       </p>
       <p>
-        Para habilitar o módulo, faça o deploy do DQX Studio no seu workspace
-        seguindo o guia oficial em
+        {$_('rules.emptyEnablePre')}
         <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">{DOCS_URL}</a>
-        e configure a URL pública do app na variável de ambiente
+        {$_('rules.emptyEnableMid')}
         <code>DQX_STUDIO_URL</code>:
       </p>
       <ul class="steps">
         <li>
-          <strong>Local dev:</strong> defina <code>DQX_STUDIO_URL=https://&lt;dqx-studio-app&gt;.databricksapps.com</code>
-          em <code>.env</code> e reinicie o backend (<code>./run_local.sh</code>).
+          <strong>{$_('rules.stepLocalLabel')}</strong> {$_('rules.stepLocalPre')}<code>DQX_STUDIO_URL=https://&lt;dqx-studio-app&gt;.databricksapps.com</code>
+          {$_('rules.stepLocalMid')}<code>.env</code>{$_('rules.stepLocalPost')}<code>./run_local.sh</code>).
         </li>
         <li>
-          <strong>Deploy bundle:</strong> defina <code>DQX_STUDIO_URL</code> em
-          <code>resources/app.yml</code> (bloco <code>apps.config.env</code>) e
-          rode <code>databricks bundle deploy</code>.
+          <strong>{$_('rules.stepBundleLabel')}</strong> {$_('rules.stepBundlePre')}<code>DQX_STUDIO_URL</code>{$_('rules.stepBundleMid1')}
+          <code>resources/app.yml</code>{$_('rules.stepBundleMid2')}<code>apps.config.env</code>){$_('rules.stepBundleMid3')}
+          <code>databricks bundle deploy</code>.
         </li>
       </ul>
       <p class="hint">
-        Após configurar a URL, esta página passa a renderizar o DQX Studio embarcado.
-        Caso o navegador rejeite o embed (políticas X-Frame-Options/CSP do destino),
-        oferecemos um botão para abrir em nova aba.
+        {$_('rules.emptyHint')}
       </p>
     </section>
   {:else if showFallback}
     <section class="fallback-state card">
-      <h3>O DQX Studio não pôde ser exibido embarcado</h3>
+      <h3>{$_('rules.fallbackTitle')}</h3>
       <p>
-        Este navegador bloqueou o iframe do DQX Studio — provavelmente por causa
-        das políticas de segurança <code>X-Frame-Options</code> ou
-        <code>Content-Security-Policy</code> configuradas no destino
-        (Databricks Apps usa cabeçalhos restritivos por padrão).
+        {$_('rules.fallbackDescPre')}<code>X-Frame-Options</code> {$_('rules.fallbackDescOr')}
+        <code>Content-Security-Policy</code>{$_('rules.fallbackDescPost')}
       </p>
       <p>
-        Abra o DQX Studio em uma nova aba para gerenciar suas regras DQX:
+        {$_('rules.fallbackOpenPrompt')}
       </p>
       <button type="button" class="btn-primary" onclick={openInNewTab}>
-        Abrir DQX Studio
+        {$_('rules.openStudio')}
       </button>
       <p class="hint">
-        Endpoint configurado: <code>{studioUrl}</code>
+        {$_('rules.endpointConfigured')} <code>{studioUrl}</code>
       </p>
     </section>
   {:else if showIframe}
@@ -172,7 +167,7 @@
         <iframe
           class="studio-frame"
           src={studioEntryUrl}
-          title="DQX Studio — Regras Ativas"
+          title={$_('rules.iframeTitle')}
           onload={handleIframeLoad}
           onerror={handleIframeError}
           referrerpolicy="no-referrer-when-downgrade"

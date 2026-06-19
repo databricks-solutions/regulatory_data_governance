@@ -1,4 +1,6 @@
 <script>
+  import { _ } from 'svelte-i18n';
+
   let { filters = [], values = {}, onchange, onreset } = $props();
 </script>
 
@@ -12,7 +14,7 @@
           value={values[f.key] || ''}
           onchange={(e) => onchange(f.key, e.target.value || null)}
         >
-          <option value="">Todos</option>
+          <option value="">{$_('ui.filterAll')}</option>
           {#each f.options as opt}
             <option value={opt.value}>{opt.label}</option>
           {/each}
@@ -29,7 +31,7 @@
     </div>
   {/each}
   {#if onreset}
-    <button class="filter-reset" onclick={onreset}>Limpar Filtros</button>
+    <button class="filter-reset" onclick={onreset}>{$_('ui.clearFilters')}</button>
   {/if}
 </div>
 
