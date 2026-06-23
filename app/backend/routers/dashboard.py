@@ -31,39 +31,39 @@ router = APIRouter()
 # --- Mock data ---
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2.
-# Reflete o seed atual: apenas II (Acurácia, 1 regra) e III (Adaptabilidade,
-# 3 regras) têm regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml.
-# As demais ficam em `sem_regras` (score 0) e NÃO entram no compliance médio.
+# Todas as 12 dimensões medidas — scores/status alinhados 1:1 com os mocks de
+# quality.py (_MOCK_SCORES/_MOCK_STATUSES) para que o RadarChart da home e o
+# scorecard de /quality contem a mesma história.
 _MOCK_DIMENSIONS = [
-    DimensionScore(id=1, name="Acessibilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=2, name="Acurácia", score=92.5, status="atencao"),
-    DimensionScore(id=3, name="Adaptabilidade", score=98.0, status="conforme"),
-    DimensionScore(id=4, name="Clareza", score=0.0, status="sem_regras"),
-    DimensionScore(id=5, name="Comparabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=6, name="Completude", score=0.0, status="sem_regras"),
-    DimensionScore(id=7, name="Confiabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=8, name="Consistência", score=0.0, status="sem_regras"),
-    DimensionScore(id=9, name="Integridade", score=0.0, status="sem_regras"),
-    DimensionScore(id=10, name="Rastreabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=11, name="Relevância", score=0.0, status="sem_regras"),
-    DimensionScore(id=12, name="Tempestividade", score=0.0, status="sem_regras"),
+    DimensionScore(id=1, name="Acessibilidade", score=91.0, status="conforme"),
+    DimensionScore(id=2, name="Acurácia", score=92.0, status="atencao"),
+    DimensionScore(id=3, name="Adaptabilidade", score=96.5, status="conforme"),
+    DimensionScore(id=4, name="Clareza", score=93.5, status="atencao"),
+    DimensionScore(id=5, name="Comparabilidade", score=95.5, status="conforme"),
+    DimensionScore(id=6, name="Completude", score=83.0, status="nao_conforme"),
+    DimensionScore(id=7, name="Confiabilidade", score=90.5, status="conforme"),
+    DimensionScore(id=8, name="Consistência", score=87.0, status="atencao"),
+    DimensionScore(id=9, name="Integridade", score=98.0, status="conforme"),
+    DimensionScore(id=10, name="Rastreabilidade", score=91.5, status="conforme"),
+    DimensionScore(id=11, name="Relevância", score=94.0, status="atencao"),
+    DimensionScore(id=12, name="Tempestividade", score=96.0, status="conforme"),
 ]
 
 # English mirror of _MOCK_DIMENSIONS — same ids/scores/status codes, only the
 # human-readable `name` is translated (see GLOSSARY in CLAUDE/spec).
 _MOCK_DIMENSIONS_EN = [
-    DimensionScore(id=1, name="Accessibility", score=0.0, status="sem_regras"),
-    DimensionScore(id=2, name="Accuracy", score=92.5, status="atencao"),
-    DimensionScore(id=3, name="Adaptability", score=98.0, status="conforme"),
-    DimensionScore(id=4, name="Clarity", score=0.0, status="sem_regras"),
-    DimensionScore(id=5, name="Comparability", score=0.0, status="sem_regras"),
-    DimensionScore(id=6, name="Completeness", score=0.0, status="sem_regras"),
-    DimensionScore(id=7, name="Reliability", score=0.0, status="sem_regras"),
-    DimensionScore(id=8, name="Consistency", score=0.0, status="sem_regras"),
-    DimensionScore(id=9, name="Integrity", score=0.0, status="sem_regras"),
-    DimensionScore(id=10, name="Traceability", score=0.0, status="sem_regras"),
-    DimensionScore(id=11, name="Relevance", score=0.0, status="sem_regras"),
-    DimensionScore(id=12, name="Timeliness", score=0.0, status="sem_regras"),
+    DimensionScore(id=1, name="Accessibility", score=91.0, status="conforme"),
+    DimensionScore(id=2, name="Accuracy", score=92.0, status="atencao"),
+    DimensionScore(id=3, name="Adaptability", score=96.5, status="conforme"),
+    DimensionScore(id=4, name="Clarity", score=93.5, status="atencao"),
+    DimensionScore(id=5, name="Comparability", score=95.5, status="conforme"),
+    DimensionScore(id=6, name="Completeness", score=83.0, status="nao_conforme"),
+    DimensionScore(id=7, name="Reliability", score=90.5, status="conforme"),
+    DimensionScore(id=8, name="Consistency", score=87.0, status="atencao"),
+    DimensionScore(id=9, name="Integrity", score=98.0, status="conforme"),
+    DimensionScore(id=10, name="Traceability", score=91.5, status="conforme"),
+    DimensionScore(id=11, name="Relevance", score=94.0, status="atencao"),
+    DimensionScore(id=12, name="Timeliness", score=96.0, status="conforme"),
 ]
 
 
@@ -397,7 +397,7 @@ async def get_dashboard_embed(key: str):
         return DashboardEmbed(
             dashboard_id=real_id,
             dashboard_name=name,
-            embed_url=f"{host}/explore/genie/{real_id}?o={workspace_id}",
+            embed_url=f"{host}/embed/genie/rooms/{real_id}?o={workspace_id}",
             embed_token="",
             token_expires_at=datetime.now(timezone.utc).isoformat(),
         )

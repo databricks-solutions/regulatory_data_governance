@@ -239,6 +239,8 @@
     "colRule": "Regra",
     "colSeverity": "Severidade",
     "dimensionFallback": "Dimensão {id}",
+    "metricComplianceRate": "Taxa de Conformidade",
+    "metricNonCompliantRecords": "Registros Não Conformes",
     "noViolations": "Nenhuma violação encontrada",
     "statusAtencao": "Atenção",
     "statusConforme": "Conforme",
@@ -247,7 +249,11 @@
     "tabByDimension": "Por Dimensão",
     "tabByStatus": "Por Status",
     "target": "Meta",
-    "trend6Months": "Tendência (6 meses)"
+    "trend6Months": "Tendência (6 meses)",
+    "trendBestLabel": "Melhor mês",
+    "trendChangeLabel": "Variação (6m)",
+    "trendLatestLabel": "Atual",
+    "trendVsTargetLabel": "vs Meta"
   },
   "reconciliation": {
     "exec": "Exec",
@@ -404,7 +410,7 @@
     "defaultFileName": "arquivo.xml",
     "fieldValidation": "Validação de Campos",
     "selectFile": "Selecionar Arquivo",
-    "uploadSub": "SCR 3040 / 3050 | Max: 500MB",
+    "uploadSub": "DOC 3040 / 3050 | Max: 500MB",
     "uploadTitle": "Arraste o arquivo XML ou clique para selecionar",
     "uploadingFile": "Carregando arquivo XML...",
     "validateXsd": "Validar contra XSD",

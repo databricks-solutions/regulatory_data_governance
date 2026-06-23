@@ -11,6 +11,7 @@
   let error = $state('');
   let isDatabricksHost = $state(false);
   let iframeError = $state(false);
+  let notConfigured = $state(false);
 
   const DASHBOARD_KEYS = ['conformidade', 'criticas', 'genie'];
   function dashboardTitle(key) {
@@ -82,6 +83,10 @@
         embedUrl = data.embed_url;
         dashboardId = data.dashboard_id || '';
         publishedUrl = buildPublishedFromEmbed(dashboardKey, data.embed_url);
+        // No dashboard ID configured (e.g. demo/mock bundle) — embedding an
+        // empty ID renders Databricks' "This dashboard is unavailable" page.
+        // Show the friendly placeholder instead of a broken iframe.
+        notConfigured = !dashboardId;
         loading = false;
       })
       .catch(() => {
@@ -94,7 +99,7 @@
 <div class="embed-wrap">
   {#if loading}
     <Spinner message={$_('dashboardEmbed.loading')} />
-  {:else if error === 'local'}
+  {:else if error === 'local' || notConfigured}
     <div class="embed-placeholder local-preview">
       <div class="placeholder-icon">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.2">
@@ -147,7 +152,7 @@
         width="100%"
         height="100%"
         frameborder="0"
-        allow="fullscreen"
+        allow="clipboard-write; fullscreen"
       ></iframe>
     </div>
   {/if}

@@ -98,8 +98,8 @@
           <p class="upload-sub">{$_('xml.uploadSub')}</p>
           <div class="upload-controls">
             <select class="type-select" bind:value={docType}>
-              <option value="3040">SCR 3040</option>
-              <option value="3050">SCR 3050</option>
+              <option value="3040">DOC 3040</option>
+              <option value="3050">DOC 3050</option>
             </select>
             <label class="file-btn">
               {$_('xml.selectFile')}

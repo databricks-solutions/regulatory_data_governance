@@ -82,18 +82,30 @@ def _safe_dim_int(roman_or_int) -> int:
         return roman_or_int
     return _DIM_ROMAN_TO_INT.get(str(roman_or_int), 0)
 
-# Mock alinhado ao seed atual: apenas II (Acurácia, score=92.0, 1 regra) e III
-# (Adaptabilidade, score=96.5, 3 regras) têm regras DQX vinculadas — demais
-# dimensões ficam com score=None (sem dados) e status='sem_regras'. A UI
-# (DimensionCard.svelte) renderiza score=None como "—" e badge "Sem regras",
-# diferenciando "não medido" de "0% conforme".
-_MOCK_SCORES: list[float | None] = [None, 92.0, 96.5, None, None, None, None, None, None, None, None, None]
+# Mock com TODAS as 12 dimensões R.18 medidas (regras DQX vinculadas), dando uma
+# visão de scorecard completa na demo. Distribuição proposital: 7 conformes,
+# 4 em atenção e 1 não-conforme (Completude), para exercitar todos os badges e o
+# RadarChart. Status segue a mesma regra do real-mode:
+#   conforme: score >= target | atencao: target-10 <= score < target | nao_conforme: < target-10
+# (Para reverter ao cenário "só II e III medidas", basta voltar score=None +
+#  status='sem_regras' nas demais — a UI renderiza None como "—" / "Sem regras".)
+_MOCK_SCORES: list[float | None] = [91.0, 92.0, 96.5, 93.5, 95.5, 83.0, 90.5, 87.0, 98.0, 91.5, 94.0, 96.0]
 _MOCK_TARGETS = [90.0, 95.0, 90.0, 95.0, 95.0, 95.0, 90.0, 90.0, 85.0, 90.0, 95.0, 95.0]
-_MOCK_STATUSES = ["sem_regras", "atencao", "conforme", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras"]
-# Regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml por dimensao_id.
+_MOCK_STATUSES = ["conforme", "atencao", "conforme", "atencao", "conforme", "nao_conforme", "conforme", "atencao", "conforme", "conforme", "atencao", "conforme"]
+# Regras vinculadas por dimensao_id (nomes no padrão snake_case das checks DQX).
 _MOCK_RULES: dict[int, list[str]] = {
+    1: ["prazo_disponibilizacao_valido", "formato_arquivo_suportado"],
     2: ["dia_atraso_nao_negativo"],
     3: ["autorzc_in_dominio", "porte_cli_in_dominio_por_tipo", "tp_ctrl_in_dominio"],
+    4: ["descricao_modalidade_preenchida", "campo_texto_sem_caractere_invalido"],
+    5: ["saldo_comparavel_periodo_anterior", "modalidade_equivalencia_3050"],
+    6: ["ipoc_nao_nulo", "cliente_obrigatorio_preenchido", "garantia_vinculada_operacao"],
+    7: ["saldo_revisado_dentro_tolerancia", "valor_inicial_consistente"],
+    8: ["cnpj_cpf_formato_valido", "uf_in_dominio", "data_contratacao_anterior_vencimento"],
+    9: ["hash_documento_integro", "assinatura_digital_valida"],
+    10: ["origem_dado_identificada", "ipoc_rastreavel"],
+    11: ["campo_obrigatorio_regulatorio_presente"],
+    12: ["envio_dentro_prazo_bacen", "data_base_calendario_util"],
 }
 
 # Locale-aware free-text template for the mock violation rule_description.

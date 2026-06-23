@@ -1,0 +1,686 @@
+{
+  "datasets": [
+    {
+      "name": "ds_incidents_por_dimensao",
+      "displayName": "Incidents by R.18 Dimension",
+      "queryLines": [
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  COALESCE(i.documento, '—') AS documento, ",
+        "  COALESCE(i.severidade, '—') AS severidade, ",
+        "  COUNT(i.incident_id) AS total_incidentes, ",
+        "  SUM(CASE WHEN i.status IS NOT NULL AND i.status NOT IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) AS abertos ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN IDENTIFIER(:catalog || '.governance.incidents') i ON i.dimensao_r18 = d.dimensao_id ",
+        "GROUP BY d.dimensao_id, d.nome, i.documento, i.severidade ",
+        "ORDER BY d.dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_funil_status",
+      "displayName": "Incident Lifecycle Funnel",
+      "queryLines": [
+        "SELECT ",
+        "  status, ",
+        "  COUNT(*) AS qtd_incidentes ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "GROUP BY status ",
+        "ORDER BY CASE status ",
+        "  WHEN 'DETECTED' THEN 1 ",
+        "  WHEN 'ASSIGNED' THEN 2 ",
+        "  WHEN 'RESPONDED' THEN 3 ",
+        "  WHEN 'ESCALATED' THEN 4 ",
+        "  WHEN 'RESOLVED' THEN 5 ",
+        "  WHEN 'VALIDATED' THEN 6 ",
+        "  WHEN 'REOPENED' THEN 7 ",
+        "  ELSE 99 END"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_top_violations",
+      "displayName": "Top 20 Incidents by Violation Rate",
+      "queryLines": [
+        "SELECT ",
+        "  i.critica_id, ",
+        "  i.check_name, ",
+        "  i.documento, ",
+        "  d.nome AS dimensao, ",
+        "  i.severidade, ",
+        "  i.status, ",
+        "  i.affected_records, ",
+        "  i.total_records, ",
+        "  ROUND(i.taxa_violacao_pct, 2) AS taxa_violacao_pct, ",
+        "  i.owner, ",
+        "  i.detected_at ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') i ",
+        "LEFT JOIN IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ON d.dimensao_id = i.dimensao_r18 ",
+        "WHERE i.status NOT IN ('RESOLVED', 'VALIDATED') ",
+        "ORDER BY i.taxa_violacao_pct DESC NULLS LAST ",
+        "LIMIT 20"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_kpi_tmr",
+      "displayName": "KPI Mean Time to Resolution (hours)",
+      "queryLines": [
+        "SELECT ",
+        "  ROUND(AVG(timestampdiff(HOUR, detected_at, resolved_at)), 1) AS tmr_horas ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE status IN ('RESOLVED', 'VALIDATED') ",
+        "  AND detected_at IS NOT NULL AND resolved_at IS NOT NULL ",
+        "  AND detected_at >= add_months(current_date(), -3)"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_kpi_bloqueantes",
+      "displayName": "KPI Open Blocking Incidents",
+      "queryLines": [
+        "SELECT COUNT(*) AS bloqueantes_abertos ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE severidade = 'BLOQUEANTE' ",
+        "  AND status NOT IN ('RESOLVED', 'VALIDATED')"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_kpi_taxa_resolucao",
+      "displayName": "KPI Resolution Rate (last 30 days)",
+      "queryLines": [
+        "SELECT ",
+        "  ROUND(SUM(CASE WHEN status IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS taxa_resolucao_pct ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "WHERE detected_at >= current_date() - INTERVAL 30 DAYS"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_tendencia_mensal",
+      "displayName": "Monthly Trend: Detected vs Resolved",
+      "queryLines": [
+        "WITH base AS ( ",
+        "  SELECT ",
+        "    date_trunc('MONTH', detected_at) AS mes, ",
+        "    SUM(1) AS detectados, ",
+        "    SUM(CASE WHEN status IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) AS resolvidos ",
+        "  FROM IDENTIFIER(:catalog || '.governance.incidents') ",
+        "  WHERE detected_at >= add_months(current_date(), -6) ",
+        "  GROUP BY date_trunc('MONTH', detected_at) ",
+        ") ",
+        "SELECT mes, 'Detectados' AS tipo, detectados AS qtd FROM base ",
+        "UNION ALL ",
+        "SELECT mes, 'Resolvidos' AS tipo, resolvidos AS qtd FROM base ",
+        "ORDER BY mes, tipo"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_regras_por_dimensao",
+      "displayName": "DQX Rules Linked by R.18 Dimension",
+      "queryLines": [
+        "WITH rule_dims AS ( ",
+        "  SELECT ",
+        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
+        "  LATERAL VIEW explode( ",
+        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
+        "  ) AS chk ",
+        "  WHERE status IN ('active', 'approved') ",
+        "), dim_rules AS ( ",
+        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
+        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
+        "  GROUP BY dimensao_r18 ",
+        ") ",
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  COALESCE(dr.rules_count, 0) AS rules_count, ",
+        "  CASE WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ELSE 'COM REGRAS' END AS estado_regras ",
+        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
+        "LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
+        "ORDER BY d.dimensao_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+          }
+        },
+        {
+          "displayName": "dqx_schema",
+          "keyword": "dqx_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {"dataType": "STRING", "values": [{"value": "dqx_catalog.dqx_app"}]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_heatmap_dimensao_doc",
+      "displayName": "Heatmap Dimension x Document",
+      "queryLines": [
+        "SELECT ",
+        "  d.dimensao_id, ",
+        "  d.nome AS dimensao, ",
+        "  i.documento, ",
+        "  COUNT(*) AS qtd_incidentes ",
+        "FROM IDENTIFIER(:catalog || '.governance.incidents') i ",
+        "JOIN IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ON d.dimensao_id = i.dimensao_r18 ",
+        "GROUP BY d.dimensao_id, d.nome, i.documento ",
+        "ORDER BY d.dimensao_id, i.documento"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [{"value": "rc18_catalog"}]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "visao-operacional",
+      "displayName": "Operational View",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": ["## Quality Incident Monitor — R.18 Dimensions"]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": ["Lifecycle of incidents raised by DQX Studio · source: governance.incidents · dimensions without linked DQX rules are highlighted"]
+            }
+          },
+          "position": {"x": 0, "y": 1, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "kpi-tmr",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_tmr",
+                "fields": [{"name": "tmr_horas", "expression": "`tmr_horas`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "tmr_horas", "displayName": "MTTR (h)"}
+              },
+              "frame": {"showTitle": true, "title": "Mean Time to Resolution (h)"}
+            }
+          },
+          "position": {"x": 0, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-bloqueantes",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_bloqueantes",
+                "fields": [{"name": "bloqueantes_abertos", "expression": "`bloqueantes_abertos`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "bloqueantes_abertos", "displayName": "Open Blocking"}
+              },
+              "frame": {"showTitle": true, "title": "Open Blocking Incidents"}
+            }
+          },
+          "position": {"x": 2, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi-taxa-resolucao",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_kpi_taxa_resolucao",
+                "fields": [{"name": "taxa_resolucao_pct", "expression": "`taxa_resolucao_pct`"}],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "taxa_resolucao_pct", "displayName": "Resolution Rate (%)"}
+              },
+              "frame": {"showTitle": true, "title": "Resolution Rate (last 30 days)"}
+            }
+          },
+          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "section-funil",
+            "multilineTextboxSpec": {
+              "lines": ["### Lifecycle Funnel"]
+            }
+          },
+          "position": {"x": 0, "y": 5, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-funil",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_funil_status",
+                "fields": [
+                  {"name": "status", "expression": "`status`"},
+                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"},
+                "y": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incident Count"}
+              },
+              "frame": {"showTitle": true, "title": "Incidents by Status (all periods)"}
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 3, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "bar-incidents-por-dimensao",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_incidents_por_dimensao",
+                "fields": [
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "sum(abertos)", "expression": "SUM(`abertos`)"},
+                  {"name": "severidade", "expression": "`severidade`"}
+                ],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
+                "y": {"fieldName": "sum(abertos)", "scale": {"type": "quantitative"}, "displayName": "Open"},
+                "color": {"fieldName": "severidade", "scale": {"type": "categorical"}, "displayName": "Severity"}
+              },
+              "frame": {"showTitle": true, "title": "Open Incidents by R.18 Dimension"}
+            }
+          },
+          "position": {"x": 3, "y": 6, "width": 3, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-tendencia",
+            "multilineTextboxSpec": {
+              "lines": ["### Detected vs Resolved (Last 6 Months)"]
+            }
+          },
+          "position": {"x": 0, "y": 11, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "line-trend",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_tendencia_mensal",
+                "fields": [
+                  {"name": "mes", "expression": "`mes`"},
+                  {"name": "qtd", "expression": "`qtd`"},
+                  {"name": "tipo", "expression": "`tipo`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Month"},
+                "y": {"fieldName": "qtd", "scale": {"type": "quantitative"}, "displayName": "Incident Count"},
+                "color": {"fieldName": "tipo", "scale": {"type": "categorical"}, "displayName": "Type"}
+              },
+              "frame": {"showTitle": true, "title": "Detected vs Resolved by Month"}
+            }
+          },
+          "position": {"x": 0, "y": 12, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-heatmap",
+            "multilineTextboxSpec": {
+              "lines": ["### Concentration by Dimension x Document"]
+            }
+          },
+          "position": {"x": 0, "y": 17, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "heatmap-dim-doc",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_heatmap_dimensao_doc",
+                "fields": [
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "documento", "expression": "`documento`"},
+                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Document"},
+                "y": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
+                "color": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incidents"}
+              },
+              "frame": {"showTitle": true, "title": "Incidents by Dimension x Document"}
+            }
+          },
+          "position": {"x": 0, "y": 18, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "section-top-violations",
+            "multilineTextboxSpec": {
+              "lines": ["### Top 20 Open Incidents by Violation Rate"]
+            }
+          },
+          "position": {"x": 0, "y": 23, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "table-top-violations",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_top_violations",
+                "fields": [
+                  {"name": "critica_id", "expression": "`critica_id`"},
+                  {"name": "check_name", "expression": "`check_name`"},
+                  {"name": "documento", "expression": "`documento`"},
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "severidade", "expression": "`severidade`"},
+                  {"name": "status", "expression": "`status`"},
+                  {"name": "affected_records", "expression": "`affected_records`"},
+                  {"name": "total_records", "expression": "`total_records`"},
+                  {"name": "taxa_violacao_pct", "expression": "`taxa_violacao_pct`"},
+                  {"name": "owner", "expression": "`owner`"},
+                  {"name": "detected_at", "expression": "`detected_at`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "critica_id", "displayName": "Validation"},
+                  {"fieldName": "check_name", "displayName": "Check"},
+                  {"fieldName": "documento", "displayName": "Document"},
+                  {"fieldName": "dimensao", "displayName": "Dimension"},
+                  {"fieldName": "severidade", "displayName": "Severity"},
+                  {"fieldName": "status", "displayName": "Status"},
+                  {"fieldName": "affected_records", "displayName": "Affected"},
+                  {"fieldName": "total_records", "displayName": "Total"},
+                  {"fieldName": "taxa_violacao_pct", "displayName": "Rate (%)"},
+                  {"fieldName": "owner", "displayName": "Owner"},
+                  {"fieldName": "detected_at", "displayName": "Detected At"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Top 20 Open Incidents"}
+            }
+          },
+          "position": {"x": 0, "y": 24, "width": 6, "height": 8}
+        },
+        {
+          "widget": {
+            "name": "section-regras",
+            "multilineTextboxSpec": {
+              "lines": ["### DQX Rule Coverage by R.18 Dimension"]
+            }
+          },
+          "position": {"x": 0, "y": 32, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "bar-regras-por-dimensao",
+            "queries": [{
+              "name": "main_query",
+              "query": {
+                "datasetName": "ds_regras_por_dimensao",
+                "fields": [
+                  {"name": "dimensao", "expression": "`dimensao`"},
+                  {"name": "rules_count", "expression": "`rules_count`"},
+                  {"name": "estado_regras", "expression": "`estado_regras`"}
+                ],
+                "disaggregated": true
+              }
+            }],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
+                "y": {"fieldName": "rules_count", "scale": {"type": "quantitative"}, "displayName": "DQX Rule Count"},
+                "color": {"fieldName": "estado_regras", "scale": {"type": "categorical"}, "displayName": "State"}
+              },
+              "frame": {"showTitle": true, "title": "DQX rules linked to each dimension (SEM REGRAS = 0)"}
+            }
+          },
+          "position": {"x": 0, "y": 33, "width": 6, "height": 5}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-documento",
+            "queries": [{
+              "name": "ds_incidents_por_dimensao_documento",
+              "query": {
+                "datasetName": "ds_incidents_por_dimensao",
+                "fields": [{"name": "documento", "expression": "`documento`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "documento",
+                  "displayName": "Document",
+                  "queryName": "ds_incidents_por_dimensao_documento"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Document"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-severidade",
+            "queries": [{
+              "name": "ds_incidents_por_dimensao_severidade",
+              "query": {
+                "datasetName": "ds_incidents_por_dimensao",
+                "fields": [{"name": "severidade", "expression": "`severidade`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "severidade",
+                  "displayName": "Severity",
+                  "queryName": "ds_incidents_por_dimensao_severidade"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Severity"}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter-dimensao",
+            "queries": [{
+              "name": "ds_incidents_por_dimensao_dimensao",
+              "query": {
+                "datasetName": "ds_incidents_por_dimensao",
+                "fields": [{"name": "dimensao", "expression": "`dimensao`"}],
+                "disaggregated": false
+              }
+            }],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{
+                  "fieldName": "dimensao",
+                  "displayName": "Dimension",
+                  "queryName": "ds_incidents_por_dimensao_dimensao"
+                }]
+              },
+              "frame": {"showTitle": true, "title": "Dimension"}
+            }
+          },
+          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,16 @@
 
   let statusInfo = $derived(statusColors[dimension.status] || statusColors.pendente);
   let trendValues = $derived((dimension.trend || []).map(t => t.score));
+
+  // Status label comes from i18n (statusColors only provides the color), so it
+  // follows the active locale instead of the hardcoded pt-BR label.
+  const STATUS_LABEL_KEYS = {
+    conforme: 'quality.statusConforme',
+    atencao: 'quality.statusAtencao',
+    nao_conforme: 'quality.statusNaoConforme',
+    sem_regras: 'quality.statusSemRegras'
+  };
+  let statusLabel = $derived($_(STATUS_LABEL_KEYS[dimension.status] || 'quality.statusNaoConforme'));
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -27,7 +37,7 @@
     {#if dimension.status === 'sem_regras'}
       <Badge label={$_('dimensionCard.noRules')} variant="default" />
     {:else}
-      <Badge label={statusInfo.label} variant={dimension.status === 'conforme' ? 'success' : dimension.status === 'atencao' ? 'warning' : 'error'} />
+      <Badge label={statusLabel} variant={dimension.status === 'conforme' ? 'success' : dimension.status === 'atencao' ? 'warning' : 'error'} />
     {/if}
     {#if trendValues.length > 1}
       <SparkLine values={trendValues} color={statusInfo.color} />

@@ -38,7 +38,7 @@
   });
 
   function formatMonth(m) {
-    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const months = $_('header.months').split(',');
     const parts = m.split('-');
     return months[parseInt(parts[1]) - 1] || m;
   }

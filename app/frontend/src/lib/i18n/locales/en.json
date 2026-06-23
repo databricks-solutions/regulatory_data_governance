@@ -87,8 +87,8 @@
     "loading": "Loading dashboard...",
     "openInDatabricks": "Open in Databricks",
     "title_conformidade": "R.18 Compliance Dashboard",
-    "title_criticas": "SCR Validation Monitor",
-    "title_genie": "Natural Query — SCR R.18"
+    "title_criticas": "Validation Monitor",
+    "title_genie": "Ask Genie Agent"
   },
   "dashboards": {
     "breadcrumb": "Dashboards",
@@ -101,9 +101,9 @@
     "target": "Target: {target}% · {count} rule(s)"
   },
   "genie": {
-    "embedTitle": "Genie Space — Natural Query",
+    "embedTitle": "Ask Genie Agent",
     "subtitle": "Ask about SCR data in natural language",
-    "title": "Natural Query — SCR R.18"
+    "title": "Ask Genie Agent"
   },
   "governance": {
     "affectedRecordsLabel": "Affected records:",
@@ -210,7 +210,7 @@
     "envBadge": "R.18 Compliance",
     "incidentManagement": "Incident Management",
     "lineage": "Lineage",
-    "naturalQuery": "Natural Query",
+    "naturalQuery": "Ask Genie Agent",
     "qualityR18": "R.18 Quality",
     "referenceData": "Reference Data",
     "ruleEngine": "Rule Engine",
@@ -223,7 +223,7 @@
     "userName": "Analyst",
     "userRole": "Operational",
     "validationsMonitor": "Validation Monitor",
-    "validationsScr": "SCR Validations",
+    "validationsScr": "Validations",
     "xmlViewer": "XML Viewer"
   },
   "pagination": {
@@ -239,6 +239,8 @@
     "colRule": "Rule",
     "colSeverity": "Severity",
     "dimensionFallback": "Dimension {id}",
+    "metricComplianceRate": "Compliance Rate",
+    "metricNonCompliantRecords": "Non-compliant Records",
     "noViolations": "No violations found",
     "statusAtencao": "Attention",
     "statusConforme": "Compliant",
@@ -247,7 +249,11 @@
     "tabByDimension": "By Dimension",
     "tabByStatus": "By Status",
     "target": "Target",
-    "trend6Months": "Trend (6 months)"
+    "trend6Months": "Trend (6 months)",
+    "trendBestLabel": "Best month",
+    "trendChangeLabel": "Change (6m)",
+    "trendLatestLabel": "Latest",
+    "trendVsTargetLabel": "vs Target"
   },
   "reconciliation": {
     "exec": "Exec",
@@ -322,7 +328,7 @@
     "dashboardConformidade": "R.18 Compliance",
     "dashboardCriticas": "Validation Monitor",
     "fallback": "R.18 Compliance",
-    "genie": "Natural Query",
+    "genie": "Ask Genie Agent",
     "governance": "Incident Management",
     "home": "R.18 Compliance Dashboard",
     "lineage": "Lineage",
@@ -335,7 +341,7 @@
     "rulesEdit": "Edit Rule",
     "rulesRunDetail": "Run Details",
     "rulesRuns": "Runs",
-    "validations": "SCR Validations",
+    "validations": "Validations",
     "xml": "XML Viewer"
   },
   "ui": {
@@ -404,7 +410,7 @@
     "defaultFileName": "file.xml",
     "fieldValidation": "Field Validation",
     "selectFile": "Select File",
-    "uploadSub": "SCR 3040 / 3050 | Max: 500MB",
+    "uploadSub": "DOC 3040 / 3050 | Max: 500MB",
     "uploadTitle": "Drag the XML file or click to select",
     "uploadingFile": "Loading XML file...",
     "validateXsd": "Validate against XSD",

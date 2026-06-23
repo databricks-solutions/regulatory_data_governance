@@ -12,8 +12,8 @@
 
   let activeTab = $state('3040');
   const tabs = [
-    { key: '3040', label: 'SCR 3040' },
-    { key: '3050', label: 'SCR 3050' }
+    { key: '3040', label: 'DOC 3040' },
+    { key: '3050', label: 'DOC 3050' }
   ];
 
   const NIVEL_LABELS = $derived.by(() => ({
