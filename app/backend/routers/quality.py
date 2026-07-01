@@ -114,7 +114,6 @@ _MOCK_VIOLATION_DESC = {
     "en": "Violation in the {name} dimension",
 }
 
-
 def _mock_violation_desc(locale: str, name: str) -> str:
     return _MOCK_VIOLATION_DESC.get(locale, _MOCK_VIOLATION_DESC["pt"]).format(name=name)
 
@@ -130,6 +129,32 @@ def _mock_trend(base_score: float | None) -> list[TrendPoint]:
     ] + [
         TrendPoint(month=f"2026-{m:02d}", score=round(base_score - (3 - i) * 1.5, 1))
         for i, m in enumerate([1, 2, 3])
+    ]
+
+
+def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Violation]:
+    """Derive a dimension's violations from the SAME 3040/3050 fixtures the
+    Críticas SCR (Validations) page renders.
+
+    Drilling dashboard → dimensão → detalhe agora mostra os MESMOS rule_ids /
+    descrições da página de validações (ex.: Acurácia → S10_004), em vez de uma
+    crítica sintética `SEM_xxx`. Cross-router import (lazy, sem ciclo:
+    validation.py não importa quality.py) DE PROPÓSITO — é a fonte única dos
+    fixtures de crítica; duplicá-los aqui reintroduz o drift que isto corrige.
+    """
+    from routers.validation import _mock_rules_3040, _mock_rules_3050
+
+    fixtures = _mock_rules_3040(locale) + _mock_rules_3050(locale)
+    return [
+        Violation(
+            rule_id=r.rule_id,
+            rule_description=r.description,
+            severity=r.severity,
+            count=r.affected_records,
+            sample_records=list(r.sample_ipocs),
+        )
+        for r in fixtures
+        if r.dimension_r18 == dimension_id and r.status != "pass"
     ]
 
 
@@ -327,8 +352,13 @@ async def get_quality_dimension_detail(
                 dimension=d, score=None, target=target, status=status,
                 metrics={}, violations=[], trend=[],
             )
-        violations = []
-        if status in ("atencao", "nao_conforme") and score is not None:
+        # Críticas reais (mesmos rule_ids da página Críticas SCR) para as
+        # dimensões com fixtures: 2=Acurácia→S10_004, 3=Adaptabilidade→S20_*.
+        violations = _mock_violations_for_dimension(dimension_id, locale)
+        # Fallback sintético só para dimensões SEM fixture de crítica — não
+        # aparecem na página Críticas SCR, logo não há mismatch visível — e
+        # ainda assim não-conformes, para justificar o status no detalhe.
+        if not violations and status in ("atencao", "nao_conforme") and score is not None:
             violations = [
                 Violation(
                     rule_id=f"SEM_{dimension_id:03d}",
@@ -338,12 +368,13 @@ async def get_quality_dimension_detail(
                     sample_records=["IPOC_12345678...", "IPOC_87654321..."],
                 ),
             ]
+        non_compliant = float(sum(v.count for v in violations))
         return DimensionDetailResponse(
             dimension=d,
             score=score,
             target=target,
             status=status,
-            metrics={"taxa_conformidade_pct": float(score or 0.0), "registros_nao_conformes": 42.0},
+            metrics={"taxa_conformidade_pct": float(score or 0.0), "registros_nao_conformes": non_compliant},
             violations=violations,
             trend=_mock_trend(score),
         )

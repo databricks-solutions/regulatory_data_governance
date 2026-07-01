@@ -183,8 +183,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    height: calc(100vh - 96px);
-    min-height: 500px;
+    height: calc(100vh - 120px);
+    min-height: 480px;
     margin-bottom: calc(var(--space-6) * -1);
   }
 

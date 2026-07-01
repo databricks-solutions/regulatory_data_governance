@@ -100,6 +100,11 @@
     setDataBase(val);
     invalidateAll();
   }
+
+  // The /rules page embeds DQX Studio in an iframe — let it use the full
+  // content width instead of the global 1440px cap, so the embedded Studio
+  // gets as much horizontal room as possible.
+  let isFullWidthPage = $derived(/^\/rules\/?$/.test($page.url.pathname));
 </script>
 
 <div class="app-shell" class:sidebar-collapsed={appState.sidebarCollapsed}>
@@ -117,7 +122,7 @@
       action={appState.headerAction}
     />
     <main class="content">
-      <div class="content-inner">
+      <div class="content-inner" class:full-width={isFullWidthPage}>
         {@render children()}
       </div>
     </main>
@@ -157,5 +162,10 @@
     max-width: var(--content-max-width);
     width: 100%;
     margin: 0 auto;
+  }
+  /* DQX Studio iframe page (/rules): drop the max-width cap so the embedded
+     Studio spans the full available content width. */
+  .content-inner.full-width {
+    max-width: none;
   }
 </style>
