@@ -6,12 +6,20 @@
   import { appState } from '$lib/stores.svelte.js';
   import { getQualityDimensions } from '$lib/api.js';
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
 
   let activeTab = $state('por_dimensao');
-  const tabs = [
-    { key: 'por_dimensao', label: 'Por Dimensão' },
-    { key: 'por_status', label: 'Por Status' }
-  ];
+  const tabs = $derived.by(() => [
+    { key: 'por_dimensao', label: $_('quality.tabByDimension') },
+    { key: 'por_status', label: $_('quality.tabByStatus') }
+  ]);
+
+  let statusGroups = $derived.by(() => [
+    ['conforme', $_('quality.statusConforme'), 'success'],
+    ['atencao', $_('quality.statusAtencao'), 'warning'],
+    ['nao_conforme', $_('quality.statusNaoConforme'), 'error'],
+    ['sem_regras', $_('quality.statusSemRegras'), 'default']
+  ]);
 
   let dimensions = $state([]);
 
@@ -40,7 +48,7 @@
       {/each}
     </div>
   {:else if activeTab === 'por_status'}
-    {#each [['conforme','Conforme','success'], ['atencao','Atenção','warning'], ['nao_conforme','Não Conforme','error'], ['sem_regras','Sem regras','default']] as [key, label, variant]}
+    {#each statusGroups as [key, label, variant]}
       {#if grouped[key].length > 0}
         <div class="status-group">
           <div class="status-group-header">

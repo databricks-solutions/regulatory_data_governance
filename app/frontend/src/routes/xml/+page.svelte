@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import Spinner from '$lib/components/ui/Spinner.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import { uploadXml, getXmlTree, validateXml, getXmlFields } from '$lib/api.js';
@@ -87,21 +88,21 @@
       ondragover={(e) => e.preventDefault()}
     >
       {#if uploading}
-        <Spinner message="Carregando arquivo XML..." />
+        <Spinner message={$_('xml.uploadingFile')} />
       {:else}
         <div class="upload-content">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--gray-300)" stroke-width="1.5">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
           </svg>
-          <p class="upload-title">Arraste o arquivo XML ou clique para selecionar</p>
-          <p class="upload-sub">SCR 3040 / 3050 | Max: 500MB</p>
+          <p class="upload-title">{$_('xml.uploadTitle')}</p>
+          <p class="upload-sub">{$_('xml.uploadSub')}</p>
           <div class="upload-controls">
             <select class="type-select" bind:value={docType}>
-              <option value="3040">SCR 3040</option>
-              <option value="3050">SCR 3050</option>
+              <option value="3040">DOC 3040</option>
+              <option value="3050">DOC 3050</option>
             </select>
             <label class="file-btn">
-              Selecionar Arquivo
+              {$_('xml.selectFile')}
               <input type="file" accept=".xml" onchange={handleFileInput} hidden />
             </label>
           </div>
@@ -112,15 +113,15 @@
     <!-- File Summary -->
     <div class="card file-summary">
       <div class="file-info">
-        <strong>{fileMeta?.name || 'arquivo.xml'}</strong>
+        <strong>{fileMeta?.name || $_('xml.defaultFileName')}</strong>
         <span class="file-size">{fileMeta?.size}</span>
       </div>
       <button class="validate-btn" onclick={handleValidate} disabled={validating}>
-        {#if validating}Validando...{:else}Validar contra XSD{/if}
+        {#if validating}{$_('xml.validating')}{:else}{$_('xml.validateXsd')}{/if}
       </button>
       {#if validationResult}
         <span class="val-result">
-          {validationResult.errors} erros | {validationResult.warnings} alertas | {validationResult.total_fields} campos
+          {$_('xml.validationSummary', { values: { errors: validationResult.errors, warnings: validationResult.warnings, fields: validationResult.total_fields } })}
         </span>
       {/if}
     </div>
@@ -164,7 +165,7 @@
       <!-- Field Detail Panel -->
       <div class="field-panel card">
         {#if selectedNodeFields && Object.keys(selectedNodeFields).length > 0}
-          <h4 class="panel-title">Validação de Campos</h4>
+          <h4 class="panel-title">{$_('xml.fieldValidation')}</h4>
           {#each Object.entries(selectedNodeFields) as [field, status]}
             <div class="field-row">
               <span class="field-name">{field}</span>
@@ -174,7 +175,7 @@
             </div>
           {/each}
         {:else}
-          <p class="panel-empty">Clique em um elemento para ver validação</p>
+          <p class="panel-empty">{$_('xml.clickElement')}</p>
         {/if}
       </div>
     </div>

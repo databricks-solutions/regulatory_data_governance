@@ -20,9 +20,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_SILVER, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
 from db import execute_query_or_empty as execute_query
@@ -207,22 +208,65 @@ _MOCK_RULES_3040 = [
     _mock_vr(rule_id="S20_003", run_config_name=_RC_3040_CLI,
              check_name="tp_ctrl_in_dominio", dqx_check_function="sql_expression",
              rule_name="TpCtrl fora do domínio {01..04}", rule_type="syntactic",
-             severity="error", dimension_r18=3, dimension_name="Adaptabilidade", status="pass",
-             affected_records=0, total_records=50000000, nivel=1,
-             description="TpCtrl dentro do domínio oficial {'01','02','03','04'} do leiaute SCR 3040."),
+             severity="error", dimension_r18=3, dimension_name="Adaptabilidade", status="fail",
+             affected_records=5, total_records=50000000, nivel=1,
+             description="5 clientes com TpCtrl fora do domínio oficial {'01','02','03','04'} do leiaute SCR 3040."),
     _mock_vr(rule_id="S10_004", run_config_name=_RC_3040_OPER,
              check_name="dia_atraso_nao_negativo", dqx_check_function="sql_expression",
              rule_name="DiaAtraso negativo", rule_type="syntactic",
-             severity="error", dimension_r18=2, dimension_name="Acurácia", status="pass",
-             affected_records=0, total_records=50000000, nivel=1,
-             description="DiaAtraso dentro do esperado — todos os valores são inteiros não-negativos."),
+             severity="error", dimension_r18=2, dimension_name="Acurácia", status="fail",
+             affected_records=23, total_records=50000000, nivel=1,
+             description="23 operações com DiaAtraso negativo — valor inválido (esperado inteiro não-negativo)."),
 ]
+
+# English (en-US) fixture set — same structure/codes as _MOCK_RULES_3040, only
+# human-readable text (rule_name/description/dimension_name) translated. Selected
+# in mock mode when the request locale is `en` (see i18n.get_locale).
+_MOCK_RULES_3040_EN = [
+    _mock_vr(rule_id="S20_001", run_config_name=_RC_3040_CLI,
+             check_name="autorzc_in_dominio", dqx_check_function="sql_expression",
+             rule_name="Authorization flag (Autorzc) outside the {S,N} domain", rule_type="syntactic",
+             severity="error", dimension_r18=3, dimension_name="Adaptability", status="fail",
+             affected_records=12, total_records=50000000, nivel=1,
+             description="12 customers whose authorization flag (Autorzc) falls outside the allowed {S,N} domain of the SCR 3040 layout."),
+    _mock_vr(rule_id="S20_002", run_config_name=_RC_3040_CLI,
+             check_name="porte_cli_in_dominio_por_tipo", dqx_check_function="sql_expression",
+             rule_name="Customer size (PorteCli) invalid for the customer type", rule_type="syntactic",
+             severity="error", dimension_r18=3, dimension_name="Adaptability", status="fail",
+             affected_records=7, total_records=50000000, nivel=1,
+             description="7 customers whose customer size (PorteCli) is outside the range allowed for their type (individuals PF: 0-8; companies PJ: 0-4)."),
+    _mock_vr(rule_id="S20_003", run_config_name=_RC_3040_CLI,
+             check_name="tp_ctrl_in_dominio", dqx_check_function="sql_expression",
+             rule_name="Control type (TpCtrl) outside the {01..04} domain", rule_type="syntactic",
+             severity="error", dimension_r18=3, dimension_name="Adaptability", status="fail",
+             affected_records=5, total_records=50000000, nivel=1,
+             description="5 customers whose control type (TpCtrl) falls outside the official domain {'01','02','03','04'} of the SCR 3040 layout."),
+    _mock_vr(rule_id="S10_004", run_config_name=_RC_3040_OPER,
+             check_name="dia_atraso_nao_negativo", dqx_check_function="sql_expression",
+             rule_name="Negative days past due (DiaAtraso)", rule_type="syntactic",
+             severity="error", dimension_r18=2, dimension_name="Accuracy", status="fail",
+             affected_records=23, total_records=50000000, nivel=1,
+             description="23 operations with negative days past due (DiaAtraso) — invalid value (expected a non-negative integer)."),
+]
+
+
+def _mock_rules_3040(locale: str) -> list[ValidationResult]:
+    """Pick the locale-matched 3040 mock fixture set (en-US, else pt-BR default)."""
+    return _MOCK_RULES_3040_EN if locale == "en" else _MOCK_RULES_3040
 
 
 # 3050: ainda sem regras iniciais. O usuário pode autorizar regras adicionais
 # via DQX Studio (run_config_name='silver_3050') que aparecerão aqui assim que
 # o pipeline silver as executar.
 _MOCK_RULES_3050: list[ValidationResult] = []
+# English (en-US) fixture set for 3050 — empty like the pt-BR default until
+# initial 3050 rules exist; kept as an explicit home for translated rows.
+_MOCK_RULES_3050_EN: list[ValidationResult] = []
+
+
+def _mock_rules_3050(locale: str) -> list[ValidationResult]:
+    """Pick the locale-matched 3050 mock fixture set (en-US, else pt-BR default)."""
+    return _MOCK_RULES_3050_EN if locale == "en" else _MOCK_RULES_3050
 
 
 # Canonical SQL columns selected from silver.criticas_results. ``expectation_name``
@@ -478,11 +522,13 @@ async def get_validation_results_3040(
     nivel_verificacao: int | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    locale: str = Depends(get_locale),
 ):
     """Return validation results for SCR 3040 criticas."""
     if USE_MOCK:
+        mock_rules = _mock_rules_3040(locale)
         filtered = _apply_mock_filters(
-            list(_MOCK_RULES_3040),
+            list(mock_rules),
             severity=severity, status=status, rule_type=rule_type,
             dimension_r18=dimension_r18, nivel_verificacao=nivel_verificacao,
         )
@@ -494,7 +540,7 @@ async def get_validation_results_3040(
             run_id="run_20260330_142200",
             run_status="completed",
             run_completed_at="2026-03-30T14:45:00Z",
-            summary=_summary_from_results(_MOCK_RULES_3040),
+            summary=_summary_from_results(mock_rules),
             results=paged,
             pagination=Pagination(
                 page=page, page_size=page_size, total_results=total,
@@ -537,15 +583,17 @@ async def get_validation_results_3050(
     layout_version: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    locale: str = Depends(get_locale),
 ):
     """Return validation results for SCR 3050 criticas."""
     if USE_MOCK:
-        total = len(_MOCK_RULES_3050)
+        mock_rules = _mock_rules_3050(locale)
+        total = len(mock_rules)
         return ValidationResultsResponse(
             data_base=data_base, run_id="run_20260331_100000", run_status="completed",
             run_completed_at="2026-03-31T10:30:00Z",
-            summary=_summary_from_results(_MOCK_RULES_3050),
-            results=_MOCK_RULES_3050,
+            summary=_summary_from_results(mock_rules),
+            results=mock_rules,
             pagination=Pagination(page=1, page_size=page_size,
                                   total_results=total, total_pages=1),
             studio_url=_studio_base_url(),
@@ -576,7 +624,10 @@ async def get_validation_results_3050(
 
 
 @router.post("/trigger", response_model=TriggerValidationResponse, status_code=202)
-async def trigger_validation(req: TriggerValidationRequest):
+async def trigger_validation(
+    req: TriggerValidationRequest,
+    locale: str = Depends(get_locale),
+):
     """Trigger an on-demand validation run."""
     if req.document not in ("3040", "3050"):
         raise HTTPException(status_code=400, detail="Document must be 3040 or 3050")
@@ -585,6 +636,8 @@ async def trigger_validation(req: TriggerValidationRequest):
     run_id = f"run_{now.strftime('%Y%m%d_%H%M%S')}"
 
     if USE_MOCK:
+        # Mock payload carries only codes/ids/dates/numbers — no locale-sensitive
+        # free text — so `locale` selects the same response for every locale.
         return TriggerValidationResponse(
             run_id=run_id,
             job_run_id=12345678,
@@ -618,9 +671,14 @@ async def trigger_validation(req: TriggerValidationRequest):
 
 
 @router.get("/runs/{run_id}", response_model=ValidationRunStatus)
-async def get_validation_run_status(run_id: str):
+async def get_validation_run_status(
+    run_id: str,
+    locale: str = Depends(get_locale),
+):
     """Get status of a validation run."""
     if USE_MOCK:
+        # Run status is all codes/ids/dates/numbers — no locale-sensitive free
+        # text — so `locale` resolves to the same payload for every locale.
         return ValidationRunStatus(
             run_id=run_id, job_run_id=12345678, status="completed",
             document="3040", data_base="2026-03",
@@ -642,9 +700,12 @@ async def list_validation_runs(
     status: str | None = Query(None),
     data_base: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
+    locale: str = Depends(get_locale),
 ):
     """Return history of validation runs."""
     if USE_MOCK:
+        # Run summaries are all codes/ids/dates/numbers — no locale-sensitive
+        # free text — so `locale` resolves to the same payload for every locale.
         runs = [
             RunSummary(
                 run_id="run_20260402_100000", document="3040", data_base="2026-03",

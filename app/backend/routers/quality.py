@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
@@ -46,6 +47,29 @@ _R18_DIMENSIONS = [
     {"id": 12, "code": "tempestividade", "name": "Tempestividade", "description": "Fornecimento em tempo hábil, no prazo estabelecido", "article": "Art. 2, par.2, XII"},
 ]
 
+# English (en-US) parallel catalog — same ids/codes/articles, translated name + description.
+# Mock-mode only; real mode always uses `_R18_DIMENSIONS` above. Do NOT mutate the pt list.
+_R18_DIMENSIONS_EN = [
+    {"id": 1, "code": "acessibilidade", "name": "Accessibility", "description": "Conditions to obtain information, including location, format, deadlines and treatment for persons with disabilities", "article": "Art. 2, par.2, I"},
+    {"id": 2, "code": "acuracia", "name": "Accuracy", "description": "Degree to which the information accurately reflects reality, per methodology", "article": "Art. 2, par.2, II"},
+    {"id": 3, "code": "adaptabilidade", "name": "Adaptability", "description": "Ability to produce information in a format that meets diverse demands and regulatory changes", "article": "Art. 2, par.2, III"},
+    {"id": 4, "code": "clareza", "name": "Clarity", "description": "Concise, understandable presentation that meets the user's needs", "article": "Art. 2, par.2, IV"},
+    {"id": 5, "code": "comparabilidade", "name": "Comparability", "description": "Ability to identify similarities and differences across periods or domains", "article": "Art. 2, par.2, V"},
+    {"id": 6, "code": "completude", "name": "Completeness", "description": "Ability to fully address the required aspects", "article": "Art. 2, par.2, VI"},
+    {"id": 7, "code": "confiabilidade", "name": "Reliability", "description": "Absence of relevant deviation between revised data and the initial value", "article": "Art. 2, par.2, VII"},
+    {"id": 8, "code": "consistencia", "name": "Consistency", "description": "Standardized information free of contradictions, even from different sources", "article": "Art. 2, par.2, VIII"},
+    {"id": 9, "code": "integridade", "name": "Integrity", "description": "Assurance of authenticity and absence of unauthorized modification", "article": "Art. 2, par.2, IX"},
+    {"id": 10, "code": "rastreabilidade", "name": "Traceability", "description": "Conditions to trace the information from its origin to delivery to the end user", "article": "Art. 2, par.2, X"},
+    {"id": 11, "code": "relevancia", "name": "Relevance", "description": "Ability to provide useful information that influences decision-making", "article": "Art. 2, par.2, XI"},
+    {"id": 12, "code": "tempestividade", "name": "Timeliness", "description": "Delivery in a timely manner, within the established deadline", "article": "Art. 2, par.2, XII"},
+]
+
+
+def _dimensions_catalog(locale: str):
+    """Return the locale-matched dimensions catalog (mock-mode use only)."""
+    return _R18_DIMENSIONS_EN if locale == "en" else _R18_DIMENSIONS
+
+
 # `gold.qualidade_dimensoes_mensal.dimensao_id` is stored as a Roman numeral string
 # (matches `reference.dimensoes_r18.dimensao_id`). Map to int for the App's `DimensionDetail.id` int field.
 _DIM_ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
@@ -58,19 +82,40 @@ def _safe_dim_int(roman_or_int) -> int:
         return roman_or_int
     return _DIM_ROMAN_TO_INT.get(str(roman_or_int), 0)
 
-# Mock alinhado ao seed atual: apenas II (Acurácia, score=92.0, 1 regra) e III
-# (Adaptabilidade, score=96.5, 3 regras) têm regras DQX vinculadas — demais
-# dimensões ficam com score=None (sem dados) e status='sem_regras'. A UI
-# (DimensionCard.svelte) renderiza score=None como "—" e badge "Sem regras",
-# diferenciando "não medido" de "0% conforme".
-_MOCK_SCORES: list[float | None] = [None, 92.0, 96.5, None, None, None, None, None, None, None, None, None]
+# Mock com TODAS as 12 dimensões R.18 medidas (regras DQX vinculadas), dando uma
+# visão de scorecard completa na demo. Distribuição proposital: 7 conformes,
+# 4 em atenção e 1 não-conforme (Completude), para exercitar todos os badges e o
+# RadarChart. Status segue a mesma regra do real-mode:
+#   conforme: score >= target | atencao: target-10 <= score < target | nao_conforme: < target-10
+# (Para reverter ao cenário "só II e III medidas", basta voltar score=None +
+#  status='sem_regras' nas demais — a UI renderiza None como "—" / "Sem regras".)
+_MOCK_SCORES: list[float | None] = [91.0, 92.0, 96.5, 93.5, 95.5, 83.0, 90.5, 87.0, 98.0, 91.5, 94.0, 96.0]
 _MOCK_TARGETS = [90.0, 95.0, 90.0, 95.0, 95.0, 95.0, 90.0, 90.0, 85.0, 90.0, 95.0, 95.0]
-_MOCK_STATUSES = ["sem_regras", "atencao", "conforme", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras", "sem_regras"]
-# Regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml por dimensao_id.
+_MOCK_STATUSES = ["conforme", "atencao", "conforme", "atencao", "conforme", "nao_conforme", "conforme", "atencao", "conforme", "conforme", "atencao", "conforme"]
+# Regras vinculadas por dimensao_id (nomes no padrão snake_case das checks DQX).
 _MOCK_RULES: dict[int, list[str]] = {
+    1: ["prazo_disponibilizacao_valido", "formato_arquivo_suportado"],
     2: ["dia_atraso_nao_negativo"],
     3: ["autorzc_in_dominio", "porte_cli_in_dominio_por_tipo", "tp_ctrl_in_dominio"],
+    4: ["descricao_modalidade_preenchida", "campo_texto_sem_caractere_invalido"],
+    5: ["saldo_comparavel_periodo_anterior", "modalidade_equivalencia_3050"],
+    6: ["ipoc_nao_nulo", "cliente_obrigatorio_preenchido", "garantia_vinculada_operacao"],
+    7: ["saldo_revisado_dentro_tolerancia", "valor_inicial_consistente"],
+    8: ["cnpj_cpf_formato_valido", "uf_in_dominio", "data_contratacao_anterior_vencimento"],
+    9: ["hash_documento_integro", "assinatura_digital_valida"],
+    10: ["origem_dado_identificada", "ipoc_rastreavel"],
+    11: ["campo_obrigatorio_regulatorio_presente"],
+    12: ["envio_dentro_prazo_bacen", "data_base_calendario_util"],
 }
+
+# Locale-aware free-text template for the mock violation rule_description.
+_MOCK_VIOLATION_DESC = {
+    "pt": "Violacao na dimensao {name}",
+    "en": "Violation in the {name} dimension",
+}
+
+def _mock_violation_desc(locale: str, name: str) -> str:
+    return _MOCK_VIOLATION_DESC.get(locale, _MOCK_VIOLATION_DESC["pt"]).format(name=name)
 
 
 def _mock_trend(base_score: float | None) -> list[TrendPoint]:
@@ -87,15 +132,42 @@ def _mock_trend(base_score: float | None) -> list[TrendPoint]:
     ]
 
 
+def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Violation]:
+    """Derive a dimension's violations from the SAME 3040/3050 fixtures the
+    Críticas SCR (Validations) page renders.
+
+    Drilling dashboard → dimensão → detalhe agora mostra os MESMOS rule_ids /
+    descrições da página de validações (ex.: Acurácia → S10_004), em vez de uma
+    crítica sintética `SEM_xxx`. Cross-router import (lazy, sem ciclo:
+    validation.py não importa quality.py) DE PROPÓSITO — é a fonte única dos
+    fixtures de crítica; duplicá-los aqui reintroduz o drift que isto corrige.
+    """
+    from routers.validation import _mock_rules_3040, _mock_rules_3050
+
+    fixtures = _mock_rules_3040(locale) + _mock_rules_3050(locale)
+    return [
+        Violation(
+            rule_id=r.rule_id,
+            rule_description=r.description,
+            severity=r.severity,
+            count=r.affected_records,
+            sample_records=list(r.sample_ipocs),
+        )
+        for r in fixtures
+        if r.dimension_r18 == dimension_id and r.status != "pass"
+    ]
+
+
 @router.get("/dimensions", response_model=QualityDimensionsResponse)
 async def get_quality_dimensions(
     data_base: str = Query("2026-03"),
     trend_months: int = Query(6, ge=1, le=24),
+    locale: str = Depends(get_locale),
 ):
     """Return scores for all 12 R.18 quality dimensions."""
     if USE_MOCK:
         dims = []
-        for i, d in enumerate(_R18_DIMENSIONS):
+        for i, d in enumerate(_dimensions_catalog(locale)):
             score = _MOCK_SCORES[i]
             dims.append(DimensionDetail(
                 id=d["id"],
@@ -261,6 +333,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
 async def get_quality_dimension_detail(
     dimension_id: int,
     data_base: str = Query("2026-03"),
+    locale: str = Depends(get_locale),
 ):
     """Return detailed metrics for a single R.18 dimension."""
     if dimension_id < 1 or dimension_id > 12:
@@ -272,29 +345,36 @@ async def get_quality_dimension_detail(
     status = _MOCK_STATUSES[dimension_id - 1]
 
     if USE_MOCK:
+        d = _dimensions_catalog(locale)[dimension_id - 1]
         # Dimensão sem regras: sem score, sem violações, sem trend.
         if status == "sem_regras":
             return DimensionDetailResponse(
                 dimension=d, score=None, target=target, status=status,
                 metrics={}, violations=[], trend=[],
             )
-        violations = []
-        if status in ("atencao", "nao_conforme") and score is not None:
+        # Críticas reais (mesmos rule_ids da página Críticas SCR) para as
+        # dimensões com fixtures: 2=Acurácia→S10_004, 3=Adaptabilidade→S20_*.
+        violations = _mock_violations_for_dimension(dimension_id, locale)
+        # Fallback sintético só para dimensões SEM fixture de crítica — não
+        # aparecem na página Críticas SCR, logo não há mismatch visível — e
+        # ainda assim não-conformes, para justificar o status no detalhe.
+        if not violations and status in ("atencao", "nao_conforme") and score is not None:
             violations = [
                 Violation(
                     rule_id=f"SEM_{dimension_id:03d}",
-                    rule_description=f"Violacao na dimensao {d['name']}",
+                    rule_description=_mock_violation_desc(locale, d["name"]),
                     severity="error" if status == "nao_conforme" else "warning",
                     count=42 + dimension_id * 10,
                     sample_records=["IPOC_12345678...", "IPOC_87654321..."],
                 ),
             ]
+        non_compliant = float(sum(v.count for v in violations))
         return DimensionDetailResponse(
             dimension=d,
             score=score,
             target=target,
             status=status,
-            metrics={"taxa_conformidade_pct": float(score or 0.0), "registros_nao_conformes": 42.0},
+            metrics={"taxa_conformidade_pct": float(score or 0.0), "registros_nao_conformes": non_compliant},
             violations=violations,
             trend=_mock_trend(score),
         )
@@ -328,6 +408,7 @@ async def get_quality_dimension_detail(
 async def get_quality_trend(
     data_base: str = Query("2026-03"),
     months: int = Query(6, ge=1, le=24),
+    locale: str = Depends(get_locale),
 ):
     """Return overall quality score trend over time."""
     if USE_MOCK:

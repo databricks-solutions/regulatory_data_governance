@@ -6,9 +6,10 @@ import json
 import os
 from datetime import datetime, timezone, date
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
@@ -30,40 +31,63 @@ router = APIRouter()
 # --- Mock data ---
 
 # Canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2.
-# Reflete o seed atual: apenas II (Acurácia, 1 regra) e III (Adaptabilidade,
-# 3 regras) têm regras vinculadas em pipelines/silver/dqx_checks/scr3040.yml.
-# As demais ficam em `sem_regras` (score 0) e NÃO entram no compliance médio.
+# Todas as 12 dimensões medidas — scores/status alinhados 1:1 com os mocks de
+# quality.py (_MOCK_SCORES/_MOCK_STATUSES) para que o RadarChart da home e o
+# scorecard de /quality contem a mesma história.
 _MOCK_DIMENSIONS = [
-    DimensionScore(id=1, name="Acessibilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=2, name="Acurácia", score=92.5, status="atencao"),
-    DimensionScore(id=3, name="Adaptabilidade", score=98.0, status="conforme"),
-    DimensionScore(id=4, name="Clareza", score=0.0, status="sem_regras"),
-    DimensionScore(id=5, name="Comparabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=6, name="Completude", score=0.0, status="sem_regras"),
-    DimensionScore(id=7, name="Confiabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=8, name="Consistência", score=0.0, status="sem_regras"),
-    DimensionScore(id=9, name="Integridade", score=0.0, status="sem_regras"),
-    DimensionScore(id=10, name="Rastreabilidade", score=0.0, status="sem_regras"),
-    DimensionScore(id=11, name="Relevância", score=0.0, status="sem_regras"),
-    DimensionScore(id=12, name="Tempestividade", score=0.0, status="sem_regras"),
+    DimensionScore(id=1, name="Acessibilidade", score=91.0, status="conforme"),
+    DimensionScore(id=2, name="Acurácia", score=92.0, status="atencao"),
+    DimensionScore(id=3, name="Adaptabilidade", score=96.5, status="conforme"),
+    DimensionScore(id=4, name="Clareza", score=93.5, status="atencao"),
+    DimensionScore(id=5, name="Comparabilidade", score=95.5, status="conforme"),
+    DimensionScore(id=6, name="Completude", score=83.0, status="nao_conforme"),
+    DimensionScore(id=7, name="Confiabilidade", score=90.5, status="conforme"),
+    DimensionScore(id=8, name="Consistência", score=87.0, status="atencao"),
+    DimensionScore(id=9, name="Integridade", score=98.0, status="conforme"),
+    DimensionScore(id=10, name="Rastreabilidade", score=91.5, status="conforme"),
+    DimensionScore(id=11, name="Relevância", score=94.0, status="atencao"),
+    DimensionScore(id=12, name="Tempestividade", score=96.0, status="conforme"),
+]
+
+# English mirror of _MOCK_DIMENSIONS — same ids/scores/status codes, only the
+# human-readable `name` is translated (see GLOSSARY in CLAUDE/spec).
+_MOCK_DIMENSIONS_EN = [
+    DimensionScore(id=1, name="Accessibility", score=91.0, status="conforme"),
+    DimensionScore(id=2, name="Accuracy", score=92.0, status="atencao"),
+    DimensionScore(id=3, name="Adaptability", score=96.5, status="conforme"),
+    DimensionScore(id=4, name="Clarity", score=93.5, status="atencao"),
+    DimensionScore(id=5, name="Comparability", score=95.5, status="conforme"),
+    DimensionScore(id=6, name="Completeness", score=83.0, status="nao_conforme"),
+    DimensionScore(id=7, name="Reliability", score=90.5, status="conforme"),
+    DimensionScore(id=8, name="Consistency", score=87.0, status="atencao"),
+    DimensionScore(id=9, name="Integrity", score=98.0, status="conforme"),
+    DimensionScore(id=10, name="Traceability", score=91.5, status="conforme"),
+    DimensionScore(id=11, name="Relevance", score=94.0, status="atencao"),
+    DimensionScore(id=12, name="Timeliness", score=96.0, status="conforme"),
 ]
 
 
-def _mock_kpis(data_base: str) -> DashboardKPIs:
+def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
     # Mesma semântica do real-mode: dimensões `sem_regras` ficam fora da média.
-    measured = [d.score for d in _MOCK_DIMENSIONS if d.status != "sem_regras"]
-    return DashboardKPIs(
-        data_base=data_base,
-        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
-        dimensions=_MOCK_DIMENSIONS,
-        pending_validations=PendingValidations(scr3040=3, scr3050=1),
-        last_submission=LastSubmission(
-            document="SCR 3050",
-            data_base="2026-03-28",
-            status="aceito",
-            submitted_at="2026-03-30T14:22:00Z",
-        ),
-        alerts=[
+    en = locale == "en"
+    dimensions = _MOCK_DIMENSIONS_EN if en else _MOCK_DIMENSIONS
+    measured = [d.score for d in dimensions if d.status != "sem_regras"]
+    if en:
+        alerts = [
+            Alert(
+                severity="warning",
+                message="Reconciliation 3040 vs COSIF: 0.08% divergence in the total balance",
+                created_at="2026-03-29T10:00:00Z",
+            ),
+            Alert(
+                severity="info",
+                message="New 3050 V11 layout version active as of 07/11/2025",
+                created_at="2026-03-28T08:00:00Z",
+            ),
+        ]
+        phase = "Phase 1 - Foundation"
+    else:
+        alerts = [
             Alert(
                 severity="warning",
                 message="Reconciliacao 3040 vs COSIF: divergencia 0.08% no saldo total",
@@ -74,11 +98,24 @@ def _mock_kpis(data_base: str) -> DashboardKPIs:
                 message="Nova versao de leiaute 3050 V11 ativa a partir de 07/11/2025",
                 created_at="2026-03-28T08:00:00Z",
             ),
-        ],
+        ]
+        phase = "Fase 1 - Fundacao"
+    return DashboardKPIs(
+        data_base=data_base,
+        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
+        dimensions=dimensions,
+        pending_validations=PendingValidations(scr3040=3, scr3050=1),
+        last_submission=LastSubmission(
+            document="SCR 3050",
+            data_base="2026-03-28",
+            status="aceito",
+            submitted_at="2026-03-30T14:22:00Z",
+        ),
+        alerts=alerts,
         deadline=Deadline(
             date="2026-12-31",
-            days_remaining=274,
-            phase="Fase 1 - Fundacao",
+            days_remaining=_days_until_deadline(),
+            phase=phase,
         ),
     )
 
@@ -87,10 +124,13 @@ def _mock_kpis(data_base: str) -> DashboardKPIs:
 
 
 @router.get("/kpis", response_model=DashboardKPIs)
-async def get_dashboard_kpis(data_base: str = Query("2026-03", description="Reference month (YYYY-MM)")):
+async def get_dashboard_kpis(
+    data_base: str = Query("2026-03", description="Reference month (YYYY-MM)"),
+    locale: str = Depends(get_locale),
+):
     """Return executive summary KPIs for the home page."""
     if USE_MOCK:
-        return _mock_kpis(data_base)
+        return _mock_kpis(data_base, locale)
 
     # Real-mode: agrega das tabelas de execução do DQX Studio.
     return await _build_kpis_from_dqx_studio(data_base)
@@ -265,9 +305,18 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
 
 
 @router.get("/alerts", response_model=list[Alert])
-async def get_dashboard_alerts(limit: int = Query(10, ge=1, le=50)):
+async def get_dashboard_alerts(
+    limit: int = Query(10, ge=1, le=50),
+    locale: str = Depends(get_locale),
+):
     """Return recent quality alerts."""
     if USE_MOCK:
+        if locale == "en":
+            return [
+                Alert(severity="warning", message="Reconciliation 3040 vs COSIF: 0.08% divergence", created_at="2026-03-29T10:00:00Z"),
+                Alert(severity="error", message="Critica SEM_014: 127 operations with divergent IPOC", created_at="2026-03-28T22:00:00Z"),
+                Alert(severity="info", message="Bronze pipeline completed successfully", created_at="2026-03-28T06:00:00Z"),
+            ][:limit]
         return [
             Alert(severity="warning", message="Reconciliacao 3040 vs COSIF: divergencia 0.08%", created_at="2026-03-29T10:00:00Z"),
             Alert(severity="error", message="Critica SEM_014: 127 operacoes com IPOC divergente", created_at="2026-03-28T22:00:00Z"),
@@ -319,7 +368,7 @@ DASHBOARD_KEY_MAP = {
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",
     "criticas": "Monitor de Incidentes de Qualidade R.18",
-    "genie": "Consulta Natural — SCR R.18",
+    "genie": "Genie Agent — SCR R.18",
 }
 
 
@@ -348,7 +397,7 @@ async def get_dashboard_embed(key: str):
         return DashboardEmbed(
             dashboard_id=real_id,
             dashboard_name=name,
-            embed_url=f"{host}/explore/genie/{real_id}?o={workspace_id}",
+            embed_url=f"{host}/embed/genie/rooms/{real_id}?o={workspace_id}",
             embed_token="",
             token_expires_at=datetime.now(timezone.utc).isoformat(),
         )

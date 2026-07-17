@@ -1,54 +1,57 @@
 <script>
   import { page } from '$app/stores';
+  import { _ } from 'svelte-i18n';
   import DefaultLogo from '$lib/components/ui/DefaultLogo.svelte';
 
   let { collapsed = false, brandConfig = { name: 'RC18 StarterKit', logo_url: null } } = $props();
 
+  // `title` / `label` hold i18n keys resolved with $_ in the markup so the
+  // sidebar re-renders when the active locale changes.
   const sections = [
     {
       title: null,
       items: [
-        { label: 'Dashboard', href: '/', icon: 'grid' }
+        { label: 'nav.dashboard', href: '/', icon: 'grid' }
       ]
     },
     {
-      title: 'Monitoramento',
+      title: 'nav.sectionMonitoring',
       items: [
-        { label: 'Qualidade R.18', href: '/quality', icon: 'shield' },
-        { label: 'Críticas SCR', href: '/validations', icon: 'check' }
+        { label: 'nav.qualityR18', href: '/quality', icon: 'shield' },
+        { label: 'nav.validationsScr', href: '/validations', icon: 'check' }
       ]
     },
     {
-      title: 'Gestão de Regras',
+      title: 'nav.sectionRules',
       items: [
-        { label: 'Motor de Regras', href: '/rules', icon: 'engine' }
+        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine' }
       ]
     },
     {
-      title: 'Governança',
+      title: 'nav.sectionGovernance',
       items: [
-        { label: 'Gestão de Incidentes', href: '/governance', icon: 'alert' }
+        { label: 'nav.incidentManagement', href: '/governance', icon: 'alert' }
       ]
     },
     {
-      title: 'Exploração',
+      title: 'nav.sectionExploration',
       items: [
-        { label: 'Lineage', href: '/lineage', icon: 'flow' },
-        { label: 'Visualizador XML', href: '/xml', icon: 'code' },
-        { label: 'Consulta Natural', href: '/genie', icon: 'sparkle' }
+        { label: 'nav.lineage', href: '/lineage', icon: 'flow' },
+        { label: 'nav.xmlViewer', href: '/xml', icon: 'code' },
+        { label: 'nav.naturalQuery', href: '/genie', icon: 'bot' }
       ]
     },
     {
-      title: 'Painéis',
+      title: 'nav.sectionDashboards',
       items: [
-        { label: 'Conformidade R.18', href: '/dashboards/conformidade', icon: 'chart' },
-        { label: 'Monitor de Críticas', href: '/dashboards/criticas', icon: 'chart' }
+        { label: 'nav.complianceR18', href: '/dashboards/conformidade', icon: 'chart' },
+        { label: 'nav.validationsMonitor', href: '/dashboards/criticas', icon: 'chart' }
       ]
     },
     {
-      title: 'Referência',
+      title: 'nav.sectionReference',
       items: [
-        { label: 'Dados de Referência', href: '/reference', icon: 'book' }
+        { label: 'nav.referenceData', href: '/reference', icon: 'book' }
       ]
     }
   ];
@@ -65,7 +68,7 @@
     layers: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     flow: 'M5 3v4M3 5h4M5 9a4 4 0 006 3.5M19 21v-4M17 19h4M19 15a4 4 0 00-6-3.5M12 12a3 3 0 100-6 3 3 0 000 6z',
     code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    sparkle: 'M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0l-1.414-1.414M7.05 7.05L5.636 5.636M12 8a4 4 0 100 8 4 4 0 000-8z',
+    bot: 'M12 8V4H8M6 8h12a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8a2 2 0 012-2zM2 14h2m16 0h2M15 13v2M9 13v2',
     chart: 'M3 3v18h18M7 16V8m4 8v-5m4 5V5m4 11V9',
     alert: 'M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4m0 4h.01',
     book: 'M4 19.5A2.5 2.5 0 016.5 17H20M4 4.5A2.5 2.5 0 016.5 2H20v20H6.5a2.5 2.5 0 010-5',
@@ -97,14 +100,14 @@
   <nav class="sidebar-nav">
     {#each sections as section}
       {#if section.title && !collapsed}
-        <div class="nav-section-title">{section.title}</div>
+        <div class="nav-section-title">{$_(section.title)}</div>
       {/if}
       {#each section.items as item}
         <a
           href={item.href}
           class="nav-item"
           class:active={isActive(item.href, $page.url.pathname)}
-          title={collapsed ? item.label : ''}
+          title={collapsed ? $_(item.label) : ''}
         >
           <div class="nav-icon-wrapper" class:active={isActive(item.href, $page.url.pathname)}>
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -112,7 +115,7 @@
             </svg>
           </div>
           {#if !collapsed}
-            <span class="nav-label">{item.label}</span>
+            <span class="nav-label">{$_(item.label)}</span>
           {/if}
           {#if !collapsed && isActive(item.href, $page.url.pathname)}
             <div class="active-indicator"></div>
@@ -126,7 +129,7 @@
     <div class="env-badge">
       {#if !collapsed}
         <span class="env-dot"></span>
-        <span class="env-text">R.18 Compliance</span>
+        <span class="env-text">{$_('nav.envBadge')}</span>
       {:else}
         <span class="env-dot center"></span>
       {/if}
@@ -137,8 +140,8 @@
           <span>JV</span>
         </div>
         <div class="user-detail">
-          <div class="user-name">Analista</div>
-          <div class="user-role">Operacional</div>
+          <div class="user-name">{$_('nav.userName')}</div>
+          <div class="user-role">{$_('nav.userRole')}</div>
         </div>
         <svg class="user-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>

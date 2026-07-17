@@ -11,6 +11,11 @@ meta_prompt.md
 app/frontend/.env
 app/frontend/.env.local
 
+# Runtime-uploaded brand assets (logos). The app writes uploads here at runtime
+# (app/backend/routers/branding.py); never commit customer logos. main.py
+# recreates the dir on startup, so it does not need to exist in git.
+app/backend/static/brand/
+
 # Python
 __pycache__/
 *.pyc

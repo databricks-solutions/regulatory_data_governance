@@ -1,6 +1,7 @@
 <script>
   import Spinner from './Spinner.svelte';
   import { getDashboardEmbed } from '$lib/api.js';
+  import { _ } from 'svelte-i18n';
 
   let { dashboardKey, title = 'Painel' } = $props();
   let embedUrl = $state('');
@@ -10,18 +11,15 @@
   let error = $state('');
   let isDatabricksHost = $state(false);
   let iframeError = $state(false);
+  let notConfigured = $state(false);
 
-  const DASHBOARD_TITLES = {
-    conformidade: 'Painel de Conformidade R.18',
-    criticas: 'Monitor de Críticas SCR',
-    genie: 'Consulta Natural — SCR R.18'
-  };
-
-  const DASHBOARD_DESCRIPTIONS = {
-    conformidade: '12 dimensões de qualidade R.18, tendência de conformidade e KPIs regulatórios',
-    criticas: 'Taxa de aprovação por documento, severidade, top 20 críticas com maior rejeição',
-    genie: 'Perguntas em linguagem natural sobre dados SCR e qualidade'
-  };
+  const DASHBOARD_KEYS = ['conformidade', 'criticas', 'genie'];
+  function dashboardTitle(key) {
+    return DASHBOARD_KEYS.includes(key) ? $_(`dashboardEmbed.title_${key}`) : title;
+  }
+  function dashboardDescription(key) {
+    return DASHBOARD_KEYS.includes(key) ? $_(`dashboardEmbed.desc_${key}`) : '';
+  }
 
   /**
    * Derive the Databricks workspace URL and workspace ID from the app URL.
@@ -85,10 +83,14 @@
         embedUrl = data.embed_url;
         dashboardId = data.dashboard_id || '';
         publishedUrl = buildPublishedFromEmbed(dashboardKey, data.embed_url);
+        // No dashboard ID configured (e.g. demo/mock bundle) — embedding an
+        // empty ID renders Databricks' "This dashboard is unavailable" page.
+        // Show the friendly placeholder instead of a broken iframe.
+        notConfigured = !dashboardId;
         loading = false;
       })
       .catch(() => {
-        error = 'Falha ao carregar painel';
+        error = $_('dashboardEmbed.loadError');
         loading = false;
       });
   });
@@ -96,8 +98,8 @@
 
 <div class="embed-wrap">
   {#if loading}
-    <Spinner message="Carregando painel..." />
-  {:else if error === 'local'}
+    <Spinner message={$_('dashboardEmbed.loading')} />
+  {:else if error === 'local' || notConfigured}
     <div class="embed-placeholder local-preview">
       <div class="placeholder-icon">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.2">
@@ -110,14 +112,14 @@
           <rect x="11" y="16.5" width="5" height="2" rx="0.5" fill="var(--primary)" opacity="0.15" />
         </svg>
       </div>
-      <p class="placeholder-title">{DASHBOARD_TITLES[dashboardKey] || title}</p>
-      <p class="placeholder-desc">{DASHBOARD_DESCRIPTIONS[dashboardKey] || ''}</p>
+      <p class="placeholder-title">{dashboardTitle(dashboardKey)}</p>
+      <p class="placeholder-desc">{dashboardDescription(dashboardKey)}</p>
       <div class="placeholder-badge">
         <span class="badge-dot"></span>
-        Disponivel apos deploy no Databricks
+        {$_('dashboardEmbed.availableAfterDeploy')}
       </div>
       <p class="placeholder-id">
-        {dashboardKey === 'genie' ? 'Genie Space — disponível após deploy' : `Dashboard: ${dashboardId || '—'}`}
+        {dashboardKey === 'genie' ? $_('dashboardEmbed.genieAfterDeploy') : `Dashboard: ${dashboardId || '—'}`}
       </p>
     </div>
   {:else if error}
@@ -134,23 +136,23 @@
   {:else}
     <div class="embed-with-link">
       <div class="embed-topbar">
-        <span class="embed-topbar-title">{DASHBOARD_TITLES[dashboardKey] || title}</span>
+        <span class="embed-topbar-title">{dashboardTitle(dashboardKey)}</span>
         <a href={publishedUrl || embedUrl} target="_blank" rel="noopener noreferrer" class="open-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
             <polyline points="15 3 21 3 21 9" />
             <line x1="10" y1="14" x2="21" y2="3" />
           </svg>
-          Abrir no Databricks
+          {$_('dashboardEmbed.openInDatabricks')}
         </a>
       </div>
       <iframe
         src={embedUrl}
-        title={DASHBOARD_TITLES[dashboardKey] || title}
+        title={dashboardTitle(dashboardKey)}
         width="100%"
         height="100%"
         frameborder="0"
-        allow="fullscreen"
+        allow="clipboard-write; fullscreen"
       ></iframe>
     </div>
   {/if}

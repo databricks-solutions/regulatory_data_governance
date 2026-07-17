@@ -20,9 +20,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from db import CATALOG, USE_MOCK
+from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when governance tables haven't been populated yet.
 from db import execute_query_or_empty as execute_query
@@ -333,6 +334,200 @@ _MOCK_IRREGULARITIES: list[Irregularity] = [
     ),
 ]
 
+# English (en-US) variant of `_MOCK_IRREGULARITIES`. Same structure; only
+# human-readable free text is translated. Codes/identifiers/emails/dates/numbers
+# are kept byte-identical with the PT originals.
+_MOCK_IRREGULARITIES_EN: list[Irregularity] = [
+    # ---- AUTO-EMITTED (DQX) ----
+    Irregularity(
+        id="IRR-2026-0042",
+        detected_at="2026-03-15T14:00:00Z",
+        data_base="2026-02",
+        document="3040",
+        dimension_r18=8,
+        dimension_name="Consistency",
+        severity="high",
+        status="resolved",
+        description="3040 vs 3050 divergence above tolerance for the real estate credit modality (0.7% > 0.5%)",
+        root_cause="Real estate assignment operations not mapped in the V11 equivalence table",
+        impact="Submission block on 3040 and 3050 for 2 business days",
+        remedial_action="Equivalence table updated with new real estate assignment rules",
+        owner="eng.dados@bankcorp.com",
+        resolved_at="2026-03-17T10:00:00Z",
+        resolution_days=2,
+        included_in_report="2026-S1",
+        detected_by="dqx:auto-emit",
+        responded_by="eng.dados@bankcorp.com",
+        responded_at="2026-03-15T16:00:00Z",
+        validated_by="gestor.info@bankcorp.com",
+        validated_at="2026-03-17T14:00:00Z",
+        critica_id="CR2_018",
+        run_config_name="silver_3050",
+        dqx_check_name="saldo_3040_vs_3050_consistente",
+        dqx_check_function="sql_expression",
+        affected_records=412,
+        last_seen_run_id="run_2026_03_15_silver_3050_b421",
+        studio_url=_dqx_studio_url("silver_3050", "saldo_3040_vs_3050_consistente"),
+        timeline=[
+            IncidentEvent(timestamp="2026-03-15T14:00:00Z", event_type="detected", actor="dqx:auto-emit",
+                          description="Auto-detected by the DQX run silver_3050 — 412 divergent records above the 0.5% tolerance."),
+            IncidentEvent(timestamp="2026-03-15T14:30:00Z", event_type="assigned", actor="coord.dados@bankcorp.com",
+                          description="Assigned to eng.dados@bankcorp.com for root cause analysis"),
+            IncidentEvent(timestamp="2026-03-15T16:00:00Z", event_type="in_progress", actor="eng.dados@bankcorp.com",
+                          description="Root cause identified: real estate assignments not mapped in the V11 equivalence"),
+            IncidentEvent(timestamp="2026-03-17T10:00:00Z", event_type="resolved", actor="eng.dados@bankcorp.com",
+                          description="Equivalence table updated and reprocessing completed successfully"),
+            IncidentEvent(timestamp="2026-03-17T14:00:00Z", event_type="validated", actor="gestor.info@bankcorp.com",
+                          description="Resolution validated. Divergence eliminated in the reprocessed data."),
+        ],
+    ),
+    Irregularity(
+        id="IRR-2026-0041",
+        detected_at="2026-03-10T08:00:00Z",
+        data_base="2026-02",
+        document="3040",
+        dimension_r18=6,
+        dimension_name="Completeness / Adaptability",
+        severity="high",
+        status="resolved",
+        description="250 operations with CNPJ_IF outside the required format (8 numeric digits required by the layout)",
+        root_cause="Bug in the silver transformation: cnpj_if truncated to 7 digits",
+        impact="Rejection of 3040 submission 1 for Feb/2026",
+        remedial_action="Silver pipeline fixed, data reprocessed and submission 2 resent",
+        owner="eng.dados@bankcorp.com",
+        resolved_at="2026-03-12T16:00:00Z",
+        resolution_days=2,
+        included_in_report="2026-S1",
+        detected_by="dqx:auto-emit",
+        responded_by="eng.dados@bankcorp.com",
+        responded_at="2026-03-10T10:30:00Z",
+        validated_by="coord.dados@bankcorp.com",
+        validated_at="2026-03-12T17:00:00Z",
+        critica_id="S10_002",
+        run_config_name="silver_3040_operacoes",
+        dqx_check_name="cnpj_if_format_valid",
+        dqx_check_function="regex_match",
+        affected_records=250,
+        last_seen_run_id="run_2026_03_10_silver_3040_a812",
+        studio_url=_dqx_studio_url("silver_3040_operacoes", "cnpj_if_format_valid"),
+        timeline=[
+            IncidentEvent(timestamp="2026-03-10T08:00:00Z", event_type="detected", actor="dqx:auto-emit",
+                          description="Auto-detected by the DQX run silver_3040_operacoes — 250 operations with invalid CNPJ_IF."),
+            IncidentEvent(timestamp="2026-03-10T08:15:00Z", event_type="assigned", actor="coord.dados@bankcorp.com",
+                          description="Assigned to eng.dados@bankcorp.com - high priority due to submission block"),
+            IncidentEvent(timestamp="2026-03-10T10:30:00Z", event_type="in_progress", actor="eng.dados@bankcorp.com",
+                          description="Bug identified: cnpj_if truncated to 7 digits in the silver_3040 notebook"),
+            IncidentEvent(timestamp="2026-03-12T16:00:00Z", event_type="resolved", actor="eng.dados@bankcorp.com",
+                          description="Pipeline fixed, data reprocessed, submission 2 sent successfully"),
+            IncidentEvent(timestamp="2026-03-12T17:00:00Z", event_type="validated", actor="coord.dados@bankcorp.com",
+                          description="Validation confirmed: all 250 operations with correct CNPJ_IF"),
+        ],
+    ),
+    Irregularity(
+        id="IRR-2026-0048",
+        detected_at="2026-04-02T03:12:00Z",
+        data_base="2026-03",
+        document="3040",
+        dimension_r18=3,
+        dimension_name="Adaptability",
+        severity="high",
+        status="in_progress",
+        description="38 clients with PorteCli outside the current domain of the SCR 3040 layout",
+        owner="eng.dados@bankcorp.com",
+        detected_by="dqx:auto-emit",
+        critica_id="S20_005",
+        run_config_name="silver_3040_clientes",
+        dqx_check_name="porte_cli_in_dominio",
+        dqx_check_function="foreign_key",
+        affected_records=38,
+        last_seen_run_id="run_2026_04_02_silver_3040_clientes_c014",
+        studio_url=_dqx_studio_url("silver_3040_clientes", "porte_cli_in_dominio"),
+        timeline=[
+            IncidentEvent(timestamp="2026-04-02T03:12:00Z", event_type="detected", actor="dqx:auto-emit",
+                          description="Auto-detected by the DQX run silver_3040_clientes — 38 clients with invalid PorteCli."),
+            IncidentEvent(timestamp="2026-04-02T09:40:00Z", event_type="assigned", actor="coord.dados@bankcorp.com",
+                          description="Assigned to eng.dados@bankcorp.com for investigation"),
+            IncidentEvent(timestamp="2026-04-02T11:05:00Z", event_type="in_progress", actor="eng.dados@bankcorp.com",
+                          description="Investigation started — suspected outdated domain in reference.dominios"),
+        ],
+    ),
+    Irregularity(
+        id="IRR-2026-0049",
+        detected_at="2026-04-08T03:10:00Z",
+        data_base="2026-03",
+        document="3040",
+        dimension_r18=11,
+        dimension_name="Relevance",
+        severity="medium",
+        status="open",
+        description="14 operations of modality 0102 above the internal cap defined by the Data Curator",
+        detected_by="dqx:auto-emit",
+        critica_id="N3_001",
+        run_config_name="silver_3040_operacoes",
+        dqx_check_name="limite_credito_por_modalidade",
+        dqx_check_function="sql_expression",
+        affected_records=14,
+        last_seen_run_id="run_2026_04_08_silver_3040_d901",
+        studio_url=_dqx_studio_url("silver_3040_operacoes", "limite_credito_por_modalidade"),
+        timeline=[
+            IncidentEvent(timestamp="2026-04-08T03:10:00Z", event_type="detected", actor="dqx:auto-emit",
+                          description="Auto-detected by the DQX run silver_3040_operacoes — 14 operations above the cap of modality 0102."),
+        ],
+    ),
+    # ---- MANUAL (Críticas SCR drilldown) ----
+    Irregularity(
+        id="IRR-2026-0050",
+        detected_at="2026-04-10T11:20:00Z",
+        data_base="2026-03",
+        document="3040",
+        dimension_r18=8,
+        dimension_name="Consistency",
+        severity="medium",
+        status="in_progress",
+        description="Modalities without mapping in the 3040↔3050 equivalence table — operations will not consolidate into the 3050",
+        owner="analyst@bankcorp.com",
+        detected_by="manual:analyst@bankcorp.com",
+        critica_id="CR2_018",
+        run_config_name="silver_3040_operacoes",
+        dqx_check_name="modalidade_equivalencia_3040_3050",
+        dqx_check_function="foreign_key",
+        affected_records=89,
+        last_seen_run_id="run_2026_04_10_silver_3040_e502",
+        studio_url=_dqx_studio_url("silver_3040_operacoes", "modalidade_equivalencia_3040_3050"),
+        timeline=[
+            IncidentEvent(timestamp="2026-04-10T11:20:00Z", event_type="detected", actor="manual:analyst@bankcorp.com",
+                          description="Created manually from Críticas SCR — 89 records without 3040↔3050 equivalence."),
+            IncidentEvent(timestamp="2026-04-10T13:00:00Z", event_type="assigned", actor="coord.dados@bankcorp.com",
+                          description="Assigned to analyst@bankcorp.com to open the action plan"),
+            IncidentEvent(timestamp="2026-04-10T14:30:00Z", event_type="in_progress", actor="analyst@bankcorp.com",
+                          description="Started analysis of modalities without mapping in the V11 equivalence table"),
+        ],
+    ),
+    Irregularity(
+        id="IRR-2026-0051",
+        detected_at="2026-04-01T09:00:00Z",
+        data_base="2026-03",
+        document="3050",
+        dimension_r18=9,
+        dimension_name="Integrity",
+        severity="low",
+        status="open",
+        description="Write permissions found on a 'consulta' profile in the gold schema — violates the generate/approve segregation required by Art. 2, §2, IX",
+        owner="seguranca.dados@bankcorp.com",
+        detected_by="manual:auditoria.interna@bankcorp.com",
+        critica_id=None,
+        run_config_name="silver_3050",
+        dqx_check_name=None,
+        dqx_check_function=None,
+        affected_records=None,
+        studio_url=None,
+        timeline=[
+            IncidentEvent(timestamp="2026-04-01T09:00:00Z", event_type="detected", actor="manual:auditoria.interna@bankcorp.com",
+                          description="Internal audit identified a 'consulta' profile with modification permission in Unity Catalog (gold.qualidade_dimensoes_mensal)."),
+        ],
+    ),
+]
+
 _MOCK_ACTION_PLANS = [
     ActionPlan(
         id="AP-2026-001", irregularity_id="IRR-2026-0042",
@@ -369,6 +564,57 @@ _MOCK_ACTION_PLANS = [
         updates=[],
     ),
 ]
+
+# English (en-US) variant of `_MOCK_ACTION_PLANS`. Same structure; only
+# human-readable free text is translated.
+_MOCK_ACTION_PLANS_EN = [
+    ActionPlan(
+        id="AP-2026-001", irregularity_id="IRR-2026-0042",
+        title="Update the V11 equivalence table",
+        description="Include real estate assignment rules in the 3040→3050 mapping (mod_3050_equiv) used by silver",
+        owner="eng.dados@bankcorp.com", created_at="2026-03-15T17:00:00Z",
+        deadline="2026-04-15", status="completed", progress_pct=100.0,
+        dimension_r18=8, dimension_name="Consistency",
+        updates=[
+            ActionPlanUpdate(date="2026-03-16", author="eng.dados@bankcorp.com", note="Mapping of new assignment rules started"),
+            ActionPlanUpdate(date="2026-03-17", author="eng.dados@bankcorp.com", note="Table updated, reprocessing completed and validated"),
+        ],
+    ),
+    ActionPlan(
+        id="AP-2026-002", irregularity_id="IRR-2026-0041",
+        title="Fix CNPJ truncation in the silver pipeline",
+        description="Fix in the silver transformation to preserve the 8 digits of CNPJ_IF per the SCR layout",
+        owner="eng.dados@bankcorp.com", created_at="2026-03-10T11:00:00Z",
+        deadline="2026-03-25", status="completed", progress_pct=100.0,
+        dimension_r18=6, dimension_name="Completeness / Adaptability",
+        updates=[
+            ActionPlanUpdate(date="2026-03-11", author="eng.dados@bankcorp.com", note="Bug identified in the silver_3040 notebook, line 142"),
+            ActionPlanUpdate(date="2026-03-12", author="eng.dados@bankcorp.com", note="Fix applied, reprocessing completed, submission 2 accepted"),
+        ],
+    ),
+    ActionPlan(
+        id="AP-2026-004", irregularity_id="IRR-2026-0051",
+        title="Apply segregation of duties on the gold schema (Integrity)",
+        description="Revoke modification privileges from the 'consulta' profile on gold.qualidade_dimensoes_mensal and other gold tables; keep read-only access per the SoD matrix of Art. 2, §2, IX (R.18)",
+        owner="seguranca.dados@bankcorp.com", created_at="2026-04-01T10:00:00Z",
+        deadline="2026-05-15", status="pending", progress_pct=0.0,
+        dimension_r18=9, dimension_name="Integrity",
+        auditor_caveat="R8 - Complete the segregation matrix for the semi-annual report per the caveat",
+        updates=[],
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Locale-aware mock dataset selectors
+# ---------------------------------------------------------------------------
+
+def _irregularities(locale: str) -> list[Irregularity]:
+    return _MOCK_IRREGULARITIES_EN if locale == "en" else _MOCK_IRREGULARITIES
+
+
+def _action_plans(locale: str) -> list[ActionPlan]:
+    return _MOCK_ACTION_PLANS_EN if locale == "en" else _MOCK_ACTION_PLANS
 
 
 # ---------------------------------------------------------------------------
@@ -464,13 +710,15 @@ async def get_irregularities(
     data_base_to: str = Query("2026-12"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    locale: str = Depends(get_locale),
 ):
     """Return log of quality incidents with resolution status.
 
     URL is preserved as ``/irregularities`` for backward compat; underlying
     table is now ``governance.incidents`` (post Phase-7)."""
     if USE_MOCK:
-        items = list(_MOCK_IRREGULARITIES)
+        mock_items = _irregularities(locale)
+        items = list(mock_items)
         if status:
             items = [i for i in items if i.status == status]
         if severity:
@@ -480,7 +728,7 @@ async def get_irregularities(
         total = len(items)
         paged = items[(page - 1) * page_size : page * page_size]
         counts = {"open": 0, "in_progress": 0, "resolved": 0}
-        for it in _MOCK_IRREGULARITIES:
+        for it in mock_items:
             if it.status == "open":
                 counts["open"] += 1
             elif it.status == "in_progress":
@@ -488,7 +736,7 @@ async def get_irregularities(
             elif it.status in ("resolved", "validated"):
                 counts["resolved"] += 1
         by_dim: dict[int, dict] = {}
-        for it in _MOCK_IRREGULARITIES:
+        for it in mock_items:
             if it.dimension_r18:
                 e = by_dim.setdefault(it.dimension_r18, {"name": it.dimension_name, "count": 0})
                 e["count"] += 1
@@ -620,13 +868,16 @@ async def get_irregularities(
 
 
 @router.get("/irregularities/{irregularity_id}", response_model=IrregularityDetailResponse)
-async def get_irregularity_detail(irregularity_id: str):
+async def get_irregularity_detail(
+    irregularity_id: str,
+    locale: str = Depends(get_locale),
+):
     """Return single incident with full lifecycle timeline and linked action plans."""
     if USE_MOCK:
-        item = next((i for i in _MOCK_IRREGULARITIES if i.id == irregularity_id), None)
+        item = next((i for i in _irregularities(locale) if i.id == irregularity_id), None)
         if not item:
             raise HTTPException(status_code=404, detail="Incidente não encontrado")
-        plans = [p for p in _MOCK_ACTION_PLANS if p.irregularity_id == irregularity_id]
+        plans = [p for p in _action_plans(locale) if p.irregularity_id == irregularity_id]
         return IrregularityDetailResponse(irregularity=item, action_plans=plans)
 
     rows = await execute_query(
@@ -661,7 +912,11 @@ async def get_irregularity_detail(irregularity_id: str):
 
 
 @router.post("/incidents", response_model=Irregularity, status_code=201)
-async def create_incident(body: IncidentCreateRequest, request: Request):
+async def create_incident(
+    body: IncidentCreateRequest,
+    request: Request,
+    locale: str = Depends(get_locale),
+):
     """Manually create an incident from the Críticas SCR drilldown.
 
     Dedup key (spec §4.1 / §4.2): ``(critica_id, run_config_name, dt_base)``
@@ -673,9 +928,10 @@ async def create_incident(body: IncidentCreateRequest, request: Request):
     detected_by = f"manual:{actor}"
 
     if USE_MOCK:
+        mock_items = _irregularities(locale)
         # In-memory dedup against open incidents.
         existing = next(
-            (i for i in _MOCK_IRREGULARITIES
+            (i for i in mock_items
              if i.critica_id == body.critica_id
              and i.run_config_name == body.run_config_name
              and i.data_base == body.dt_base
@@ -687,7 +943,11 @@ async def create_incident(body: IncidentCreateRequest, request: Request):
                 status_code=409,
                 detail={
                     "code": "incident_already_open",
-                    "message": "Já existe um incidente aberto para esta crítica nesta data-base.",
+                    "message": (
+                        "An open incident already exists for this validation on this data-base."
+                        if locale == "en"
+                        else "Já existe um incidente aberto para esta crítica nesta data-base."
+                    ),
                     "incident_id": existing.id,
                     "existing_incident_id": existing.id,
                 },
@@ -724,11 +984,15 @@ async def create_incident(body: IncidentCreateRequest, request: Request):
             timeline=[
                 IncidentEvent(
                     timestamp=now, event_type="detected", actor=detected_by,
-                    description=f"Criado manualmente a partir da Críticas SCR pelo usuário {actor}.",
+                    description=(
+                        f"Created manually from Críticas SCR by user {actor}."
+                        if locale == "en"
+                        else f"Criado manualmente a partir da Críticas SCR pelo usuário {actor}."
+                    ),
                 ),
             ],
         )
-        _MOCK_IRREGULARITIES.insert(0, item)
+        mock_items.insert(0, item)
         return item
 
     # ── Real mode: MERGE INTO governance.incidents ─────────────────────────
@@ -818,6 +1082,7 @@ async def update_incident_status(
     incident_id: str,
     body: IncidentStatusUpdateRequest,
     request: Request,
+    locale: str = Depends(get_locale),
 ):
     """Transition an incident through the FSM (spec §4.3 / §12.4).
 
@@ -833,7 +1098,7 @@ async def update_incident_status(
     now = _now_iso()
 
     if USE_MOCK:
-        item = next((i for i in _MOCK_IRREGULARITIES if i.id == incident_id), None)
+        item = next((i for i in _irregularities(locale) if i.id == incident_id), None)
         if not item:
             raise HTTPException(status_code=404, detail="Incidente não encontrado")
         current_storage = _STATUS_REVERSE_MAP.get(item.status, item.status)
@@ -860,7 +1125,11 @@ async def update_incident_status(
             item.validated_by = actor
         if target_storage == "escalated":
             item.escalated_at = now
-        timeline_desc = body.comment or f"Transição para {target_storage} por {actor}."
+        timeline_desc = body.comment or (
+            f"Transitioned to {target_storage} by {actor}."
+            if locale == "en"
+            else f"Transição para {target_storage} por {actor}."
+        )
         item.timeline = list(item.timeline) + [
             IncidentEvent(timestamp=now, event_type=target_storage, actor=actor, description=timeline_desc)
         ]
@@ -953,10 +1222,11 @@ async def get_action_plans(
     owner: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    locale: str = Depends(get_locale),
 ):
     """Return action plans with filtering and pagination."""
     if USE_MOCK:
-        items = list(_MOCK_ACTION_PLANS)
+        items = list(_action_plans(locale))
         if status:
             items = [p for p in items if p.status == status]
         if owner:
@@ -972,8 +1242,12 @@ async def get_action_plans(
 
 
 @router.get("/reports", response_model=GovernanceReportsResponse)
-async def get_governance_reports():
-    """Return list of semi-annual reports with generation and approval status."""
+async def get_governance_reports(locale: str = Depends(get_locale)):
+    """Return list of semi-annual reports with generation and approval status.
+
+    ``GovernanceReport`` carries no human-readable free text (only ids, codes,
+    dates, counts), so the mock payload is locale-independent. ``locale`` is
+    accepted for consistency with the other governance endpoints."""
     if USE_MOCK:
         return GovernanceReportsResponse(
             reports=[

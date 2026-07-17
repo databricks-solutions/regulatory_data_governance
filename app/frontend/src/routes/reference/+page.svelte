@@ -5,17 +5,18 @@
   import Badge from '$lib/components/ui/Badge.svelte';
   import { getReferenceDominios, getReferenceCalendar, getReferenceEquivalence, getReferenceLayoutVersions } from '$lib/api.js';
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
 
   let activeTab = $state('dominios');
   let selectedField = $state('modalidade');
   let loading = $state(false);
 
-  const tabs = [
-    { key: 'dominios', label: 'Domínios' },
-    { key: 'calendario', label: 'Calendário BACEN' },
-    { key: 'equivalencia', label: 'Equivalência' },
-    { key: 'versoes', label: 'Versões de Leiaute' }
-  ];
+  const tabs = $derived.by(() => [
+    { key: 'dominios', label: $_('reference.tabDominios') },
+    { key: 'calendario', label: $_('reference.tabCalendario') },
+    { key: 'equivalencia', label: $_('reference.tabEquivalencia') },
+    { key: 'versoes', label: $_('reference.tabVersoes') }
+  ]);
 
   const fieldOptions = [
     'modalidade', 'tipo_cliente', 'natureza_operacao', 'tipo_garantia',
@@ -27,32 +28,32 @@
   let equivalencia = $state([]);
   let versoes = $state([]);
 
-  const domCols = [
-    { key: 'codigo', label: 'Código', sortable: true, width: '100px' },
-    { key: 'descricao', label: 'Descrição', sortable: true }
-  ];
+  const domCols = $derived.by(() => [
+    { key: 'codigo', label: $_('reference.colCodigo'), sortable: true, width: '100px' },
+    { key: 'descricao', label: $_('reference.colDescricao'), sortable: true }
+  ]);
 
-  const calCols = [
-    { key: 'data', label: 'Data', sortable: true, width: '120px' },
-    { key: 'tipo', label: 'Tipo', sortable: true, width: '80px' },
-    { key: 'ultimo_du_semana', label: 'Ult. DU Semana', width: '120px', render: (v) => v ? 'Sim' : '-' },
-    { key: 'ultimo_du_mes', label: 'Ult. DU Mês', width: '120px', render: (v) => v ? '<strong style="color: var(--accent)">Sim</strong>' : '-' }
-  ];
+  const calCols = $derived.by(() => [
+    { key: 'data', label: $_('reference.colData'), sortable: true, width: '120px' },
+    { key: 'tipo', label: $_('reference.colTipo'), sortable: true, width: '80px' },
+    { key: 'ultimo_du_semana', label: $_('reference.colUltDuSemana'), width: '120px', render: (v) => v ? $_('reference.sim') : '-' },
+    { key: 'ultimo_du_mes', label: $_('reference.colUltDuMes'), width: '120px', render: (v) => v ? `<strong style="color: var(--accent)">${$_('reference.sim')}</strong>` : '-' }
+  ]);
 
-  const equivCols = [
-    { key: 'mod_3040', label: 'Mod 3040', sortable: true, width: '100px' },
-    { key: 'desc_3040', label: 'Descrição 3040', sortable: true },
-    { key: 'cat_3050', label: 'Categoria 3050', sortable: true, width: '150px' },
-    { key: 'notas', label: 'Notas', width: '100px' }
-  ];
+  const equivCols = $derived.by(() => [
+    { key: 'mod_3040', label: $_('reference.colMod3040'), sortable: true, width: '100px' },
+    { key: 'desc_3040', label: $_('reference.colDesc3040'), sortable: true },
+    { key: 'cat_3050', label: $_('reference.colCat3050'), sortable: true, width: '150px' },
+    { key: 'notas', label: $_('reference.colNotas'), width: '100px' }
+  ]);
 
-  const verCols = [
-    { key: 'doc', label: 'Documento', sortable: true, width: '100px' },
-    { key: 'versao', label: 'Versão', sortable: true, width: '80px' },
-    { key: 'vigencia_inicio', label: 'Vigência Início', sortable: true, width: '140px' },
-    { key: 'vigencia_fim', label: 'Vigência Fim', sortable: true, width: '140px' },
-    { key: 'status', label: 'Status', sortable: true, width: '100px', render: (v) => v === 'atual' ? '<span style="color: var(--success); font-weight: 600">Atual</span>' : '<span style="color: var(--gray-500)">Histórico</span>' }
-  ];
+  const verCols = $derived.by(() => [
+    { key: 'doc', label: $_('reference.colDocumento'), sortable: true, width: '100px' },
+    { key: 'versao', label: $_('reference.colVersao'), sortable: true, width: '80px' },
+    { key: 'vigencia_inicio', label: $_('reference.colVigenciaInicio'), sortable: true, width: '140px' },
+    { key: 'vigencia_fim', label: $_('reference.colVigenciaFim'), sortable: true, width: '140px' },
+    { key: 'status', label: $_('reference.colStatus'), sortable: true, width: '100px', render: (v) => v === 'atual' ? `<span style="color: var(--success); font-weight: 600">${$_('reference.statusAtual')}</span>` : `<span style="color: var(--gray-500)">${$_('reference.statusHistorico')}</span>` }
+  ]);
 
   onMount(async () => {
     try {
@@ -68,26 +69,26 @@
   {#if activeTab === 'dominios'}
     <div class="card">
       <div class="filter-row">
-        <label class="field-label">Campo:</label>
+        <label class="field-label">{$_('reference.campoLabel')}</label>
         <select class="field-select" bind:value={selectedField}>
           {#each fieldOptions as f}
             <option value={f}>{f}</option>
           {/each}
         </select>
       </div>
-      <DataTable columns={domCols} data={dominios} emptyMessage="Nenhum domínio encontrado" />
+      <DataTable columns={domCols} data={dominios} emptyMessage={$_('reference.emptyDominios')} />
     </div>
   {:else if activeTab === 'calendario'}
     <div class="card">
-      <DataTable columns={calCols} data={calendario} emptyMessage="Nenhuma data encontrada" />
+      <DataTable columns={calCols} data={calendario} emptyMessage={$_('reference.emptyCalendario')} />
     </div>
   {:else if activeTab === 'equivalencia'}
     <div class="card">
-      <DataTable columns={equivCols} data={equivalencia} emptyMessage="Nenhuma equivalência encontrada" />
+      <DataTable columns={equivCols} data={equivalencia} emptyMessage={$_('reference.emptyEquivalencia')} />
     </div>
   {:else if activeTab === 'versoes'}
     <div class="card">
-      <DataTable columns={verCols} data={versoes} emptyMessage="Nenhuma versão encontrada" />
+      <DataTable columns={verCols} data={versoes} emptyMessage={$_('reference.emptyVersoes')} />
     </div>
   {/if}
 </div>

@@ -8,6 +8,7 @@
   import { getDashboardKpis, getQualityDimensions, getQualityTrend } from '$lib/api.js';
   import { formatDate, formatPercent } from '$lib/format.js';
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
 
   let kpis = $state({
     compliance_score: 0,
@@ -52,10 +53,10 @@
       <div class="welcome-left">
         <div class="welcome-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l7 4v6c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z"/></svg>
-          Resolução Conjunta N.18
+          {$_('dashboard.welcomeBadge')}
         </div>
-        <h2 class="welcome-title">Conformidade SCR</h2>
-        <p class="welcome-subtitle">Qualidade de dados — Banco Central do Brasil</p>
+        <h2 class="welcome-title">{$_('dashboard.welcomeTitle')}</h2>
+        <p class="welcome-subtitle">{$_('dashboard.welcomeSubtitle')}</p>
       </div>
       <div class="welcome-right">
         <div class="welcome-score">
@@ -71,13 +72,13 @@
             <div class="score-value">{kpis.compliance_score}<span>%</span></div>
           </div>
           <div class="score-meta">
-            <div class="score-label">Índice R.18</div>
+            <div class="score-label">{$_('dashboard.r18Index')}</div>
           </div>
         </div>
         <div class="welcome-divider"></div>
         <div class="welcome-deadline">
           <div class="deadline-days">{kpis.deadline.days_remaining}</div>
-          <div class="deadline-text">dias restantes</div>
+          <div class="deadline-text">{$_('dashboard.daysRemaining')}</div>
         </div>
       </div>
     </div>
@@ -86,25 +87,25 @@
   <!-- KPI Cards -->
   <div class="kpi-row">
     <KpiCard
-      title="Índice R.18"
+      title={$_('dashboard.r18Index')}
       value={kpis.compliance_score}
       unit="%"
       trend={2.5}
-      trendLabel="vs mês anterior"
+      trendLabel={$_('dashboard.vsPreviousMonth')}
       status="info"
       href="/quality"
     />
     <KpiCard
-      title="Críticas Pendentes"
+      title={$_('dashboard.pendingValidations')}
       value={kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050}
       subtitle="3040: {kpis.pending_validations.scr3040} | 3050: {kpis.pending_validations.scr3050}"
       status={kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050 > 0 ? 'warning' : 'success'}
       href="/validations"
     />
     <KpiCard
-      title="Prazo R.18"
+      title={$_('dashboard.r18Deadline')}
       value={kpis.deadline.days_remaining}
-      unit=" dias"
+      unit={$_('dashboard.daysUnit')}
       subtitle={kpis.deadline.phase}
       status="info"
     />
@@ -115,10 +116,10 @@
     <div class="card chart-card">
       <div class="chart-header">
         <div>
-          <div class="card-header">Dimensões de Qualidade R.18</div>
-          <div class="chart-subheader">12 dimensões obrigatórias com meta de 90%</div>
+          <div class="card-header">{$_('dashboard.qualityDimensionsR18')}</div>
+          <div class="chart-subheader">{$_('dashboard.qualityDimensionsSubheader')}</div>
         </div>
-        <a href="/quality" class="chart-link">Ver detalhes
+        <a href="/quality" class="chart-link">{$_('dashboard.seeDetails')}
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
       </div>
@@ -127,8 +128,8 @@
     <div class="card chart-card">
       <div class="chart-header">
         <div>
-          <div class="card-header">Tendência de Conformidade</div>
-          <div class="chart-subheader">Evolução dos últimos 6 meses</div>
+          <div class="card-header">{$_('dashboard.complianceTrend')}</div>
+          <div class="chart-subheader">{$_('dashboard.last6MonthsEvolution')}</div>
         </div>
       </div>
       <LineChart data={overallTrend} targetValue={90} height={260} />
@@ -137,7 +138,7 @@
 
   <!-- Status Row -->
   <div class="status-row">
-    <!-- Última Execução DQX -->
+    <!-- Last DQX run -->
     <div class="card status-card">
       <div class="status-card-header">
         <div class="status-icon-wrapper submission">
@@ -145,20 +146,20 @@
             <path d="M12 19V5M5 12l7-7 7 7"/>
           </svg>
         </div>
-        <div class="card-header">Última Execução DQX</div>
+        <div class="card-header">{$_('dashboard.lastDqxRun')}</div>
       </div>
       <div class="status-body">
         <div class="status-main-value">{kpis.last_submission.document || '—'}</div>
         <div class="status-detail">
-          <span class="detail-label">Data-base do app</span>
+          <span class="detail-label">{$_('dashboard.appBaseDate')}</span>
           <span class="detail-value">{kpis.last_submission.data_base || '—'}</span>
         </div>
         <div class="status-detail">
-          <span class="detail-label">Status</span>
-          <Badge label={kpis.last_submission.status === 'executado' ? 'Executado' : 'Pendente'} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
+          <span class="detail-label">{$_('common.status')}</span>
+          <Badge label={kpis.last_submission.status === 'executado' ? $_('dashboard.statusExecuted') : $_('dashboard.statusPending')} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
         </div>
         <div class="status-detail">
-          <span class="detail-label">Última run</span>
+          <span class="detail-label">{$_('dashboard.lastRun')}</span>
           <span class="detail-value">{kpis.last_submission.submitted_at ? formatDate(kpis.last_submission.submitted_at) : '—'}</span>
         </div>
       </div>
@@ -172,12 +173,12 @@
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
           </svg>
         </div>
-        <div class="card-header">Alertas Ativos</div>
+        <div class="card-header">{$_('dashboard.activeAlerts')}</div>
         <span class="alert-count">{kpis.alerts.length}</span>
       </div>
       <div class="alerts-list">
         {#if kpis.alerts.length === 0}
-          <div class="alerts-empty">Sem incidentes abertos.</div>
+          <div class="alerts-empty">{$_('dashboard.noOpenIncidents')}</div>
         {/if}
         {#each kpis.alerts as alert}
           <div class="alert-item sev-{alert.severity}">

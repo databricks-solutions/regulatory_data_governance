@@ -18,6 +18,30 @@ resources:
         env:
           - name: USE_MOCK_BACKEND
             value: "true"
+          # --- Live DQX Studio (optional, for the demo's rule-authoring story) ---
+          # The "Motor de Regras" (/rules) page embeds DQX Studio via iframe when
+          # this is set; otherwise it shows a deploy empty-state. To author rules
+          # live during the demo, deploy DQX Studio and UNCOMMENT the two lines
+          # below with its public app URL. Do NOT leave the value empty — the
+          # Apps API rejects env entries with an empty `value`. Do NOT commit a
+          # real workspace URL/ID — supply it at deploy time.
+          # - name: DQX_STUDIO_URL
+          #   value: "https://<your-dqx-studio-app>.databricksapps.com"
+          # --- Live Lakeview dashboards (PT-BR variants) ---
+          # The dashboard embed path does NOT depend on USE_MOCK_BACKEND — it
+          # always builds the iframe URL from the live workspace config. To wire
+          # the dashboard tabs to real dashboards deployed by the core bundle
+          # (rc18-starter-kit), UNCOMMENT and supply the IDs at deploy time
+          # (e.g. via --var / deploy env). Do NOT commit real resource IDs.
+          # - name: DASHBOARD_ID_CONFORMIDADE
+          #   value: "<conformidade-dashboard-id>"
+          # - name: DASHBOARD_ID_CRITICAS
+          #   value: "<criticas-dashboard-id>"
+          # --- Genie space embedded on the "Genie Agent" (/genie) page. Embed
+          # path is independent of USE_MOCK_BACKEND. Supply at deploy time; do
+          # NOT commit a real space ID. ---
+          # - name: GENIE_SPACE_ID
+          #   value: "<genie-space-id>"
 
       permissions:
         - level: CAN_USE

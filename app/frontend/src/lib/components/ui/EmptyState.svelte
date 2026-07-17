@@ -1,5 +1,9 @@
 <script>
-  let { message = 'Nenhum dado encontrado', icon = '' } = $props();
+  import { _ } from 'svelte-i18n';
+
+  let { message = null, icon = '' } = $props();
+
+  let displayMessage = $derived(message ?? $_('common.noData'));
 </script>
 
 <div class="empty-state">
@@ -10,7 +14,7 @@
       </svg>
     {/if}
   </div>
-  <p class="empty-msg">{message}</p>
+  <p class="empty-msg">{displayMessage}</p>
 </div>
 
 <style>

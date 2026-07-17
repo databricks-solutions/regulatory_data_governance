@@ -1,4 +1,7 @@
 <script>
+  import { _, locale } from 'svelte-i18n';
+  import { SUPPORTED_LOCALES, setLocale } from '$lib/i18n';
+
   let { title = '', onToggleSidebar, dataBase = '2026-03', onDataBaseChange, alertCount = 0, onOpenBrandSettings, theme = 'light', onToggleTheme, action = null } = $props();
 
   const dataBaseOptions = [
@@ -7,14 +10,24 @@
 
   function formatDataBaseLabel(db) {
     const [year, month] = db.split('-');
-    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const months = $_('header.months').split(',');
     return `${months[parseInt(month) - 1]} ${year}`;
+  }
+
+  let langOpen = $state(false);
+  const currentLang = $derived(SUPPORTED_LOCALES.find((l) => l.code === $locale) ?? SUPPORTED_LOCALES[0]);
+
+  function chooseLang(code) {
+    setLocale(code);
+    langOpen = false;
   }
 </script>
 
+<svelte:window onclick={() => (langOpen = false)} />
+
 <header class="header">
   <div class="header-left">
-    <button class="hamburger" onclick={onToggleSidebar} aria-label="Toggle menu">
+    <button class="hamburger" onclick={onToggleSidebar} aria-label={$_('header.toggleMenu')}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <path d="M3 12h18M3 6h18M3 18h18" />
       </svg>
@@ -41,7 +54,7 @@
       <svg class="db-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
       </svg>
-      <span class="db-label">Data-Base</span>
+      <span class="db-label">{$_('header.dataBase')}</span>
       <select
         class="db-select"
         value={dataBase}
@@ -55,7 +68,41 @@
 
     <div class="header-divider"></div>
 
-    <button class="icon-btn" aria-label="Alertas">
+    <div class="lang-selector">
+      <button
+        class="icon-btn lang-btn"
+        onclick={(e) => { e.stopPropagation(); langOpen = !langOpen; }}
+        aria-label={$_('header.language')}
+        title={$_('header.language')}
+      >
+        <span class="lang-code">{currentLang.code.toUpperCase()}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {#if langOpen}
+        <div class="lang-menu" role="menu">
+          {#each SUPPORTED_LOCALES as lang}
+            <button
+              type="button"
+              class="lang-option"
+              class:active={lang.code === $locale}
+              role="menuitemradio"
+              aria-checked={lang.code === $locale}
+              onclick={(e) => { e.stopPropagation(); chooseLang(lang.code); }}
+            >
+              <span class="lang-tag">{lang.code.toUpperCase()}</span>
+              <span class="lang-name">{lang.label}</span>
+              {#if lang.code === $locale}
+                <svg class="lang-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <div class="header-divider"></div>
+
+    <button class="icon-btn" aria-label={$_('header.alerts')}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
       </svg>
@@ -64,7 +111,7 @@
       {/if}
     </button>
 
-    <button class="icon-btn" onclick={onToggleTheme} aria-label={theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}>
+    <button class="icon-btn" onclick={onToggleTheme} aria-label={theme === 'dark' ? $_('header.activateLight') : $_('header.activateDark')} title={theme === 'dark' ? $_('header.lightMode') : $_('header.darkMode')}>
       {#if theme === 'dark'}
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4" />
@@ -77,7 +124,7 @@
       {/if}
     </button>
 
-    <button class="icon-btn" onclick={onOpenBrandSettings} aria-label="Configurações de marca" title="Configurações de marca">
+    <button class="icon-btn" onclick={onOpenBrandSettings} aria-label={$_('header.brandSettings')} title={$_('header.brandSettings')}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
@@ -99,6 +146,54 @@
     top: 0;
     z-index: 50;
   }
+
+  .lang-selector { position: relative; }
+  .lang-btn {
+    width: auto;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-2);
+  }
+  .lang-code { font-size: var(--font-size-xs); font-weight: 700; color: var(--gray-600); }
+  .lang-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gray-500);
+    width: 22px;
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+  .lang-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 168px;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg, 0 10px 24px rgba(0,0,0,0.12));
+    padding: var(--space-1);
+    z-index: 60;
+  }
+  .lang-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-primary);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition-fast);
+  }
+  .lang-option:hover { background: var(--gray-100); }
+  .lang-option.active { color: var(--primary); font-weight: 600; }
+  .lang-name { flex: 1; }
+  .lang-check { color: var(--primary); flex-shrink: 0; }
   .header-left { display: flex; align-items: center; gap: var(--space-4); }
   .hamburger {
     background: none;

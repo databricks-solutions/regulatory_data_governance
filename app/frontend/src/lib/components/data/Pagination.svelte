@@ -1,12 +1,14 @@
 <script>
+  import { _ } from 'svelte-i18n';
+
   let { page = 1, totalPages = 1, onchange } = $props();
 </script>
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button class="pg-btn" disabled={page <= 1} onclick={() => onchange(page - 1)}>&laquo; Anterior</button>
-    <span class="pg-info">Página {page} de {totalPages}</span>
-    <button class="pg-btn" disabled={page >= totalPages} onclick={() => onchange(page + 1)}>Próximo &raquo;</button>
+    <button class="pg-btn" disabled={page <= 1} onclick={() => onchange(page - 1)}>&laquo; {$_('pagination.previous')}</button>
+    <span class="pg-info">{$_('pagination.pageOf', { values: { current: page, total: totalPages } })}</span>
+    <button class="pg-btn" disabled={page >= totalPages} onclick={() => onchange(page + 1)}>{$_('pagination.next')} &raquo;</button>
   </div>
 {/if}
 

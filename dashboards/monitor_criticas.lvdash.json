@@ -2,7 +2,7 @@
   "datasets": [
     {
       "name": "ds_incidents_por_dimensao",
-      "displayName": "Incidentes por dimensao R.18",
+      "displayName": "Incidentes por dimensão R.18",
       "queryLines": [
         "SELECT ",
         "  d.dimensao_id, ",
@@ -65,7 +65,7 @@
     },
     {
       "name": "ds_top_violations",
-      "displayName": "Top 20 incidentes por taxa de violacao",
+      "displayName": "Top 20 incidentes por taxa de violação",
       "queryLines": [
         "SELECT ",
         "  i.critica_id, ",
@@ -101,7 +101,7 @@
     },
     {
       "name": "ds_kpi_tmr",
-      "displayName": "KPI Tempo Medio de Resolucao (horas)",
+      "displayName": "KPI Tempo Médio de Resolução (horas)",
       "queryLines": [
         "SELECT ",
         "  ROUND(AVG(timestampdiff(HOUR, detected_at, resolved_at)), 1) AS tmr_horas ",
@@ -149,7 +149,7 @@
     },
     {
       "name": "ds_kpi_taxa_resolucao",
-      "displayName": "KPI Taxa de resolucao (ultimos 30 dias)",
+      "displayName": "KPI Taxa de resolução (últimos 30 dias)",
       "queryLines": [
         "SELECT ",
         "  ROUND(SUM(CASE WHEN status IN ('RESOLVED', 'VALIDATED') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS taxa_resolucao_pct ",
@@ -172,7 +172,7 @@
     },
     {
       "name": "ds_tendencia_mensal",
-      "displayName": "Tendencia mensal: detectados vs resolvidos",
+      "displayName": "Tendência mensal: detectados vs resolvidos",
       "queryLines": [
         "WITH base AS ( ",
         "  SELECT ",
@@ -204,7 +204,7 @@
     },
     {
       "name": "ds_regras_por_dimensao",
-      "displayName": "Regras DQX vinculadas por dimensao R.18",
+      "displayName": "Regras DQX vinculadas por dimensão R.18",
       "queryLines": [
         "WITH rule_dims AS ( ",
         "  SELECT ",
@@ -249,7 +249,7 @@
     },
     {
       "name": "ds_heatmap_dimensao_doc",
-      "displayName": "Heatmap dimensao x documento",
+      "displayName": "Heatmap dimensão x documento",
       "queryLines": [
         "SELECT ",
         "  d.dimensao_id, ",
@@ -279,14 +279,14 @@
   "pages": [
     {
       "name": "visao-operacional",
-      "displayName": "Visao Operacional",
+      "displayName": "Visão Operacional",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
         {
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
-              "lines": ["## Monitor de Incidentes de Qualidade — Dimensoes R.18"]
+              "lines": ["## Monitor de Incidentes de Qualidade — Dimensões R.18"]
             }
           },
           "position": {"x": 0, "y": 0, "width": 6, "height": 1}
@@ -295,7 +295,7 @@
           "widget": {
             "name": "subtitle",
             "multilineTextboxSpec": {
-              "lines": ["Ciclo de vida dos incidentes emitidos pelo DQX Studio · fonte: governance.incidents · dimensoes sem regras DQX vinculadas ficam em destaque"]
+              "lines": ["Ciclo de vida dos incidentes emitidos pelo DQX Studio · fonte: governance.incidents · dimensões sem regras DQX vinculadas ficam em destaque"]
             }
           },
           "position": {"x": 0, "y": 1, "width": 6, "height": 1}
@@ -317,7 +317,7 @@
               "encodings": {
                 "value": {"fieldName": "tmr_horas", "displayName": "TMR (h)"}
               },
-              "frame": {"showTitle": true, "title": "Tempo Medio de Resolucao (h)"}
+              "frame": {"showTitle": true, "title": "Tempo Médio de Resolução (h)"}
             }
           },
           "position": {"x": 0, "y": 2, "width": 2, "height": 3}
@@ -359,9 +359,9 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "taxa_resolucao_pct", "displayName": "Taxa Resolucao (%)"}
+                "value": {"fieldName": "taxa_resolucao_pct", "displayName": "Taxa Resolução (%)"}
               },
-              "frame": {"showTitle": true, "title": "Taxa de Resolucao (ult. 30 dias)"}
+              "frame": {"showTitle": true, "title": "Taxa de Resolução (últ. 30 dias)"}
             }
           },
           "position": {"x": 4, "y": 2, "width": 2, "height": 3}
@@ -396,7 +396,7 @@
                 "x": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"},
                 "y": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Qtd Incidentes"}
               },
-              "frame": {"showTitle": true, "title": "Incidentes por Status (todo periodo)"}
+              "frame": {"showTitle": true, "title": "Incidentes por Status (todo período)"}
             }
           },
           "position": {"x": 0, "y": 6, "width": 3, "height": 5}
@@ -420,11 +420,11 @@
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensão"},
                 "y": {"fieldName": "sum(abertos)", "scale": {"type": "quantitative"}, "displayName": "Abertos"},
                 "color": {"fieldName": "severidade", "scale": {"type": "categorical"}, "displayName": "Severidade"}
               },
-              "frame": {"showTitle": true, "title": "Incidentes Abertos por Dimensao R.18"}
+              "frame": {"showTitle": true, "title": "Incidentes Abertos por Dimensão R.18"}
             }
           },
           "position": {"x": 3, "y": 6, "width": 3, "height": 5}
@@ -433,7 +433,7 @@
           "widget": {
             "name": "section-tendencia",
             "multilineTextboxSpec": {
-              "lines": ["### Detectados vs Resolvidos (Ultimos 6 Meses)"]
+              "lines": ["### Detectados vs Resolvidos (Últimos 6 Meses)"]
             }
           },
           "position": {"x": 0, "y": 11, "width": 6, "height": 1}
@@ -457,11 +457,11 @@
               "version": 3,
               "widgetType": "line",
               "encodings": {
-                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mes"},
+                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mês"},
                 "y": {"fieldName": "qtd", "scale": {"type": "quantitative"}, "displayName": "Qtd Incidentes"},
                 "color": {"fieldName": "tipo", "scale": {"type": "categorical"}, "displayName": "Tipo"}
               },
-              "frame": {"showTitle": true, "title": "Detectados vs Resolvidos por Mes"}
+              "frame": {"showTitle": true, "title": "Detectados vs Resolvidos por Mês"}
             }
           },
           "position": {"x": 0, "y": 12, "width": 6, "height": 5}
@@ -470,7 +470,7 @@
           "widget": {
             "name": "section-heatmap",
             "multilineTextboxSpec": {
-              "lines": ["### Concentracao por Dimensao x Documento"]
+              "lines": ["### Concentração por Dimensão x Documento"]
             }
           },
           "position": {"x": 0, "y": 17, "width": 6, "height": 1}
@@ -495,10 +495,10 @@
               "widgetType": "heatmap",
               "encodings": {
                 "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Documento"},
-                "y": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "y": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensão"},
                 "color": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incidentes"}
               },
-              "frame": {"showTitle": true, "title": "Incidentes por Dimensao x Documento"}
+              "frame": {"showTitle": true, "title": "Incidentes por Dimensão x Documento"}
             }
           },
           "position": {"x": 0, "y": 18, "width": 6, "height": 5}
@@ -507,7 +507,7 @@
           "widget": {
             "name": "section-top-violations",
             "multilineTextboxSpec": {
-              "lines": ["### Top 20 Incidentes Abertos por Taxa de Violacao"]
+              "lines": ["### Top 20 Incidentes Abertos por Taxa de Violação"]
             }
           },
           "position": {"x": 0, "y": 23, "width": 6, "height": 1}
@@ -540,10 +540,10 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  {"fieldName": "critica_id", "displayName": "Critica"},
+                  {"fieldName": "critica_id", "displayName": "Crítica"},
                   {"fieldName": "check_name", "displayName": "Check"},
                   {"fieldName": "documento", "displayName": "Documento"},
-                  {"fieldName": "dimensao", "displayName": "Dimensao"},
+                  {"fieldName": "dimensao", "displayName": "Dimensão"},
                   {"fieldName": "severidade", "displayName": "Severidade"},
                   {"fieldName": "status", "displayName": "Status"},
                   {"fieldName": "affected_records", "displayName": "Afetados"},
@@ -562,7 +562,7 @@
           "widget": {
             "name": "section-regras",
             "multilineTextboxSpec": {
-              "lines": ["### Cobertura de Regras DQX por Dimensao R.18"]
+              "lines": ["### Cobertura de Regras DQX por Dimensão R.18"]
             }
           },
           "position": {"x": 0, "y": 32, "width": 6, "height": 1}
@@ -586,11 +586,11 @@
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensão"},
                 "y": {"fieldName": "rules_count", "scale": {"type": "quantitative"}, "displayName": "Qtd Regras DQX"},
                 "color": {"fieldName": "estado_regras", "scale": {"type": "categorical"}, "displayName": "Estado"}
               },
-              "frame": {"showTitle": true, "title": "Regras DQX vinculadas a cada dimensao (SEM REGRAS = 0)"}
+              "frame": {"showTitle": true, "title": "Regras DQX vinculadas a cada dimensão (SEM REGRAS = 0)"}
             }
           },
           "position": {"x": 0, "y": 33, "width": 6, "height": 5}
@@ -671,11 +671,11 @@
               "encodings": {
                 "fields": [{
                   "fieldName": "dimensao",
-                  "displayName": "Dimensao",
+                  "displayName": "Dimensão",
                   "queryName": "ds_incidents_por_dimensao_dimensao"
                 }]
               },
-              "frame": {"showTitle": true, "title": "Dimensao"}
+              "frame": {"showTitle": true, "title": "Dimensão"}
             }
           },
           "position": {"x": 4, "y": 0, "width": 2, "height": 2}

@@ -2,6 +2,7 @@
   import Badge from '../ui/Badge.svelte';
   import { statusColors } from '$lib/theme.js';
   import { formatDateTime, formatPercent } from '$lib/format.js';
+  import { _ } from 'svelte-i18n';
 
   let { recon, onclick = null } = $props();
 
@@ -21,27 +22,27 @@
   </div>
 
   <div class="recon-stats">
-    <span>{recon.checks.total} regras</span>
+    <span>{$_('reconciliation.rules', { values: { count: recon.checks.total } })}</span>
     <span class="sep">|</span>
-    <span>{recon.checks.passed} OK</span>
+    <span>{$_('reconciliation.ok', { values: { count: recon.checks.passed } })}</span>
     {#if recon.checks.warning > 0}
       <span class="sep">|</span>
-      <span class="warn-text">{recon.checks.warning} alerta</span>
+      <span class="warn-text">{$_('reconciliation.warning', { values: { count: recon.checks.warning } })}</span>
     {/if}
     {#if recon.checks.failed > 0}
       <span class="sep">|</span>
-      <span class="fail-text">{recon.checks.failed} falha</span>
+      <span class="fail-text">{$_('reconciliation.failure', { values: { count: recon.checks.failed } })}</span>
     {/if}
   </div>
 
   <div class="recon-detail">
-    <span>Max div: {formatPercent(recon.max_divergence_pct)}</span>
+    <span>{$_('reconciliation.maxDiv')}: {formatPercent(recon.max_divergence_pct)}</span>
     <span class="sep">|</span>
-    <span>Tol: {formatPercent(recon.tolerance_pct)}</span>
+    <span>{$_('reconciliation.tolerance')}: {formatPercent(recon.tolerance_pct)}</span>
   </div>
 
   <div class="recon-meta">
-    Exec: {formatDateTime(recon.executed_at)}
+    {$_('reconciliation.exec')}: {formatDateTime(recon.executed_at)}
   </div>
 
   <div class="progress-bar">
@@ -50,7 +51,7 @@
   <div class="progress-label">{passRate.toFixed(0)}%</div>
 
   {#if onclick}
-    <div class="recon-link">Ver Detalhes &rarr;</div>
+    <div class="recon-link">{$_('reconciliation.viewDetails')} &rarr;</div>
   {/if}
 </div>
 

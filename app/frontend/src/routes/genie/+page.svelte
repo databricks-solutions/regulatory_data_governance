@@ -1,13 +1,14 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import DashboardEmbed from '$lib/components/ui/DashboardEmbed.svelte';
 </script>
 
 <div class="genie-page">
   <div class="genie-header">
-    <h2>Consulta Natural — SCR R.18</h2>
-    <p class="genie-sub">Pergunte sobre dados do SCR em linguagem natural</p>
+    <h2>{$_('genie.title')}</h2>
+    <p class="genie-sub">{$_('genie.subtitle')}</p>
   </div>
-  <DashboardEmbed dashboardKey="genie" title="Genie Space — Consulta Natural" />
+  <DashboardEmbed dashboardKey="genie" title={$_('genie.embedTitle')} />
 </div>
 
 <style>
