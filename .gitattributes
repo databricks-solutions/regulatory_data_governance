@@ -1,0 +1,9 @@
+# Built SvelteKit SPA output. Tracked in git (not gitignored) because the
+# Databricks Apps runtime is Python-only and serves these static files directly
+# via FastAPI (app/backend/main.py) with no build step at deploy time — see the
+# note in .gitignore. Rebuild before commit:
+#   cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
+#
+# Marked generated so GitHub collapses these files in PR diffs, and -diff so
+# local `git diff` shows "Binary files differ" instead of dumping minified JS.
+app/backend/frontend_dist/** linguist-generated=true -diff
