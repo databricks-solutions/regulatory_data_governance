@@ -38,7 +38,7 @@
       items: [
         { label: 'nav.lineage', href: '/lineage', icon: 'flow' },
         { label: 'nav.xmlViewer', href: '/xml', icon: 'code' },
-        { label: 'nav.naturalQuery', href: '/genie', icon: 'sparkle' }
+        { label: 'nav.naturalQuery', href: '/genie', icon: 'bot' }
       ]
     },
     {
@@ -68,7 +68,7 @@
     layers: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     flow: 'M5 3v4M3 5h4M5 9a4 4 0 006 3.5M19 21v-4M17 19h4M19 15a4 4 0 00-6-3.5M12 12a3 3 0 100-6 3 3 0 000 6z',
     code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    sparkle: 'M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0l-1.414-1.414M7.05 7.05L5.636 5.636M12 8a4 4 0 100 8 4 4 0 000-8z',
+    bot: 'M12 8V4H8M6 8h12a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8a2 2 0 012-2zM2 14h2m16 0h2M15 13v2M9 13v2',
     chart: 'M3 3v18h18M7 16V8m4 8v-5m4 5V5m4 11V9',
     alert: 'M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4m0 4h.01',
     book: 'M4 19.5A2.5 2.5 0 016.5 17H20M4 4.5A2.5 2.5 0 016.5 2H20v20H6.5a2.5 2.5 0 010-5',

@@ -114,7 +114,7 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
         alerts=alerts,
         deadline=Deadline(
             date="2026-12-31",
-            days_remaining=274,
+            days_remaining=_days_until_deadline(),
             phase=phase,
         ),
     )
@@ -368,7 +368,7 @@ DASHBOARD_KEY_MAP = {
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",
     "criticas": "Monitor de Incidentes de Qualidade R.18",
-    "genie": "Consulta Natural — SCR R.18",
+    "genie": "Genie Agent — SCR R.18",
 }
 
 

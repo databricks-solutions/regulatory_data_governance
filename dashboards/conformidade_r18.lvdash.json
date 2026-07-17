@@ -2,7 +2,7 @@
   "datasets": [
     {
       "name": "ds_dimensoes_status",
-      "displayName": "Status atual das 12 dimensoes R.18",
+      "displayName": "Status atual das 12 dimensões R.18",
       "queryLines": [
         "WITH rule_dims AS ( ",
         "  SELECT ",
@@ -84,7 +84,7 @@
     },
     {
       "name": "ds_dimensoes_trend",
-      "displayName": "Evolucao mensal de score por dimensao",
+      "displayName": "Evolução mensal de score por dimensão",
       "queryLines": [
         "WITH rule_dims AS ( ",
         "  SELECT ",
@@ -233,7 +233,7 @@
     },
     {
       "name": "ds_dimensoes_detalhe",
-      "displayName": "Detalhe das 12 dimensoes",
+      "displayName": "Detalhe das 12 dimensões",
       "queryLines": [
         "WITH rule_dims AS ( ",
         "  SELECT ",
@@ -319,7 +319,7 @@
   "pages": [
     {
       "name": "visao-geral",
-      "displayName": "Visao Geral",
+      "displayName": "Visão Geral",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
         {
@@ -335,7 +335,7 @@
           "widget": {
             "name": "subtitle",
             "multilineTextboxSpec": {
-              "lines": ["Score das 12 dimensoes de qualidade · Resolucao Conjunta N.18 · Calculado a partir das execucoes do DQX Studio (dq_validation_runs + dq_metrics). Dimensoes sem regras vinculadas recebem score 0 e nao entram na media."]
+              "lines": ["Score das 12 dimensões de qualidade · Resolução Conjunta N.18 · Calculado a partir das execuções do DQX Studio (dq_validation_runs + dq_metrics). Dimensões sem regras vinculadas recebem score 0 e não entram na média."]
             }
           },
           "position": {"x": 0, "y": 1, "width": 6, "height": 1}
@@ -355,9 +355,9 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "score_medio", "displayName": "Score Medio (%)"}
+                "value": {"fieldName": "score_medio", "displayName": "Score Médio (%)"}
               },
-              "frame": {"showTitle": true, "title": "Score Medio (dimensoes com regras)"}
+              "frame": {"showTitle": true, "title": "Score Médio (dimensões com regras)"}
             }
           },
           "position": {"x": 0, "y": 2, "width": 2, "height": 3}
@@ -377,9 +377,9 @@
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "dims_conformes", "displayName": "Dimensoes Conformes"}
+                "value": {"fieldName": "dims_conformes", "displayName": "Dimensões Conformes"}
               },
-              "frame": {"showTitle": true, "title": "Dimensoes Conformes (de 12)"}
+              "frame": {"showTitle": true, "title": "Dimensões Conformes (de 12)"}
             }
           },
           "position": {"x": 2, "y": 2, "width": 2, "height": 3}
@@ -401,7 +401,7 @@
               "encodings": {
                 "value": {"fieldName": "dims_sem_regras", "displayName": "Sem Regras"}
               },
-              "frame": {"showTitle": true, "title": "Dimensoes Sem Regras"}
+              "frame": {"showTitle": true, "title": "Dimensões Sem Regras"}
             }
           },
           "position": {"x": 4, "y": 2, "width": 1, "height": 3}
@@ -432,7 +432,7 @@
           "widget": {
             "name": "section-dimensoes",
             "multilineTextboxSpec": {
-              "lines": ["### Score por Dimensao R.18 (atual)"]
+              "lines": ["### Score por Dimensão R.18 (atual)"]
             }
           },
           "position": {"x": 0, "y": 5, "width": 6, "height": 1}
@@ -456,11 +456,11 @@
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"},
+                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensão"},
                 "y": {"fieldName": "score_pct", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
                 "color": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"}
               },
-              "frame": {"showTitle": true, "title": "Score por Dimensao R.18 (SEM REGRAS = 0%)"}
+              "frame": {"showTitle": true, "title": "Score por Dimensão R.18 (SEM REGRAS = 0%)"}
             }
           },
           "position": {"x": 0, "y": 6, "width": 6, "height": 6}
@@ -469,7 +469,7 @@
           "widget": {
             "name": "section-tendencia",
             "multilineTextboxSpec": {
-              "lines": ["### Evolucao do Score por Dimensao (Ultimos 6 Meses)"]
+              "lines": ["### Evolução do Score por Dimensão (Últimos 6 Meses)"]
             }
           },
           "position": {"x": 0, "y": 12, "width": 6, "height": 1}
@@ -493,11 +493,11 @@
               "version": 3,
               "widgetType": "line",
               "encodings": {
-                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mes"},
+                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Mês"},
                 "y": {"fieldName": "score_pct", "scale": {"type": "quantitative"}, "displayName": "Score (%)"},
-                "color": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensao"}
+                "color": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimensão"}
               },
-              "frame": {"showTitle": true, "title": "Tendencia do Score (apenas dimensoes com regras executadas)"}
+              "frame": {"showTitle": true, "title": "Tendência do Score (apenas dimensões com regras executadas)"}
             }
           },
           "position": {"x": 0, "y": 13, "width": 6, "height": 6}
@@ -506,7 +506,7 @@
           "widget": {
             "name": "section-detalhe",
             "multilineTextboxSpec": {
-              "lines": ["### Detalhe das 12 Dimensoes R.18"]
+              "lines": ["### Detalhe das 12 Dimensões R.18"]
             }
           },
           "position": {"x": 0, "y": 19, "width": 6, "height": 1}
@@ -537,7 +537,7 @@
               "encodings": {
                 "columns": [
                   {"fieldName": "dimensao_id", "displayName": "ID"},
-                  {"fieldName": "dimensao", "displayName": "Dimensao"},
+                  {"fieldName": "dimensao", "displayName": "Dimensão"},
                   {"fieldName": "artigo_r18", "displayName": "Artigo R.18"},
                   {"fieldName": "score_pct", "displayName": "Score (%)"},
                   {"fieldName": "meta_pct", "displayName": "Meta (%)"},
@@ -546,7 +546,7 @@
                   {"fieldName": "status", "displayName": "Status"}
                 ]
               },
-              "frame": {"showTitle": true, "title": "Detalhe das 12 Dimensoes R.18"}
+              "frame": {"showTitle": true, "title": "Detalhe das 12 Dimensões R.18"}
             }
           },
           "position": {"x": 0, "y": 20, "width": 6, "height": 8}
@@ -575,11 +575,11 @@
               "encodings": {
                 "fields": [{
                   "fieldName": "dimensao",
-                  "displayName": "Dimensao",
+                  "displayName": "Dimensão",
                   "queryName": "ds_dimensoes_status_dimensao"
                 }]
               },
-              "frame": {"showTitle": true, "title": "Dimensao"}
+              "frame": {"showTitle": true, "title": "Dimensão"}
             }
           },
           "position": {"x": 0, "y": 0, "width": 2, "height": 2}

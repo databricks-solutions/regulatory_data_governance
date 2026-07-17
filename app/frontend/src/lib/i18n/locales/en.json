@@ -75,7 +75,7 @@
     "vsPreviousMonth": "vs previous month",
     "welcomeBadge": "Joint Resolution No. 18",
     "welcomeSubtitle": "Data quality — Central Bank of Brazil",
-    "welcomeTitle": "SCR Compliance"
+    "welcomeTitle": "Compliance Dashboard"
   },
   "dashboardEmbed": {
     "availableAfterDeploy": "Available after deploy on Databricks",

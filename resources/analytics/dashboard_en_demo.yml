@@ -1,0 +1,14 @@
+# English (en-US) dashboard variants — used by the en-US mock demo only.
+# Temporary/demo: the implementation bundle points the app at the pt-BR
+# dashboards (resources/app.yml). For the en-US demo deploy, the app env
+# DASHBOARD_ID_* is pointed at these resources instead.
+resources:
+  dashboards:
+    conformidade_r18_en:
+      display_name: "R.18 Compliance Dashboard"
+      file_path: ../../dashboards/conformidade_r18_en.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+    monitor_criticas_en:
+      display_name: "R.18 Quality Incident Monitor"
+      file_path: ../../dashboards/monitor_criticas_en.lvdash.json
+      warehouse_id: ${var.warehouse_id}

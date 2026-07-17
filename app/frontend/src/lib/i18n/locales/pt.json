@@ -75,7 +75,7 @@
     "vsPreviousMonth": "vs mês anterior",
     "welcomeBadge": "Resolução Conjunta N.18",
     "welcomeSubtitle": "Qualidade de dados — Banco Central do Brasil",
-    "welcomeTitle": "Conformidade SCR"
+    "welcomeTitle": "Painel de Conformidade"
   },
   "dashboardEmbed": {
     "availableAfterDeploy": "Disponivel apos deploy no Databricks",
@@ -87,8 +87,8 @@
     "loading": "Carregando painel...",
     "openInDatabricks": "Abrir no Databricks",
     "title_conformidade": "Painel de Conformidade R.18",
-    "title_criticas": "Monitor de Críticas SCR",
-    "title_genie": "Consulta Natural — SCR R.18"
+    "title_criticas": "Monitor de Críticas",
+    "title_genie": "Perguntar à Genie"
   },
   "dashboards": {
     "breadcrumb": "Painéis",
@@ -101,9 +101,9 @@
     "target": "Meta: {target}% · {count} regra(s)"
   },
   "genie": {
-    "embedTitle": "Genie Space — Consulta Natural",
-    "subtitle": "Pergunte sobre dados do SCR em linguagem natural",
-    "title": "Consulta Natural — SCR R.18"
+    "embedTitle": "Genie Space",
+    "subtitle": "Pergunte sobre dados em linguagem natural",
+    "title": "Perguntar à Genie"
   },
   "governance": {
     "affectedRecordsLabel": "Registros afetados:",
@@ -210,7 +210,7 @@
     "envBadge": "R.18 Compliance",
     "incidentManagement": "Gestão de Incidentes",
     "lineage": "Lineage",
-    "naturalQuery": "Consulta Natural",
+    "naturalQuery": "Genie Agent",
     "qualityR18": "Qualidade R.18",
     "referenceData": "Dados de Referência",
     "ruleEngine": "Motor de Regras",
@@ -223,7 +223,7 @@
     "userName": "Analista",
     "userRole": "Operacional",
     "validationsMonitor": "Monitor de Críticas",
-    "validationsScr": "Críticas SCR",
+    "validationsScr": "Críticas",
     "xmlViewer": "Visualizador XML"
   },
   "pagination": {
@@ -328,7 +328,7 @@
     "dashboardConformidade": "Conformidade R.18",
     "dashboardCriticas": "Monitor de Críticas",
     "fallback": "R.18 Compliance",
-    "genie": "Consulta Natural",
+    "genie": "Genie Agent",
     "governance": "Gestão de Incidentes",
     "home": "Painel de Conformidade R.18",
     "lineage": "Lineage",
@@ -341,7 +341,7 @@
     "rulesEdit": "Editar Regra",
     "rulesRunDetail": "Detalhe da Execução",
     "rulesRuns": "Execuções",
-    "validations": "Críticas SCR",
+    "validations": "Críticas",
     "xml": "Visualizador XML"
   },
   "ui": {

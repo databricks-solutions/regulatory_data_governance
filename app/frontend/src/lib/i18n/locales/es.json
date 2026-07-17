@@ -75,7 +75,7 @@
     "vsPreviousMonth": "vs mes anterior",
     "welcomeBadge": "Resolución Conjunta N.º 18",
     "welcomeSubtitle": "Calidad de datos — Banco Central de Brasil",
-    "welcomeTitle": "Cumplimiento SCR"
+    "welcomeTitle": "Panel de Cumplimiento"
   },
   "dashboardEmbed": {
     "availableAfterDeploy": "Disponible tras el despliegue en Databricks",
@@ -87,7 +87,7 @@
     "loading": "Cargando panel...",
     "openInDatabricks": "Abrir en Databricks",
     "title_conformidade": "Panel de Cumplimiento R.18",
-    "title_criticas": "Monitor de Validaciones SCR",
+    "title_criticas": "Monitor de Validaciones",
     "title_genie": "Consulta natural — SCR R.18"
   },
   "dashboards": {
@@ -101,9 +101,9 @@
     "target": "Meta: {target}% · {count} regla(s)"
   },
   "genie": {
-    "embedTitle": "Genie Space — Consulta Natural",
+    "embedTitle": "Genie Space — Genie Agent",
     "subtitle": "Pregunte sobre datos del SCR en lenguaje natural",
-    "title": "Consulta Natural — SCR R.18"
+    "title": "Perguntar à Genie"
   },
   "governance": {
     "affectedRecordsLabel": "Registros afectados:",
@@ -210,7 +210,7 @@
     "envBadge": "R.18 Compliance",
     "incidentManagement": "Gestión de Incidentes",
     "lineage": "Lineage",
-    "naturalQuery": "Consulta Natural",
+    "naturalQuery": "Genie Agent",
     "qualityR18": "Calidad R.18",
     "referenceData": "Datos de Referencia",
     "ruleEngine": "Motor de Reglas",
@@ -223,7 +223,7 @@
     "userName": "Analista",
     "userRole": "Operativo",
     "validationsMonitor": "Monitor de Validaciones",
-    "validationsScr": "Validaciones SCR",
+    "validationsScr": "Validaciones",
     "xmlViewer": "Visor XML"
   },
   "pagination": {
@@ -328,7 +328,7 @@
     "dashboardConformidade": "Cumplimiento R.18",
     "dashboardCriticas": "Monitor de Validaciones",
     "fallback": "R.18 Compliance",
-    "genie": "Consulta Natural",
+    "genie": "Genie Agent",
     "governance": "Gestión de Incidentes",
     "home": "Panel de Cumplimiento R.18",
     "lineage": "Lineage",
@@ -341,7 +341,7 @@
     "rulesEdit": "Editar Regla",
     "rulesRunDetail": "Detalle de Ejecución",
     "rulesRuns": "Ejecuciones",
-    "validations": "Validaciones SCR",
+    "validations": "Validaciones",
     "xml": "Visor XML"
   },
   "ui": {

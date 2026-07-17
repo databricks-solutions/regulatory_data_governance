@@ -75,7 +75,7 @@
     "vsPreviousMonth": "vs mese precedente",
     "welcomeBadge": "Risoluzione Congiunta N. 18",
     "welcomeSubtitle": "Qualità dei dati — Banca Centrale del Brasile",
-    "welcomeTitle": "Conformità SCR"
+    "welcomeTitle": "Pannello di Conformità"
   },
   "dashboardEmbed": {
     "availableAfterDeploy": "Disponibile dopo il deploy su Databricks",
