@@ -129,8 +129,9 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 # deploy after a `bundle destroy` only starts the compute and skips the code
 # push — see the "Bundle gotchas" section. Re-run `bundle deploy` (or
 # `bundle run r18_compliance_app`) once to recover.
-# Copy target.yml.example to target.yml and set the single target name, CLI
-# profile, and REQUIRED DQX Studio URL. bundle.sh enables the direct deployment
+# Copy target.yml.example to target.yml and set the CLI profile and REQUIRED
+# DQX Studio URL. The single target is fixed as `dev`; cloud/workspace selection
+# belongs to the profile. bundle.sh enables the direct deployment
 # engine required by `catalogs:`.
 ./bundle.sh deploy                                                             # creates resources + starts compute
 # If app shows UNAVAILABLE after a destroy+deploy, recover with one of:
@@ -243,8 +244,8 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
   - When migrating from `binaryFile` to native XML, use a NEW `cloudFiles.schemaLocation` path (e.g. `_checkpoints/bronze_3040_xml_native/`) — Auto Loader's checkpoint state is format-specific and reusing the old path crashes.
 - **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
 - Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.
-- **Direct-engine state is target-scoped, not profile-scoped** — this repository intentionally has only one default target. Before changing its target/profile in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.
-- **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the target name, CLI profile, and required DQX Studio URL. `bundle.sh` only enables the direct engine and proxies bundle commands; `.env` is exclusively for local app development.
+- **Direct-engine state is target-scoped, not profile-scoped** — this repository has one default target fixed as `dev`. Before changing `workspace.profile` in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.
+- **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the CLI profile and required DQX Studio URL. Azure/AWS/GCP selection belongs to the profile, never to the target name. `bundle.sh` only enables the direct engine and proxies bundle commands; `.env` is exclusively for local app development.
 
 ## Key Decisions & Constraints
 

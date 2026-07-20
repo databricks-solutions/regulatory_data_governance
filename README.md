@@ -47,7 +47,7 @@ Você usa o repositório como **atalho** para construir sua própria solução d
 ```bash
 git clone <repo>
 cd regulatory-data-governance
-cp target.yml.example target.yml                             # preencha target, profile e URL obrigatória da DQX
+cp target.yml.example target.yml                             # preencha profile e URL obrigatória da DQX
 ./bundle.sh deploy                                           # cria todos os recursos do acelerador
 ./bundle.sh run rc18_end_to_end                              # orquestra setup → bronze → silver → gold
 ./bundle.sh run r18_compliance_app                           # disponibiliza o app após o deployment
@@ -226,14 +226,14 @@ O bundle possui somente um target, definido no `target.yml` ignorado pelo Git:
 
 ```bash
 cp target.yml.example target.yml
-# Preencha os três campos obrigatórios:
-#   <your-target>
+# O target já é fixo como `dev`; preencha os dois campos obrigatórios:
 #   <your-databricks-cli-profile>
 #   https://<your-dqx-studio-app-host>
 ./bundle.sh validate
 ```
 
-O target é marcado como default, portanto nenhum comando precisa de `-t`,
+O target `dev` é marcado como default. Cloud e workspace são definidos
+exclusivamente pelo `workspace.profile`; nenhum comando precisa de `-t`,
 `--profile`, `--var` ou exports.
 
 Campos opcionais:
@@ -251,8 +251,8 @@ em `resources/catalog.yml` ou `resources/warehouse.yml`; caso contrário o bundl
 ainda criará um recurso gerenciado duplicado, mesmo que o app use o ID informado.
 
 > **Troca de workspace.** Como existe apenas um target, primeiro execute
-> `./bundle.sh destroy` usando o `target.yml` atual. Somente depois altere target
-> e profile no arquivo. Reutilizar o mesmo estado em outro workspace pode deixar
+> `./bundle.sh destroy` usando o `target.yml` atual. Somente depois altere o
+> `workspace.profile`. Reutilizar o estado de `dev` em outro workspace pode deixar
 > recursos órfãos.
 
 ### Passo a passo
@@ -356,7 +356,7 @@ existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada
 
 ### Destroy e recursos órfãos
 
-O target e o profile vêm do `target.yml`; não são necessários argumentos adicionais:
+O target é sempre `dev` e o profile vem do `target.yml`; não são necessários argumentos adicionais:
 
 ```bash
 ./bundle.sh destroy

@@ -1,14 +1,14 @@
 # Copy to target.yml and replace the placeholders. target.yml is ignored by Git.
 #
-# REQUIRED: target name, CLI profile, and DQX Studio URL.
+# REQUIRED: CLI profile and DQX Studio URL. The target is always `dev`;
+# cloud/workspace selection belongs exclusively to the CLI profile.
 # OPTIONAL: everything commented out. Defaults provision a catalog named
 # rc18_catalog and a Serverless 2X-Small SQL warehouse automatically.
 targets:
-  <your-target>:
+  dev:
     default: true
     workspace:
       profile: <your-databricks-cli-profile>
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
       # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
       dqx_studio_url: https://<your-dqx-studio-app-host>
