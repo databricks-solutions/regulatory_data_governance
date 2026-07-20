@@ -58,9 +58,8 @@ resources:
           # or re-add this block once you have a non-empty default for the var.
 
           # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
-          # via `var.dqx_studio_url`. Default aponta pro Studio compartilhado
-          # do workspace `azure`. Override por target setando a var no perfil ou
-          # via --var dqx_studio_url=<url>.
+          # via `var.dqx_studio_url`. Obrigatório: DQX Studio deve existir no
+          # workspace e a URL deve estar preenchida no target.yml local.
           - name: DQX_STUDIO_URL
             value: ${var.dqx_studio_url}
 

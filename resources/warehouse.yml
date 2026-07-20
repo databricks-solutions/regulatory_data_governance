@@ -3,7 +3,7 @@
 # analysis. Defaults to a 2X-Small with auto-stop after 10 min so the cost
 # of an idle deploy is minimal.
 #
-# Customers who already own a warehouse should override --var warehouse_id=<id>
+# Customers who already own a warehouse should set `warehouse_id` in target.yml
 # AND comment out this resource so the bundle does not provision a duplicate.
 resources:
   sql_warehouses:

@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_SILVER, USE_MOCK
+from dqx_config import dqx_studio_base_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
@@ -64,10 +65,7 @@ def _dqx_studio_configured_base() -> str | None:
     setou a URL real). Retorna None nesses casos pra UI esconder
     deep-links e a aba Motor de Regras renderizar estado vazio.
     """
-    base = os.getenv("DQX_STUDIO_URL", "").rstrip("/")
-    if not base or base in ("about:blank",):
-        return None
-    return base
+    return dqx_studio_base_url()
 
 
 def dqx_check_url(run_config_name: str | None, check_name: str | None) -> str | None:

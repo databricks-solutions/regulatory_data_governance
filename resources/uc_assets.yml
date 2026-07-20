@@ -11,8 +11,8 @@
 # via `${var.catalog}`.
 #
 # Quality lifecycle (autoria de regras + execução) vive fora deste bundle, no
-# DQX Studio (Databricks App externa do Databricks Labs DQX) — embarcado via
-# iframe na rota `/rules` do app RC18 quando `DQX_STUDIO_URL` está setado. O
+# DQX Studio (pré-requisito obrigatório, deployado separadamente) — embarcado
+# via iframe na rota `/rules` usando a URL obrigatória definida no target. O
 # schema `quality` (homes para `dqx_checks` + `dqx_summary_metrics`) é
 # provisionado por este bundle e semeado pelo task `seed_dqx_checks` do setup
 # job a partir de `pipelines/silver/dqx_checks/*.yml`.

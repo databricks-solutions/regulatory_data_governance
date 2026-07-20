@@ -1,8 +1,8 @@
 # Unity Catalog provisioned by the implementation bundle so a fresh workspace
 # deploys end-to-end with `databricks bundle deploy` alone.
 #
-# Customers who already own a catalog should override --var catalog=<name>
-# AND comment out this resource so the bundle does not try to manage the
+# Customers who already own a catalog should set `catalog` in target.yml AND
+# comment out this resource so the bundle does not try to manage the
 # lifecycle of an external catalog they may not have CREATE privileges on.
 resources:
   catalogs:

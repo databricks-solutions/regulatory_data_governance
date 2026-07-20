@@ -37,6 +37,10 @@ dist/
 .databricks/
 .databricks-resources.json
 
+# Local bundle target generated from .env. Keep target.yml.example tracked;
+# never commit the generated file with real workspace values.
+target.yml
+
 # IDE
 .vscode/
 .idea/

@@ -34,12 +34,11 @@ Dois caminhos:
 >    [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql)
 >    UMA vez para conceder os GRANTs cross-catalog ao SP do bundle. Customers
 >    que deployaram a DQX Studio em outro catálogo/schema sobrescrevem
->    `--var dqx_checks_table=<catalog>.<schema>.dq_quality_rules`.
+>    `dqx_checks_table` no `target.yml`.
 >
-> Se a sua organização precisa de garantias contratuais de suporte ao motor de
-> qualidade, considere substituir DQX por uma engine equivalente antes do go-live
-> (a separação em §5/§6 de [docs/spec/07_dqx_migration.md](docs/spec/07_dqx_migration.md) foi
-> desenhada para que essa troca seja contida).
+> **A DQX Studio é um pré-requisito obrigatório deste acelerador.** Se a sua
+> organização optar por outra engine, isso constitui uma customização/fork fora
+> do fluxo de deploy documentado aqui.
 
 ### 1. Implementar o acelerador no seu ambiente
 
@@ -48,10 +47,10 @@ Você usa o repositório como **atalho** para construir sua própria solução d
 ```bash
 git clone <repo>
 cd regulatory-data-governance
-export DATABRICKS_BUNDLE_ENGINE=direct                       # obrigatório (bundle declara `catalogs:`)
-databricks bundle deploy -t dev --profile <seu-profile>      # cria catálogo, warehouse, schemas, app, pipelines, dashboards
-databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>   # orquestra setup → bronze → silver → gold
-databricks bundle run r18_compliance_app -t dev --profile <seu-profile> # Disponibilizando o app após o deployment
+cp target.yml.example target.yml                             # preencha target, profile e URL obrigatória da DQX
+./bundle.sh deploy                                           # cria todos os recursos do acelerador
+./bundle.sh run rc18_end_to_end                              # orquestra setup → bronze → silver → gold
+./bundle.sh run r18_compliance_app                           # disponibiliza o app após o deployment
 ```
 
 > Prefere rodar passo a passo? Veja [Passo a passo](#passo-a-passo) abaixo, que dispara cada job/pipeline individualmente.
@@ -76,8 +75,8 @@ databricks bundle deploy -t dev    # sobe acelerador + geradores sintéticos + l
 
 | Cenário | Como configura |
 |---------|----------------|
-| **Deploy do bundle** (Databricks Apps + pipelines) | O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env` em [resources/app.yml](resources/app.yml#L18-L36) — usando referências `${resources.*}` que resolvem em deploy time. **Preencha o arquivo `.env`** para o deploy funcionar corretamente no seu próprio ambiente.|
-| **Dev local** (`./run_local.sh`) | `app/backend/main.py` carrega `.env` via `python-dotenv` no startup. Copie `.env.example` → `.env` e ajuste se for testar em um workspace real. Para dados mockados (default), `USE_MOCK_BACKEND=true`, neste caso não é utilizado dados reais do ambiente. |
+| **Deploy do bundle** (Databricks Apps + pipelines) | Usa exclusivamente o `target.yml` local. `bundle.sh` habilita o direct engine e chama o Databricks CLI. O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env`. |
+| **Dev local** (`./run_local.sh`) | Usa `.env`, carregado via `python-dotenv`. Portanto, `.env.example` continua necessário apenas como template para desenvolvimento local; ele não participa do deploy. |
 | **Frontend** | Não lê `.env` direto — recebe URLs/IDs via API do backend. |
 
 Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
@@ -85,8 +84,10 @@ Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 | Variável | Descrição |
 |----------|-----------|
 | `DATABRICKS_HOST` | Host do workspace (`adb-<id>.<n>.azuredatabricks.net`) — apenas para dev local contra workspace real |
-| `DATABRICKS_WAREHOUSE_ID` | Apenas para dev local; em deploy de produção o bundle aponta o app para o warehouse provisionado |
-| `DATABRICKS_CATALOG` | Apenas para dev local; em deploy o bundle define via `${var.catalog}` |
+| `DATABRICKS_WAREHOUSE_ID` | Warehouse existente; vazio usa o warehouse provisionado pelo bundle |
+| `DATABRICKS_CATALOG` | Catálogo usado pelo app e pelo target gerado |
+| `DQX_STUDIO_URL` | URL pública obrigatória da DQX Studio para usar o app local completo |
+| `DQX_CHECKS_TABLE` | FQN da tabela de regras da DQX Studio |
 | `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para dev local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
 | `GENIE_SPACE_ID` | Set quando houver um Genie Room provisionado externamente |
 | `USE_MOCK_BACKEND` | `true` no dev para servir fixtures sem Databricks |
@@ -99,6 +100,9 @@ Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 regulatory-data-governance/
 │
 ├── databricks.yml                 # Bundle do ACELERADOR (rc18-starter-kit)
+├── target.yml.example             # Template do único target (obrigatórios/opcionais)
+├── target.yml                     # Configuração local de deploy, ignorada pelo Git
+├── bundle.sh                      # Habilita direct engine e executa `databricks bundle ...`
 ├── README.md                      # Este arquivo
 ├── CLAUDE.md                      # Guia de contexto para Claude Code
 ├── .env.example                   # Template de configuração (copie para .env)
@@ -179,6 +183,7 @@ regulatory-data-governance/
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada
 - Python 3.11+ (backend)
 - Node.js 18+ e npm (frontend)
+- **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployada no workspace destino** — provê a camada de qualidade (autoria/execução de regras) e cria a tabela `dqx_catalog.dqx_app.dq_quality_rules` que o acelerador consome. Ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio) abaixo.
 
 ---
 
@@ -212,7 +217,43 @@ Abrir http://localhost:5173.
 ### Pré-requisitos
 
 - `databricks` CLI autenticada com um profile apontando para o workspace destino
-- `DATABRICKS_BUNDLE_ENGINE=direct` exportado no shell (o bundle declara `catalogs:` e exige o direct deployment engine — sem isso o `bundle deploy` aborta na primeira linha)
+- `target.yml` criado a partir de `target.yml.example`; `bundle.sh` configura automaticamente o direct deployment engine exigido pelo recurso `catalogs:`
+- **DQX Studio é requisito obrigatório e deve estar deployada no mesmo workspace** (ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio)). A URL pública é obrigatória no `target.yml`. Sem a Studio, o acelerador está incompleto e os tasks `seed_dqx_checks` e `grant_warehouse_perms` falham ao acessar a tabela de regras.
+
+### Target único
+
+O bundle possui somente um target, definido no `target.yml` ignorado pelo Git:
+
+```bash
+cp target.yml.example target.yml
+# Preencha os três campos obrigatórios:
+#   <your-target>
+#   <your-databricks-cli-profile>
+#   https://<your-dqx-studio-app-host>
+./bundle.sh validate
+```
+
+O target é marcado como default, portanto nenhum comando precisa de `-t`,
+`--profile`, `--var` ou exports.
+
+Campos opcionais:
+
+- `warehouse_id`: omitido, o bundle cria e usa automaticamente um warehouse
+  Serverless 2X-Small; preenchido, aponta para um warehouse existente.
+- `catalog`: omitido, o bundle cria e gerencia `rc18_catalog`; preenchido,
+  aponta para um catálogo existente.
+- `dqx_checks_table`: omitido, usa
+  `dqx_catalog.dqx_app.dq_quality_rules`.
+- schemas e `genie_space_id`: possuem defaults ou integrações opcionais.
+
+Ao usar catálogo ou warehouse existentes, comente também o recurso correspondente
+em `resources/catalog.yml` ou `resources/warehouse.yml`; caso contrário o bundle
+ainda criará um recurso gerenciado duplicado, mesmo que o app use o ID informado.
+
+> **Troca de workspace.** Como existe apenas um target, primeiro execute
+> `./bundle.sh destroy` usando o `target.yml` atual. Somente depois altere target
+> e profile no arquivo. Reutilizar o mesmo estado em outro workspace pode deixar
+> recursos órfãos.
 
 ### Passo a passo
 
@@ -225,18 +266,17 @@ cd -
 #    setup_job e o job de orquestração rc18_end_to_end.
 #    O app já é configurado via `apps.config.env` (USE_MOCK_BACKEND=false, dashboards, warehouse) —
 #    nenhum overlay de `app.yaml` é necessário.
-export DATABRICKS_BUNDLE_ENGINE=direct
-databricks bundle deploy -t dev --profile <seu-profile>
+./bundle.sh deploy
 
 # 2a. Atalho: orquestração fim-a-fim (setup_reference → load_sample_xmls → bronze → silver → gold).
 #     Roda tudo em um único job com dependências encadeadas.
-databricks bundle run rc18_end_to_end -t dev --profile <seu-profile>
+./bundle.sh run rc18_end_to_end
 
 # 2b. Alternativa: disparar cada etapa manualmente (útil para reprocessar uma camada).
-databricks bundle run setup_reference_tables -t dev --profile <seu-profile>   # seeds reference + carrega XMLs de exemplo
-databricks bundle run bronze -t dev --profile <seu-profile>
-databricks bundle run silver -t dev --profile <seu-profile>
-databricks bundle run gold   -t dev --profile <seu-profile>
+./bundle.sh run setup_reference_tables   # seeds reference + carrega XMLs de exemplo
+./bundle.sh run bronze
+./bundle.sh run silver
+./bundle.sh run gold
 ```
 
 ### Disponibilizando o app após o deployment
@@ -244,19 +284,90 @@ databricks bundle run gold   -t dev --profile <seu-profile>
 Publica o código no compute e deixa o app acessível:
 
 ```bash
-databricks bundle run r18_compliance_app -t dev --profile <seu-profile>
+./bundle.sh run r18_compliance_app
 ```
 
 ### Bring-your-own (BYOC) catálogo / warehouse
 
-Para apontar o bundle ao seu próprio catálogo e warehouse em vez dos provisionados:
+Para apontar o bundle ao seu próprio catálogo e warehouse em vez dos provisionados,
+descomente os valores no `target.yml`:
 
-```bash
-databricks bundle deploy -t dev --profile <seu-profile> \
-  --var catalog=<nome_catalogo_existente> \
-  --var warehouse_id=<id_warehouse_existente>
+```yaml
+variables:
+  catalog: <nome_catalogo_existente>
+  warehouse_id: <id_warehouse_existente>
 ```
 
 Adicionalmente, comente os blocos em [resources/catalog.yml](resources/catalog.yml) e [resources/warehouse.yml](resources/warehouse.yml) para o bundle não tentar gerenciar o ciclo de vida desses recursos externos.
+
+---
+
+## Camada de qualidade (DQX Studio)
+
+A camada de qualidade do acelerador (autoria e execução de regras) é obrigatoriamente delegada à
+**[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)**,
+um app externo do [Databricks Labs DQX](https://github.com/databrickslabs/dqx).
+O acelerador **não** provisiona a DQX Studio — ela precisa estar deployada **no
+mesmo workspace destino** antes de rodar `rc18_end_to_end`, porque cria e é dona
+da tabela de regras `dqx_catalog.dqx_app.dq_quality_rules` que o acelerador
+consome (task `seed_dqx_checks`, página `/rules` do app).
+
+> **Por que é um pré-requisito.** O `bundle deploy` e os pipelines
+> bronze→silver→gold (ELT puro) **não** dependem da DQX. Mas o job
+> `rc18_end_to_end` inclui os tasks `seed_dqx_checks` e `grant_warehouse_perms`,
+> que leem/escrevem em `dqx_catalog.dqx_app.dq_quality_rules`. Sem a DQX Studio
+> deployada, esses dois tasks falham com
+> `CATALOG_DOES_NOT_EXIST` / `TABLE_OR_VIEW_NOT_FOUND` (os demais tasks concluem
+> normalmente).
+
+### Instalação (resumo)
+
+Siga o [guia oficial de instalação da DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation). Em linhas gerais:
+
+```bash
+git clone https://github.com/databrickslabs/dqx.git
+cd dqx
+# Edite app/databricks.yml com catalog_name, dqx_service_principal_application_id
+# e sql_warehouse_id (ver o guia), então:
+make app-deploy PROFILE=<seu-profile> TARGET=<seu-target>
+```
+
+Pré-requisitos da própria DQX Studio: Databricks CLI v0.268+, `jq`, `make`, `uv`,
+Node.js 18+, `yarn`, Databricks Apps + serverless habilitados, um Unity Catalog
+existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada.
+
+### Depois de instalar
+
+1. **Conceda os grants cross-catalog (uma vez, como admin do `dqx_catalog`):**
+   rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql),
+   preenchendo o service principal do bundle RC18. Isso libera o task
+   `seed_dqx_checks` a fazer `MERGE` na tabela de regras.
+2. **Obrigatório — configure a URL pública no `target.yml`:**
+   ```yaml
+   variables:
+     dqx_studio_url: https://<your-dqx-studio-app-host>
+   ```
+3. **Opcional — somente se a Studio usa outro catálogo/schema:** sobrescreva a
+   tabela padrão no mesmo arquivo:
+   ```yaml
+   variables:
+     dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+   ```
+
+### Destroy e recursos órfãos
+
+O target e o profile vêm do `target.yml`; não são necessários argumentos adicionais:
+
+```bash
+./bundle.sh destroy
+```
+
+Se um workspace já tiver recursos órfãos de uma configuração anterior, remova o
+app diretamente pelo nome exibido em `databricks apps list`:
+
+```bash
+databricks apps list --profile <profile-original>
+databricks apps delete <nome-do-app-órfão> --profile <profile-original>
+```
 
 ---

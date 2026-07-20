@@ -1,0 +1,32 @@
+# Copy to target.yml and replace the placeholders. target.yml is ignored by Git.
+#
+# REQUIRED: target name, CLI profile, and DQX Studio URL.
+# OPTIONAL: everything commented out. Defaults provision a catalog named
+# rc18_catalog and a Serverless 2X-Small SQL warehouse automatically.
+targets:
+  <your-target>:
+    default: true
+    workspace:
+      profile: <your-databricks-cli-profile>
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
+      dqx_studio_url: https://<your-dqx-studio-app-host>
+
+      # OPTIONAL — omit to use dqx_catalog.dqx_app.dq_quality_rules.
+      # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+
+      # OPTIONAL — omit both to let the bundle create and manage them.
+      # If supplied, also remove/comment resources/catalog.yml or warehouse.yml
+      # so the bundle does not create an unused duplicate resource.
+      # catalog: <your-existing-catalog>
+      # warehouse_id: <your-existing-sql-warehouse-id>
+
+      # OPTIONAL — defaults are bronze, silver, gold, and quality.
+      # schema_bronze: <your-bronze-schema>
+      # schema_silver: <your-silver-schema>
+      # schema_gold: <your-gold-schema>
+      # schema_quality: <your-quality-schema>
+
+      # OPTIONAL — only when an external Genie space is available.
+      # genie_space_id: <your-genie-space-id>
