@@ -162,7 +162,7 @@ cross_table_check = {
         },
     },
     "user_metadata": {
-        "dimensao_r18": "VIII",
+        "dimensao_r18": "8",
         "descricao": (
             "cliente_id em operacoes não pode existir em clientes_bloqueados. "
             "Cross-table denylist check via NOT EXISTS."
@@ -270,7 +270,7 @@ checks_yaml = """
       expression: "saldo >= 0"
       msg: "Saldo da operação não pode ser negativo."
   user_metadata:
-    dimensao_r18: IV
+    dimensao_r18: "4"
     descricao: "Saldo >= 0. Escopo de avaliação injetado via {{ scope }}."
 # Mais N regras viriam aqui — todas reutilizam o mesmo {{ scope }}.
 """

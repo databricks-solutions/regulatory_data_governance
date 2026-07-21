@@ -78,8 +78,28 @@ _DEFAULT_META: RuleMeta = {
     "rule_type":         "syntactic",
 }
 
+# Backwards-compat only: rules authored before the Arabic-numeral convention
+# may still carry Roman 'I'..'XII' in `user_metadata.dimensao_r18`. New rules
+# should use Arabic '1'..'12' (see `_parse_dim_r18`).
 _ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
                  "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
+
+
+def _parse_dim_r18(value) -> int | None:
+    """Parse an authored `dimensao_r18` tag into a 1..12 int, or None.
+
+    Preferred authoring form is an Arabic numeral (int or string) '1'..'12'.
+    Roman numerals 'I'..'XII' are still accepted for rules authored before the
+    convention changed. Anything else (blank, out-of-range, junk) → None, which
+    leaves the caller's baseline dimension untouched.
+    """
+    raw = str(value if value is not None else "").strip().upper()
+    if not raw:
+        return None
+    if raw.isdigit():
+        n = int(raw)
+        return n if 1 <= n <= 12 else None
+    return _ROMAN_TO_INT.get(raw)
 
 
 def meta_for(
@@ -91,8 +111,9 @@ def meta_for(
     """Resolve structural metadata for a rule.
 
     Resolution order for `dimension_r18` (authoritative → fallback):
-      1. `user_metadata.dimensao_r18` (Roman 'I'..'XII'). Authored on the
-         DQX Studio rule; this is the source of truth.
+      1. `user_metadata.dimensao_r18` — an Arabic numeral '1'..'12' (Roman
+         'I'..'XII' still accepted for legacy rules). Authored on the DQX
+         Studio rule; this is the source of truth.
       2. `RC18_RULE_META[check_name]` hard-coded entry (covers the 4 initial
          RC18 rules even if the tag is missing — backwards compat).
       3. Default = 0 ("Outras").
@@ -111,10 +132,9 @@ def meta_for(
         elif "scr3050" in (table_fqn or "").lower():
             out["document"] = "3050"
 
-    # Authoritative override from user_metadata if a valid Roman is present.
+    # Authoritative override from user_metadata if a valid dimension is present.
     if user_metadata:
-        roman = str(user_metadata.get("dimensao_r18") or "").strip().upper()
-        dim_int = _ROMAN_TO_INT.get(roman)
+        dim_int = _parse_dim_r18(user_metadata.get("dimensao_r18"))
         if dim_int:
             out["dimension_r18"] = dim_int
             out["dimension_name"] = _DIM_NAMES[dim_int]
