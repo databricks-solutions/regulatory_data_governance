@@ -14,6 +14,14 @@ O que o deploy entrega:
 
 ---
 
+## Pré-requisitos
+
+- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
+- Python 3.11+ (backend) e Node.js 18+ (frontend) — apenas para dev local
+- **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployment da aplicação no mesmo workspace** — provê a camada de qualidade e é utilizado como **Motor de Regras** do acelerador. **IMPORTANTE**: É pré-requisito obrigatório (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
+
+---
+
 ## Início rápido
 
 ```bash
@@ -29,14 +37,6 @@ databricks bundle run r18_compliance_app  # disponibiliza o app
 O deploy já sobe com dois arquivos de exemplo (Doc 3040 e Doc 3050 em [`sample/`](sample/)), gerados sinteticamente e validados com o Validador Oficial do BACEN. Substitua-os pelos seus dados reais quando estiver pronto.
 
 > Precisa reprocessar uma camada isoladamente? Veja [Rodar passo a passo](#rodar-passo-a-passo).
-
----
-
-## Pré-requisitos
-
-- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
-- Python 3.11+ (backend) e Node.js 18+ (frontend) — apenas para dev local
-- **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployment da aplicação no mesmo workspace** — provê a camada de qualidade e é utilizado como **Motor de Regras** do acelerador. **IMPORTANTE**: É pré-requisito obrigatório (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 
 ---
 
