@@ -7,7 +7,7 @@ Você usa este repositório como **atalho** para construir a sua **própria plat
 O que o deploy entrega:
 
 - **App** de monitoramento de qualidade e validação (FastAPI + Svelte)
-- **Pipelines DLT** medallion (bronze → silver → gold) de exemplo para os CADOCs 3040/3050
+- **Pipelines** medallion (bronze → silver → gold) de exemplo para os CADOCs 3040/3050 — em **dois modos** à escolha: **clássico** (jobs + notebooks PySpark, padrão) ou **SDP/DLT** (declarativo). Ver [Modo de pipeline](#modo-de-pipeline-clássico-vs-sdpdlt).
 - **Dashboards** com AI/BI
 - **Catálogo, warehouse e schemas** no Unity Catalog
 - **Sala Genie** (NL→SQL) — opcional, via bundle separado
@@ -151,6 +151,36 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 
 ## Operações avançadas
 
+### Modo de pipeline: clássico vs SDP/DLT
+
+O medallion bronze → silver → gold pode ser orquestrado de **duas formas
+mutuamente exclusivas**. Ambas produzem exatamente as mesmas tabelas e schemas
+— mudam só _como_ as transformações rodam:
+
+| Modo | Padrão? | O que roda | Para quem |
+|------|:------:|-----------|-----------|
+| **Clássico** | ✅ | Jobs Databricks + notebooks PySpark (`pipelines/classical/`) — Auto Loader batch no bronze, `saveAsTable` no silver/gold. **Nenhum recurso SDP/DLT.** | Clientes que **não podem ou não querem** usar SDP/DLT |
+| **SDP/DLT** | | Pipelines declarativas Lakeflow (`@dlt.table`, `pipelines/`) | Clientes que preferem o caminho declarativo |
+
+No modo **clássico** (padrão) não é preciso fazer nada — o `databricks bundle
+deploy` já sobe os jobs clássicos e **zero** recursos de SDP/DLT. Os comandos de
+execução (`databricks bundle run rc18_end_to_end`, `... run bronze|silver|gold`)
+são idênticos nos dois modos.
+
+Para **trocar para SDP/DLT**:
+
+1. No `target.yml`, defina `pipeline_mode: sdp` (documenta a escolha).
+2. No [`databricks.yml`](databricks.yml), no bloco `include:`, **comente**
+   `resources/classical/*.yml` e **descomente** `resources/pipelines/*.yml`.
+   Nunca deixe os dois ativos ao mesmo tempo — as chaves de recurso colidem e o
+   `bundle validate` acusa erro de propósito (garante um único modo).
+3. `databricks bundle deploy`.
+
+> Por que a troca é feita comentando includes e não só pela variável? O
+> Databricks Asset Bundles não remove recursos condicionalmente pelo valor de
+> uma variável — é o mesmo motivo pelo qual o BYOC (abaixo) também é feito
+> comentando `resources/catalog.yml` / `warehouse.yml`.
+
 ### Trazer catálogo / warehouse próprios (BYOC)
 
 Para usar um catálogo e warehouse existentes em vez dos provisionados, defina-os no `target.yml`:
@@ -205,10 +235,14 @@ regulatory-data-governance/
 ├── app/                      # Aplicação
 │   ├── backend/              # API FastAPI servida pelo Databricks Apps
 │   └── frontend/             # Código-fonte SvelteKit 5
-├── pipelines/                # Pipelines DLT (bronze → silver → gold)
+├── pipelines/                # Transformações bronze → silver → gold
+│   ├── {bronze,silver,gold}/ #   modo SDP/DLT (notebooks @dlt.table)
+│   └── classical/            #   modo clássico, padrão (notebooks PySpark, sem DLT)
 ├── notebooks/setup/          # Setup de reference tables, grants e lineage
 ├── dashboards/               # Definições Lakeview (AI/BI)
-├── resources/                # DAB resources (app, catálogo, warehouse, jobs, pipelines)
+├── resources/                # DAB resources (app, catálogo, warehouse, jobs)
+│   ├── classical/            #   jobs do modo clássico (padrão, incluído)
+│   └── pipelines/            #   pipelines do modo SDP/DLT (opt-in, comentado no include)
 ├── sample/                   # XMLs de exemplo (Doc 3040/3050) carregados no deploy
 ├── genie/                    # Bundle opt-in da sala Genie (rc18-genie)
 └── demo/                     # Modo demo — uso interno Databricks
@@ -222,7 +256,7 @@ regulatory-data-governance/
 |--------|-----------|
 | Frontend | SvelteKit 5, Svelte Flow, LayerCake, d3 |
 | Backend | FastAPI, Pydantic v2, databricks-sdk |
-| Pipelines | DLT/SDP (ELT puro) |
+| Pipelines | Jobs clássicos PySpark (padrão) ou DLT/SDP — ELT puro |
 | Qualidade | DQX Studio (app externo, embarcado via iframe) |
 | Dashboards | Lakeview (AI/BI) |
 | NL Queries | Genie Space (bundle opt-in) |

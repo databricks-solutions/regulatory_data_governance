@@ -1,0 +1,20 @@
+# Gold CLÁSSICO (default) — job standalone para reprocessar só a camada gold.
+#
+# Equivalente clássico do pipeline DLT `resources.pipelines.gold`. Mesmo resource
+# key `gold` → `databricks bundle run gold` funciona nos dois modos. Produz
+# posicao_3040, posicao_3050 e processing_state a partir do silver.
+resources:
+  jobs:
+    gold:
+      name: "r18-gold-${bundle.target}"
+      description: "Curadoria gold clássica (sem SDP/DLT) — silver → posicao_3040/posicao_3050 + processing_state."
+      max_concurrent_runs: 1
+
+      tasks:
+        - task_key: "posicao_mensal"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_mensal.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}

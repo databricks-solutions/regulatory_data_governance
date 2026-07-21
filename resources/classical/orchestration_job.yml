@@ -1,0 +1,130 @@
+# End-to-end orchestration job for the RC18 accelerator — CLASSICAL MODE (default).
+#
+# Equivalente clássico (job Databricks + notebooks PySpark, SEM SDP/DLT) do
+# `rc18_end_to_end` declarativo em resources/pipelines/orchestration_job.yml.
+# Só um dos dois é deployado por vez (controlado pelo bloco `include:` do
+# databricks.yml). Ambos usam o MESMO resource key `rc18_end_to_end`, então
+# `databricks bundle run rc18_end_to_end` funciona idêntico nos dois modos —
+# muda apenas se as camadas rodam como pipelines DLT ou tasks de notebook.
+#
+# Encadeia os assets em ordem de dependência para que um único
+# `databricks bundle run rc18_end_to_end` leve a stack de um deploy limpo às
+# tabelas gold populadas:
+#
+#   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#                    └─→  grant_warehouse_perms (paralelo)
+#
+# bronze/silver/gold aqui são TASKS DE NOTEBOOK (não pipeline_task): rodam os
+# notebooks clássicos em pipelines/classical/**. Cada step espera o predecessor.
+#
+# As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
+# o RC18 apenas LÊ `dq_quality_rules`.
+
+resources:
+  jobs:
+    rc18_end_to_end:
+      name: "r18-end-to-end-${bundle.target}"
+      description: "RC18 stack completa (modo clássico, sem SDP/DLT): reference seed + sample XML load + grants, depois bronze → silver → gold via notebooks PySpark."
+      max_concurrent_runs: 1
+
+      # Ambiente serverless para as tasks de pipeline (bronze/silver/gold).
+      # `lxml` é exigida pelo parser do bronze 3050 (mesma dependência declarada
+      # no pipeline DLT). As tasks de setup NÃO usam este environment (mantêm o
+      # comportamento idêntico ao setup_job.yml, comprovadamente funcional).
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+            dependencies:
+              - lxml
+
+      tasks:
+        - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_tables.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}
+
+        - task_key: "load_sample_xmls"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/load_sample_xmls.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              source_dir: ${workspace.file_path}/sample
+
+        - task_key: "grant_warehouse_perms"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            # Concede CAN_USE no warehouse + SQL GRANTs cross-catalog em
+            # dqx.dqx_studio.dq_quality_rules para o SP do app. Idempotente.
+            notebook_path: ../../notebooks/setup/grant_warehouse_perms.py
+            base_parameters:
+              app_name: ${resources.apps.r18_compliance_app.name}
+              warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
+              dqx_checks_table: ${var.dqx_checks_table}
+
+        # ── Bronze (clássico) ── ingesta os dois CADOCs via Auto Loader batch ──
+        - task_key: "bronze_3040"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_3040.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        - task_key: "bronze_3050"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_3050.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        # ── Silver (clássico) ── normaliza cada CADOC após seu bronze ──────────
+        - task_key: "silver_3040"
+          depends_on:
+            - task_key: "bronze_3040"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr3040.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
+
+        - task_key: "silver_3050"
+          depends_on:
+            - task_key: "bronze_3050"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr3050.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
+
+        # ── Gold (clássico) ── posições + processing_state; espera os dois silver
+        - task_key: "gold"
+          depends_on:
+            - task_key: "silver_3040"
+            - task_key: "silver_3050"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_mensal.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}

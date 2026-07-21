@@ -1,9 +1,23 @@
 # Bundle do ACELERADOR RC18 (rc18-starter-kit).
 #
 # Self-contained: provisiona catálogo + warehouse + schemas + volumes + pipelines
-# DLT (bronze/silver/gold) + dashboards + setup job + app. O setup job semeia o
+# (bronze/silver/gold) + dashboards + setup job + app. O setup job semeia o
 # schema reference E carrega os XMLs de exemplo em sample/ para o landing volume,
 # permitindo rodar fim-a-fim com `databricks bundle deploy` apenas.
+#
+# ── Dois modos de pipeline (bronze→silver→gold) ──────────────────────────────
+# O mesmo medallion pode ser orquestrado de duas formas mutuamente exclusivas,
+# selecionadas pela variável `pipeline_mode` + o bloco `include:` abaixo:
+#
+#   • classical (DEFAULT, `pipeline_mode: classical`) — jobs Databricks clássicos
+#     rodando notebooks PySpark (spark.read/write + saveAsTable). NENHUM recurso
+#     SDP/DLT é deployado. Para clientes que não podem/querem usar SDP/DLT.
+#   • sdp (`pipeline_mode: sdp`) — pipelines DLT/SDP declarativas (caminho
+#     original). Opt-in: exige (des)comentar linhas no `include:` abaixo.
+#
+# DABs não remove recursos condicionalmente por variável, então a troca REAL é
+# feita comentando/descomentando os includes de pipeline — mesmo idioma usado
+# para BYOC catálogo/warehouse (comentar resources/{catalog,warehouse}.yml).
 #
 # Customers que já possuem catálogo/warehouse configuram `catalog` e
 # `warehouse_id` no target.yml; nesse caso comentar
@@ -23,8 +37,26 @@ bundle:
 include:
   # Single default target. Copy target.yml.example to the git-ignored target.yml.
   - target.yml
+
+  # Recursos SEMPRE presentes, independentes do modo de pipeline:
+  # app, catálogo, warehouse, setup job, schemas/volumes UC (resources/*.yml)
+  # + dashboards Lakeview (resources/analytics/).
   - resources/*.yml
-  - resources/**/*.yml
+  - resources/analytics/*.yml
+
+  # ── Modo de pipeline bronze→silver→gold (escolha UM bloco) ────────────────
+  # DEFAULT: pipelines CLÁSSICAS — job + notebooks PySpark, ZERO recursos
+  # SDP/DLT. Combina com `pipeline_mode: classical` (default da variável).
+  - resources/classical/*.yml
+
+  # OPT-IN: pipelines SDP/DLT (caminho declarativo original). Para trocar o
+  # modo classical → sdp:
+  #   1. defina `pipeline_mode: sdp` no target.yml (documentação/telemetria)
+  #   2. comente a linha `resources/classical/*.yml` acima
+  #   3. descomente a linha `resources/pipelines/*.yml` abaixo
+  # Assim NENHUM recurso do outro modo é deployado (DABs não remove recursos
+  # condicionalmente por variável — a troca é feita via este include).
+  # - resources/pipelines/*.yml
 
 sync:
   # Inclui apenas o que o bundle precisa (evita subir docs/, demo/, .venv/, etc.)
@@ -42,6 +74,18 @@ sync:
     - "**/.DS_Store"
 
 variables:
+  pipeline_mode:
+    description: |
+      Modo de orquestração do medallion bronze→silver→gold. Um de:
+        • classical (DEFAULT) — jobs Databricks clássicos + notebooks PySpark,
+          SEM nenhum recurso SDP/DLT. Para clientes que não podem usar SDP/DLT.
+        • sdp — pipelines DLT/SDP declarativas (caminho original, opt-in).
+      IMPORTANTE: DABs não remove recursos condicionalmente por variável. Esta
+      variável documenta/telemetriza a escolha; a troca EFETIVA dos recursos é
+      feita no bloco `include:` deste arquivo (comentar resources/classical/*.yml
+      e descomentar resources/pipelines/*.yml, ou vice-versa).
+    default: "classical"
+
   catalog:
     default: "rc18_catalog"
     description: "Unity Catalog name. Omit in target.yml to provision and use rc18_catalog."

@@ -23,6 +23,16 @@ targets:
       # padrão dq_quality_rules. Normalmente basta ajustar dqx_catalog/dqx_schema acima.
       # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
 
+      # OPTIONAL — modo de orquestração do medallion bronze→silver→gold:
+      #   • classical (DEFAULT) — jobs Databricks + notebooks PySpark, SEM
+      #     nenhum recurso SDP/DLT. 
+      #   • sdp — pipelines DLT/SDP declarativas (caminho original).
+      # ATENÇÃO: esta variável só documenta/telemetriza a escolha. A troca REAL
+      # dos recursos é feita no bloco `include:` do databricks.yml (comentar
+      # resources/classical/*.yml e descomentar resources/pipelines/*.yml). Para
+      # usar SDP: descomente a linha abaixo E faça essa troca no include.
+      # pipeline_mode: sdp
+
       # OPTIONAL — omit both to let the bundle create and manage them.
       # If supplied, also remove/comment resources/catalog.yml or warehouse.yml
       # so the bundle does not create an unused duplicate resource.

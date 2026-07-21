@@ -1,0 +1,39 @@
+# Bronze CLÁSSICO (default) — job standalone para reprocessar só a camada bronze.
+#
+# Equivalente clássico do pipeline DLT `resources.pipelines.bronze`. Usa o MESMO
+# resource key `bronze`, então `databricks bundle run bronze` funciona idêntico
+# nos dois modos. Ingesta os dois CADOCs (3040 + native XML, 3050 + lxml UDF) via
+# Auto Loader batch (trigger availableNow) para `${var.catalog}.bronze`.
+resources:
+  jobs:
+    bronze:
+      name: "r18-bronze-${bundle.target}"
+      description: "Ingestão bronze clássica (sem SDP/DLT) — Doc 3040/3050 XML → raw_3040_doc/raw_3050_doc via Auto Loader batch."
+      max_concurrent_runs: 1
+
+      # `lxml` exigida pelo parser do bronze 3050 (paridade com o pipeline DLT).
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+            dependencies:
+              - lxml
+
+      tasks:
+        - task_key: "raw_3040"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_3040.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        - task_key: "raw_3050"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_3050.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
