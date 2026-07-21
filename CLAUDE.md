@@ -20,13 +20,30 @@ Critical invariants:
 2. **The demo bundle does NOT include `../resources/*.yml`** — it ships its own `app.yml`, `uc_assets.yml`, generator jobs, and catalog. Core's pipelines/dashboards/setup-job are intentionally NOT deployed by `rc18-demo`.
 3. App source code (`app/backend`) is shared by both bundles. The runtime difference is the `apps.config.env` block in each bundle's `app.yml` (`USE_MOCK_BACKEND=false` in core, `=true` in demo).
 
+## Two pipeline modes (core bundle only)
+
+The core bundle orchestrates the bronze→silver→gold medallion in one of two **mutually exclusive** modes. Both produce the identical tables/schemas and the same downstream contract; they differ only in HOW the transforms run:
+
+| Mode | `pipeline_mode` | What runs | Resources deployed | Who |
+|------|-----------------|-----------|--------------------|-----|
+| **Classical** (DEFAULT) | `classical` | Databricks **jobs** running PySpark notebooks under `pipelines/classical/**` (Auto Loader batch `trigger(availableNow=True)` for bronze; `spark.table` + `saveAsTable(overwrite)` for silver/gold) | `resources/classical/*.yml` → jobs `bronze`/`silver`/`gold` + `rc18_end_to_end`. **Zero SDP/DLT resources.** | Customers who cannot / do not want to use SDP/DLT |
+| **SDP/DLT** | `sdp` | Declarative DLT/SDP pipelines (original path) with `@dlt.table` notebooks under `pipelines/{bronze,silver,gold}/` | `resources/pipelines/*.yml` → pipelines `bronze`/`silver`/`gold` + `rc18_end_to_end` | Customers who want the declarative Lakeflow path |
+
+How the switch works (and why it's structural, not purely a variable):
+- **DABs cannot conditionally drop a resource based on a variable value** (variables only do string interpolation). So the *effective* switch is the `include:` block in `databricks.yml`: exactly one of `resources/classical/*.yml` / `resources/pipelines/*.yml` is active (uncommented). This is the same idiom already used for BYOC (comment out `resources/catalog.yml` / `warehouse.yml`).
+- `var.pipeline_mode` (default `classical`) documents/telemetrizes the choice. Set `pipeline_mode: sdp` in `target.yml` AND flip the two include lines to switch. Never leave both include lines active — the shared resource keys (`bronze`/`silver`/`gold`/`rc18_end_to_end`) collide and `bundle validate` errors, which by design forces exactly one mode.
+- **Both modes reuse the same resource keys**, so every documented command (`databricks bundle run rc18_end_to_end`, `... run bronze|silver|gold`) works unchanged regardless of mode.
+- The DLT orchestration job lives at `resources/pipelines/orchestration_job.yml` (moved out of the always-included `resources/*.yml` because it references `${resources.pipelines.*.id}`, which only exist in SDP mode). The classical equivalent is `resources/classical/orchestration_job.yml`.
+
+Invariant: a classical-only deploy must provision **no `pipelines:` resource at all** — verify with `databricks bundle validate -o json | jq '.resources.pipelines'` → should be null/absent in classical mode.
+
 ## Tech Stack
 
 | Layer | Technology | Location |
 |-------|-----------|----------|
 | Frontend | SvelteKit 5, Svelte Flow, LayerCake, d3 | `app/frontend/` |
 | Backend | FastAPI, Pydantic v2, databricks-sdk | `app/backend/` |
-| Pipelines | DLT/SDP (pure ELT bronze→silver→gold) | `pipelines/` |
+| Pipelines | Classical jobs (default, `pipelines/classical/`) OR DLT/SDP (`pipelines/`) — pure ELT bronze→silver→gold | `pipelines/` |
 | Quality (rule authoring + execution) | DQX Studio (external Databricks App, embedded via iframe) | env var `DQX_STUDIO_URL` → `/rules` page |
 | Dashboards | Lakeview (AI/BI) JSON definitions | `dashboards/` |
 | Deployment | Databricks Asset Bundles (DABs) | `databricks.yml`, `resources/` |
@@ -47,10 +64,14 @@ regulatory-data-governance/
 │   ├── backend/                   # FastAPI (main.py, routers/, models.py, frontend_dist/, ...)
 │   └── frontend/                  # SvelteKit 5 source
 │
-├── pipelines/                     # DLT skeletons (bronze/silver/gold) for CADOC 3040/3050
-│   ├── bronze/transformations/
-│   ├── silver/transformations/    # Pure ELT — no quality logic (lives in DQX Studio)
-│   └── gold/transformations/
+├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
+│   ├── bronze/transformations/    # SDP/DLT mode: @dlt.table notebooks
+│   ├── silver/transformations/    #   Pure ELT — no quality logic (lives in DQX Studio)
+│   ├── gold/transformations/
+│   └── classical/                 # CLASSICAL mode (default): plain PySpark notebooks,
+│       ├── bronze/                #   no `import dlt`. Same tables/contract as the DLT path.
+│       ├── silver/                #   Bronze = Auto Loader batch; silver/gold = saveAsTable.
+│       └── gold/
 │
 ├── notebooks/                     # Accelerator utility notebooks
 │   └── setup/
@@ -67,7 +88,10 @@ regulatory-data-governance/
 │   ├── warehouse.yml              # Serverless 2X-Small warehouse, default for ${var.warehouse_id}
 │   ├── setup_job.yml              # 3 tasks: setup_reference + load_sample_xmls + setup_byol_lineage
 │   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
-│   ├── pipelines/{bronze,silver,gold}.yml
+│   ├── classical/                 # CLASSICAL mode (default, included): jobs bronze/silver/gold
+│   │                              #   + orchestration_job.yml (rc18_end_to_end). No SDP resources.
+│   ├── pipelines/                 # SDP/DLT mode (opt-in, commented in include):
+│   │                              #   {bronze,silver,gold}.yml + orchestration_job.yml
 │   └── analytics/dashboard_*.yml
 │
 ├── scripts/                       # Dev utilities (not deployed)
@@ -99,8 +123,11 @@ regulatory-data-governance/
 
 **Core bundle** (root `databricks.yml`): relative paths in `resources/**/*.yml` are resolved from each YAML's location:
 - `resources/app.yml` → `../app/backend`
-- `resources/pipelines/*.yml` → `../../pipelines/...`
+- `resources/pipelines/*.yml` → `../../pipelines/...` (SDP mode, incl. `orchestration_job.yml` → `../../notebooks/setup/...`)
+- `resources/classical/*.yml` → `../../pipelines/classical/...` and `../../notebooks/setup/...` (classical mode, default)
 - `resources/analytics/dashboard_*.yml` → `../../dashboards/*.lvdash.json`
+
+Note: `databricks.yml`'s `include:` no longer uses the broad `resources/**/*.yml` glob. It lists `resources/*.yml` + `resources/analytics/*.yml` (always on) plus exactly one of `resources/classical/*.yml` (default) / `resources/pipelines/*.yml` (opt-in). See "Two pipeline modes".
 
 **Demo bundle** (`demo/databricks.yml`): self-contained — only `include`s `resources/*.yml` from `demo/resources/`. Paths in demo's resource YAMLs:
 - `demo/resources/app.yml` → `../../app/backend` (shared app source)
@@ -112,6 +139,7 @@ regulatory-data-governance/
 1. Nothing in root `databricks.yml` or `resources/` references `demo/`. Customer must be able to `rm -rf demo/` safely.
 2. Core bundle (`rc18-starter-kit`) never deploys synthetic data or generators.
 3. Demo bundle (`rc18-demo`) is self-contained and does NOT include core's pipelines, dashboards, or `setup_reference_tables`. Only the shared `app/backend` source is reused.
+4. Exactly ONE pipeline mode is active at a time (classical default vs SDP opt-in), toggled by the `include:` block. Classical mode must deploy ZERO `pipelines:` resources. The classical PySpark notebooks (`pipelines/classical/**`) and DLT notebooks (`pipelines/{bronze,silver,gold}/`) must stay output-equivalent — same tables, columns, and downstream contract. See "Two pipeline modes".
 
 ## Development Commands
 
@@ -123,7 +151,8 @@ regulatory-data-governance/
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 
 # === Implementation deploy (accelerator — self-contained sandbox) ===
-# Default: provisions catalog + serverless warehouse + pipelines + dashboards + setup job + app.
+# Default: provisions catalog + serverless warehouse + CLASSICAL pipeline jobs
+# (no SDP/DLT) + dashboards + setup job + app. Switch to SDP mode below.
 # The app uses `lifecycle.started: true`, so re-running `bundle deploy` on an
 # existing app pushes the new code automatically. EXCEPTION: the very first
 # deploy after a `bundle destroy` only starts the compute and skips the code
@@ -142,6 +171,18 @@ databricks bundle run setup_reference_tables                                    
 databricks bundle run bronze                                                         # ingests sample XMLs
 databricks bundle run silver                                                         # bronze→silver ELT
 databricks bundle run gold                                                           # curated position tables
+databricks bundle run rc18_end_to_end                                                # (alt) whole stack chained in one job
+# NOTE: these run commands are IDENTICAL in classical (default) and SDP mode —
+# both modes reuse the same resource keys (bronze/silver/gold/rc18_end_to_end).
+
+# === Switch pipeline mode: classical (default) → SDP/DLT ===
+# 1. In target.yml set `pipeline_mode: sdp` (documentation/telemetry).
+# 2. In databricks.yml `include:`, comment `resources/classical/*.yml` and
+#    uncomment `resources/pipelines/*.yml`. Never leave both active (shared
+#    resource keys collide → bundle validate errors by design).
+# 3. Verify the swap: classical mode → no pipelines; sdp mode → no classical jobs.
+databricks bundle validate -o json | jq '.resources.pipelines // "none (classical)"'
+databricks bundle deploy
 
 # Bring-your-own catalog / warehouse: set catalog and warehouse_id under the
 # target's variables in target.yml AND comment out the corresponding
@@ -221,7 +262,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 
 - **Frontend**: SvelteKit 5 SPA with custom theme, Svelte Flow lineage DAG, LayerCake charts
 - **Backend**: FastAPI with mock mode (USE_MOCK_BACKEND=true) and real Databricks SQL mode
-- **Pipelines**: DLT/SDP — pure ELT bronze→silver→gold; no quality logic embedded. Quality (rule authoring + execution) is delegated to the mandatory **DQX Studio** prerequisite (external Databricks App from Databricks Labs DQX), embedded via iframe on `/rules` using the required `dqx_studio_url` target variable.
+- **Pipelines**: pure ELT bronze→silver→gold in one of two modes — **classical** Databricks jobs + PySpark notebooks (default, `pipelines/classical/`) or **DLT/SDP** declarative pipelines (`pipelines/`). Both are output-equivalent; no quality logic embedded in either. Quality (rule authoring + execution) is delegated to the mandatory **DQX Studio** prerequisite (external Databricks App from Databricks Labs DQX), embedded via iframe on `/rules` using the required `dqx_studio_url` target variable.
 - **Lineage**: UC system tables + External Lineage API (BYOL) for external systems
 
 ## Conventions
@@ -244,12 +285,14 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - **Cross-bundle wiring of the Genie ID goes through `var.genie_space_id`, and its default is the `__unset__` sentinel (NOT empty string).** Bundles don't share `${resources...}` references, so the `genie/` bundle creates the space and the operator copies its ID into the CORE `target.yml` (`genie_space_id: <id>`) + redeploys the core; `app.yml` injects `GENIE_SPACE_ID: ${var.genie_space_id}`. The default MUST be a non-empty sentinel (`__unset__`) because an empty-string env serializes without a `value` and the Apps API rejects it (see the empty-env gotcha above) — this would break the normal (Genie-less) deploy. The backend's `genie_space_id()` in `db.py` normalizes `__unset__`/`""` → `""` so the frontend shows the "disponível após deploy" placeholder. `databricks apps update` has NO `--env` flag (the app.yaml comment claiming otherwise is stale); the app's env comes entirely from the core bundle's `apps.config.env`.
 - **Genie Space `serialized_space` must be INLINE, not `file_path`, for `${var.catalog}` to interpolate** — the `genie_spaces` resource accepts the definition as `file_path: <x>.geniespace.json` OR inline under `serialized_space:`. DABs treats a `file_path` JSON as **opaque** (no variable substitution — same as `.lvdash.json` dashboards), so `${var.catalog}` stays literal and BYOC customers get tables pointing at a nonexistent catalog. Inlining as native YAML under `serialized_space:` DOES interpolate `${var.catalog}`/`${var.warehouse_id}`. `genie/resources/genie_space.yml` uses the inline form on purpose. After `databricks bundle generate genie-space --resource rc18_genie --force`, convert the regenerated `file_path` back to inline `serialized_space` and re-replace `rc18_catalog` → `${var.catalog}` in the table identifiers. Never hardcode the space ID (it changes on every recreation).
 - **Approved domains for iframe embedding** — the app embeds Lakeview dashboards (`/dashboards`) and Genie (`/genie`) via `iframe`. Databricks blocks these iframes (blank page / `X-Frame-Options` refusal) until the **deployed app's own domain** is added to the workspace allowlist at **Settings → Security → Approved domains**. This is a manual, admin-only, once-per-workspace step done AFTER deploy (not expressible in the bundle). Get the host via `databricks apps get r18_compliance_app | grep url` (e.g. `rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com`). The rest of the app works without it — only dashboard/Genie embeds are affected. The DQX Studio embed at `/rules` is a separate Databricks App; if it also renders blank, add its domain to the same allowlist. Documented in README "Aprovar o domínio do app".
-- DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines.
-- `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`.
+- **Classical vs SDP pipeline mode is a structural `include:` toggle, not a runtime variable.** DABs cannot conditionally drop a resource by variable value, so "deploy zero SDP resources" can ONLY be achieved by NOT including the SDP YAMLs. `databricks.yml` includes exactly one of `resources/classical/*.yml` (default) / `resources/pipelines/*.yml`; `var.pipeline_mode` (`classical`|`sdp`) only documents the choice. Both sets reuse the same resource keys (`bronze`/`silver`/`gold`/`rc18_end_to_end`) on purpose — run commands stay identical AND leaving both includes active is a hard validate error that prevents an ambiguous deploy. Classical notebooks live in `pipelines/classical/**` (no `import dlt`); they must stay output-equivalent to the DLT notebooks — if you change a transform in one, change the other.
+- **Classical bronze uses a DISTINCT Auto Loader checkpoint/schema path** (`_checkpoints/classical_bronze_3040_*` / `classical_bronze_3050_*`) from the DLT pipeline's paths. Auto Loader state is format- and pipeline-specific; sharing a path across modes corrupts state. Switching modes on an already-populated landing volume re-ingests from the classical checkpoints (independent of the DLT ones).
+- DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines. (Classical mode has no such limit — a single job task writes wherever `saveAsTable` points, which is why classical silver/gold each cover multiple tables in one notebook.)
+- `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`. The classical notebooks use `spark.table` everywhere (no `dlt.read`); the gold `processing_state` same-pipeline dependency becomes a sequential `spark.table` read of the just-written positions.
 - **Bronze parser choice (3040 vs 3050)** —
   - `raw_3040_doc` uses Auto Loader's **native XML reader** (`cloudFiles.format=xml`, explicit schema, JVM-only). Reshaped to the legacy `header + clientes/operacoes/garantias/vencimentos/cont4966` arrays with Spark `transform`/`flatten`/`filter` so silver doesn't see a contract change. Faster than Python-UDF parsing for production-scale files (10k+ ops).
   - `raw_3050_doc` stays on `binaryFile + lxml` UDF because the TXB V11 taxonomy uses element *names* (`<crdLivre><pesJuridica><pre><capGirPrzAte365 …/>`) as the dimension axis — defining a static native-XML schema would require enumerating every BCB taxonomy node and is brittle for what are tiny files (~1KB).
-  - `lxml` is therefore still declared in `resources/pipelines/bronze.yml` under `environment.dependencies` for the 3050 path.
+  - `lxml` is therefore declared under `environment.dependencies` for the 3050 path in BOTH modes — `resources/pipelines/bronze.yml` (SDP) and `resources/classical/bronze.yml` + `resources/classical/orchestration_job.yml` (classical `serverless_env`).
   - When migrating from `binaryFile` to native XML, use a NEW `cloudFiles.schemaLocation` path (e.g. `_checkpoints/bronze_3040_xml_native/`) — Auto Loader's checkpoint state is format-specific and reusing the old path crashes.
 - **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
 - Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.

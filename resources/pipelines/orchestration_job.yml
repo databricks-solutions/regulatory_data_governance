@@ -1,4 +1,8 @@
-# End-to-end orchestration job for the RC18 accelerator.
+# End-to-end orchestration job for the RC18 accelerator — SDP/DLT MODE.
+#
+# Só é deployado quando `resources/pipelines/*.yml` está descomentado no
+# `include:` do databricks.yml (pipeline_mode: sdp). No modo classical (default)
+# o equivalente é `rc18_end_to_end_classical` em resources/classical/.
 #
 # Chains the existing assets in dependency order so a single
 # `databricks bundle run rc18_end_to_end` brings the whole stack
@@ -22,7 +26,7 @@ resources:
       tasks:
         - task_key: "setup_reference"
           notebook_task:
-            notebook_path: ../notebooks/setup/setup_reference_tables.py
+            notebook_path: ../../notebooks/setup/setup_reference_tables.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
@@ -31,7 +35,7 @@ resources:
           depends_on:
             - task_key: "setup_reference"
           notebook_task:
-            notebook_path: ../notebooks/setup/load_sample_xmls.py
+            notebook_path: ../../notebooks/setup/load_sample_xmls.py
             base_parameters:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
@@ -45,7 +49,7 @@ resources:
             # dqx.dqx_studio.dq_quality_rules para o SP do app. Necessário
             # porque `bundle destroy` recria o SP a cada ciclo e nem o ACL do
             # warehouse nem os grants no catálogo DQX persistem. Idempotente.
-            notebook_path: ../notebooks/setup/grant_warehouse_perms.py
+            notebook_path: ../../notebooks/setup/grant_warehouse_perms.py
             base_parameters:
               app_name: ${resources.apps.r18_compliance_app.name}
               warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}

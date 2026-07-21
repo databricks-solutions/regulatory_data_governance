@@ -1,0 +1,30 @@
+# Silver CLÁSSICO (default) — job standalone para reprocessar só a camada silver.
+#
+# Equivalente clássico do pipeline DLT `resources.pipelines.silver`. Mesmo
+# resource key `silver` → `databricks bundle run silver` funciona nos dois modos.
+# Normaliza bronze → silver (5 tabelas 3040 + scr3050 unificada). Pure ELT.
+resources:
+  jobs:
+    silver:
+      name: "r18-silver-${bundle.target}"
+      description: "Normalização silver clássica (sem SDP/DLT) — bronze → scr3040_* + scr3050. Pure ELT (quality externo na DQX Studio)."
+      max_concurrent_runs: 1
+
+      tasks:
+        - task_key: "scr3040"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr3040.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
+
+        - task_key: "scr3050"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr3050.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
