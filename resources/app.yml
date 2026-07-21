@@ -42,6 +42,14 @@ resources:
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
             value: ${resources.schemas.reference.name}
+          # Catálogo/schema de vínculo com a DQX Studio. O backend deriva daqui
+          # o FQN das três tabelas que consome (dq_quality_rules +
+          # dq_validation_runs + dq_metrics), populando Críticas SCR e KPIs de
+          # qualidade. Trocar `dqx_catalog` no target.yml reaponta todas de uma vez.
+          - name: DQX_CATALOG
+            value: ${var.dqx_catalog}
+          - name: DQX_SCHEMA
+            value: ${var.dqx_schema}
           # FQN da tabela onde a DQX Studio mantém as regras (autoria + estado).
           # O backend RC18 lê dessa tabela para popular o catálogo de Críticas SCR,
           # garantindo bi-direção: regras criadas no Studio aparecem em RC18.
@@ -51,16 +59,18 @@ resources:
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
             value: ${resources.dashboards.monitor_criticas.id}
-          # GENIE_SPACE_ID intentionally omitted — Databricks Apps rejects env
-          # entries without a `value`, and DABs serializes empty-string vars
-          # without one. To enable the Genie tab, set it post-deploy with:
-          #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
-          # or re-add this block once you have a non-empty default for the var.
+          # Genie Space (opt-in, provisionado pelo bundle separado `genie/`).
+          # Default `__unset__` = Genie desativado → o app mostra o placeholder
+          # "disponível após deploy" (o backend normaliza __unset__/"" em db.py;
+          # NÃO pode ser string vazia aqui pois a Apps API rejeita env sem
+          # `value` — ver CLAUDE.md). Para ativar: rode o bundle `genie/`, pegue
+          # o space_id gerado, defina `genie_space_id` no target.yml e redeploy.
+          - name: GENIE_SPACE_ID
+            value: ${var.genie_space_id}
 
           # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
-          # via `var.dqx_studio_url`. Default aponta pro Studio compartilhado
-          # do workspace `azure`. Override por target setando a var no perfil ou
-          # via --var dqx_studio_url=<url>.
+          # via `var.dqx_studio_url`. Obrigatório: DQX Studio deve existir no
+          # workspace e a URL deve estar preenchida no target.yml local.
           - name: DQX_STUDIO_URL
             value: ${var.dqx_studio_url}
 

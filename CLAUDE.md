@@ -12,7 +12,7 @@ The repo is organized around two distinct scenarios, with **physical separation*
 
 | Scenario | Who | Bundle | What gets deployed |
 |----------|-----|--------|---------------------|
-| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads `sample/Doc3040*.xml` and `sample/Doc3050*.xml` into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. Self-contained: deploys end-to-end with `databricks bundle deploy` alone. Customers with an existing catalog/warehouse override `--var catalog=<name> --var warehouse_id=<id>` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
+| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads `sample/Doc3040*.xml` and `sample/Doc3050*.xml` into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. DQX Studio is a mandatory external prerequisite and is not provisioned by this bundle. Apart from DQX, the bundle provisions its own dependencies. Customers with an existing catalog/warehouse set `catalog` / `warehouse_id` in `target.yml` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
 | **Demo mode** | Anyone wanting a quick hands-on with the app in mock mode and synthetic XML generation | `rc18-demo` (`demo/databricks.yml`) | App (`USE_MOCK_BACKEND=true`) + 3 jobs only: `r18-synthetic-data-loader`, `rc18-scr3040-generator`, `rc18-scr3050-generator` + dedicated catalog (`rc18_demo_catalog`) + `bronze`/`reference` schemas. **No DLT pipelines, no dashboards, no Genie.** |
 
 Critical invariants:
@@ -129,20 +129,24 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 # deploy after a `bundle destroy` only starts the compute and skips the code
 # push — see the "Bundle gotchas" section. Re-run `bundle deploy` (or
 # `bundle run r18_compliance_app`) once to recover.
-# IMPORTANT: requires the direct deployment engine because the bundle declares a `catalogs:` resource.
-export DATABRICKS_BUNDLE_ENGINE=direct
-databricks bundle deploy -t dev --profile <p>                                  # creates resources + starts compute
+# Copy target.yml.example to target.yml and set the CLI profile and REQUIRED
+# DQX Studio URL. The single target is fixed as `dev`; cloud/workspace selection
+# belongs to the profile. The direct deployment engine required by `catalogs:`
+# is pinned in databricks.yml (`bundle.engine: direct`), so plain
+# `databricks bundle ...` works with no wrapper or env var.
+databricks bundle deploy                                                             # creates resources + starts compute
 # If app shows UNAVAILABLE after a destroy+deploy, recover with one of:
-#   databricks bundle deploy -t dev --profile <p>                              # second run pushes code
-#   databricks bundle run r18_compliance_app -t dev --profile <p>              # manual code push
-databricks bundle run setup_reference_tables -t dev --profile <p>              # seeds reference + loads sample XMLs into landing
-databricks bundle run bronze -t dev --profile <p>                              # ingests sample XMLs
-databricks bundle run silver -t dev --profile <p>                              # bronze→silver ELT
-databricks bundle run gold -t dev --profile <p>                                # curated position tables
+#   databricks bundle deploy                                                         # second run pushes code
+#   databricks bundle run r18_compliance_app                                         # manual code push
+databricks bundle run setup_reference_tables                                         # seeds reference + loads sample XMLs into landing
+databricks bundle run bronze                                                         # ingests sample XMLs
+databricks bundle run silver                                                         # bronze→silver ELT
+databricks bundle run gold                                                           # curated position tables
 
-# Bring-your-own catalog / warehouse: override the vars AND comment out the corresponding
+# Bring-your-own catalog / warehouse: set catalog and warehouse_id under the
+# target's variables in target.yml AND comment out the corresponding
 # resources/catalog.yml / resources/warehouse.yml so the bundle doesn't manage them.
-databricks bundle deploy -t dev --var catalog=my_cat --var warehouse_id=01abc...
+databricks bundle deploy
 
 # === Internal Databricks demo (mock app + synthetic XML generators) ===
 # `lifecycle.started: true` on the app makes re-deploys auto-push the code.
@@ -159,9 +163,13 @@ databricks bundle run synthetic_data_loader -t dev-azure  # populate ${var.catal
 
 ## Databricks Assets
 
-Asset IDs (workspace, warehouse, dashboards, Genie space) are not committed.
-Configure them via `.env` for local dev or `app.yaml` env vars for the deployed
-Databricks App. See [.env.example](.env.example) for the full list of variables.
+For LOCAL dev, asset IDs are configured via `.env` (see [.env.example](.env.example)).
+On DEPLOY, the bundle provisions the assets and injects their IDs into the app via
+`resources/app.yml` `apps.config.env` — dashboards resolve via
+`${resources.dashboards.*.id}`. The Genie Space is a separate opt-in bundle
+(`genie/`) — its ID reaches the app via `var.genie_space_id` set in the core
+`target.yml` (default `__unset__` = Genie disabled). The env vars below are the
+local-dev overrides.
 
 | Asset | Env var |
 |-------|---------|
@@ -179,7 +187,7 @@ Databricks App. See [.env.example](.env.example) for the full list of variables.
 | `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
 | `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
 | `silver` | 6 | Normalized SCR tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050`. Written by the silver DLT pipeline (DLT writes to a single schema). |
-| `gold` | 2 | Curated (`posicao_3040`, `posicao_3050`) |
+| `gold` | 3 | Curated (`posicao_3040`, `posicao_3050`) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at` = último CADOC processado, MAX dt_base; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`) |
 | `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
 
 ## Key Links
@@ -213,7 +221,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 
 - **Frontend**: SvelteKit 5 SPA with custom theme, Svelte Flow lineage DAG, LayerCake charts
 - **Backend**: FastAPI with mock mode (USE_MOCK_BACKEND=true) and real Databricks SQL mode
-- **Pipelines**: DLT/SDP — pure ELT bronze→silver→gold; no quality logic embedded. Quality (rule authoring + execution) is delegated to **DQX Studio** (external Databricks App from Databricks Labs DQX), embedded via iframe on the app's `/rules` page when `DQX_STUDIO_URL` is set.
+- **Pipelines**: DLT/SDP — pure ELT bronze→silver→gold; no quality logic embedded. Quality (rule authoring + execution) is delegated to the mandatory **DQX Studio** prerequisite (external Databricks App from Databricks Labs DQX), embedded via iframe on `/rules` using the required `dqx_studio_url` target variable.
 - **Lineage**: UC system tables + External Lineage API (BYOL) for external systems
 
 ## Conventions
@@ -226,12 +234,16 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 
 ## Bundle gotchas (learned the hard way)
 
-- `catalogs:` resources require **direct deployment engine** — set `DATABRICKS_BUNDLE_ENGINE=direct` before `bundle deploy/run`. Without it, you get "Catalog resources are only supported with direct deployment mode".
+- `catalogs:` resources require **direct deployment engine**. This is pinned in `databricks.yml` as `bundle.engine: direct` (also in `genie/databricks.yml`), which takes priority over the `DATABRICKS_BUNDLE_ENGINE` env var and makes plain `databricks bundle ...` work without any wrapper. Without it (engine defaults to `terraform`) the CLI fails with "Catalog resources are only supported with direct deployment mode". The `--plan` flag on `bundle deploy` is direct-engine-only.
 - **App env vars cannot be empty** — `apps.config.env` entries with `value: ""` get serialized without a `value` field, which the Apps API rejects with "Must specify environment variable source using either `value` or `valueFrom`." Either provide a non-empty default or omit the env entry entirely (the app code's `os.getenv(..., "")` covers absence).
 - **App auto-start during `bundle deploy`** — set `lifecycle.started: true` on the `apps` resource to make `bundle deploy` push the code AND start the app in one shot. Without it, the app stays in "Unavailable" until you run `bundle run <app_key>` separately. Only works in direct deployment mode. The IDE's bundle schema may flag `started` as unknown — that's a stale schema in the IDE; the CLI accepts it (verified via `bundle validate`).
 - **`lifecycle.started: true` is unreliable on the FIRST deploy after `bundle destroy`** — the compute starts, but the source-code deployment step is silently skipped (likely a race between compute-creation and the apps-deploy hook in the DABs CLI). Symptoms: `compute_status=ACTIVE`, `app_status=UNAVAILABLE`, `active_deployment=None`. Reproducer: `bundle destroy` → `bundle deploy` → check via `databricks apps get <app-name>`. Workaround on subsequent deploys works fine — the flag triggers code-push every time once an app already exists. Two ways to recover after a destroy+deploy:
   - run `databricks bundle deploy` a SECOND time (the second run pushes code), or
   - run `databricks bundle run r18_compliance_app -t <target>` once to push code manually.
+- **Genie lives in a SEPARATE opt-in bundle (`genie/`), not the core.** `POST /api/2.0/genie/spaces` validates at creation time that every attached table exists. On a clean core `bundle deploy` the catalog/schemas exist but the tables (`gold.posicao_*`, `reference.*`, `governance.incidents`) are empty until `rc18_end_to_end` runs — AFTER the deploy. Provisioning Genie inside the core failed with `403 PERMISSION_DENIED "Catalog '...' does not exist"` and, because the app env referenced the space, cascaded into blocking the app + permissions + job. So the Genie Space is its own bundle `genie/` (`bundle: rc18-genie`) deployed only after the core + `rc18_end_to_end`. Verified empirically: a space with `tables: []` creates fine; adding a missing table triggers the 403. `databricks genie create-space` exists in CLI v1.8.0+ but the Python SDK (`w.genie.*`) only exposes conversation methods, not space creation.
+- **Cross-bundle wiring of the Genie ID goes through `var.genie_space_id`, and its default is the `__unset__` sentinel (NOT empty string).** Bundles don't share `${resources...}` references, so the `genie/` bundle creates the space and the operator copies its ID into the CORE `target.yml` (`genie_space_id: <id>`) + redeploys the core; `app.yml` injects `GENIE_SPACE_ID: ${var.genie_space_id}`. The default MUST be a non-empty sentinel (`__unset__`) because an empty-string env serializes without a `value` and the Apps API rejects it (see the empty-env gotcha above) — this would break the normal (Genie-less) deploy. The backend's `genie_space_id()` in `db.py` normalizes `__unset__`/`""` → `""` so the frontend shows the "disponível após deploy" placeholder. `databricks apps update` has NO `--env` flag (the app.yaml comment claiming otherwise is stale); the app's env comes entirely from the core bundle's `apps.config.env`.
+- **Genie Space `serialized_space` must be INLINE, not `file_path`, for `${var.catalog}` to interpolate** — the `genie_spaces` resource accepts the definition as `file_path: <x>.geniespace.json` OR inline under `serialized_space:`. DABs treats a `file_path` JSON as **opaque** (no variable substitution — same as `.lvdash.json` dashboards), so `${var.catalog}` stays literal and BYOC customers get tables pointing at a nonexistent catalog. Inlining as native YAML under `serialized_space:` DOES interpolate `${var.catalog}`/`${var.warehouse_id}`. `genie/resources/genie_space.yml` uses the inline form on purpose. After `databricks bundle generate genie-space --resource rc18_genie --force`, convert the regenerated `file_path` back to inline `serialized_space` and re-replace `rc18_catalog` → `${var.catalog}` in the table identifiers. Never hardcode the space ID (it changes on every recreation).
+- **Approved domains for iframe embedding** — the app embeds Lakeview dashboards (`/dashboards`) and Genie (`/genie`) via `iframe`. Databricks blocks these iframes (blank page / `X-Frame-Options` refusal) until the **deployed app's own domain** is added to the workspace allowlist at **Settings → Security → Approved domains**. This is a manual, admin-only, once-per-workspace step done AFTER deploy (not expressible in the bundle). Get the host via `databricks apps get r18_compliance_app | grep url` (e.g. `rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com`). The rest of the app works without it — only dashboard/Genie embeds are affected. The DQX Studio embed at `/rules` is a separate Databricks App; if it also renders blank, add its domain to the same allowlist. Documented in README "Aprovar o domínio do app".
 - DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines.
 - `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`.
 - **Bronze parser choice (3040 vs 3050)** —
@@ -240,7 +252,9 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
   - `lxml` is therefore still declared in `resources/pipelines/bronze.yml` under `environment.dependencies` for the 3050 path.
   - When migrating from `binaryFile` to native XML, use a NEW `cloudFiles.schemaLocation` path (e.g. `_checkpoints/bronze_3040_xml_native/`) — Auto Loader's checkpoint state is format-specific and reusing the old path crashes.
 - **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
-- Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Wipe `.databricks/bundle/<target>/` before redeploying to a different workspace.
+- Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.
+- **Direct-engine state is target-scoped, not profile-scoped** — this repository has one default target fixed as `dev`. Before changing `workspace.profile` in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.
+- **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the CLI profile and required DQX Studio URL. Azure/AWS/GCP selection belongs to the profile, never to the target name. The direct engine is set via `bundle.engine: direct` in `databricks.yml` (no wrapper); `.env` is exclusively for local app development.
 
 ## Key Decisions & Constraints
 
@@ -250,4 +264,4 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - Mock mode enables local development without Databricks connectivity
 - Synthetic data has intentional quality issues (3% nulls, 2% out-of-domain, 5% cross-doc divergences)
 - Quality trend improves over 3 months (Jan 82% → Feb 91% → Mar 96%) for compelling demo
-- **Quality (rule authoring + execution) is delegated to DQX Studio**, an external Databricks App from the Databricks Labs DQX project (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/). The RC18 app embeds it via iframe on `/rules` when `DQX_STUDIO_URL` is set; falls back to a link-out empty state otherwise. Pipelines silver/gold are pure ELT — no DQX dependency, no `_errors`/`_warnings` columns, no `quality.dqx_checks` table.
+- **DQX Studio is a mandatory prerequisite for quality rule authoring and execution.** It is an external Databricks App from Databricks Labs DQX (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/) and is not provisioned by this bundle. The target must provide `dqx_studio_url`; the RC18 app embeds it at `/rules`. Pipelines silver/gold remain pure ELT — no embedded DQX dependency, no `_errors`/`_warnings` columns, no `quality.dqx_checks` table.

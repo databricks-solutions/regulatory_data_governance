@@ -1,0 +1,42 @@
+# Copy to target.yml and replace the placeholders. target.yml is ignored by Git.
+#
+# REQUIRED: CLI profile and DQX Studio URL. The target is always `dev`;
+# cloud/workspace selection belongs exclusively to the CLI profile.
+# OPTIONAL: everything commented out. Defaults provision a catalog named
+# rc18_catalog and a Serverless 2X-Small SQL warehouse automatically.
+targets:
+  dev:
+    default: true
+    workspace:
+      profile: <your-databricks-cli-profile>
+    variables:
+      # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
+      dqx_studio_url: https://<your-dqx-studio-app-host>
+
+      # OPTIONAL — catálogo/schema de vínculo com a DQX Studio (onde a Studio
+      # persiste as regras). O FQN da tabela de regras é montado como
+      # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_studio.
+      # dqx_catalog: <your-dqx-catalog>
+      # dqx_schema: <your-dqx-schema>
+
+      # OPTIONAL — override do FQN completo, só se o nome da tabela divergir do
+      # padrão dq_quality_rules. Normalmente basta ajustar dqx_catalog/dqx_schema acima.
+      # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+
+      # OPTIONAL — omit both to let the bundle create and manage them.
+      # If supplied, also remove/comment resources/catalog.yml or warehouse.yml
+      # so the bundle does not create an unused duplicate resource.
+      # catalog: <your-existing-catalog>
+      # warehouse_id: <your-existing-sql-warehouse-id>
+
+      # OPTIONAL — defaults are bronze, silver, gold, and quality.
+      # schema_bronze: <your-bronze-schema>
+      # schema_silver: <your-silver-schema>
+      # schema_gold: <your-gold-schema>
+      # schema_quality: <your-quality-schema>
+
+      # OPTIONAL — Genie Space. Deixe omitido (default __unset__ = Genie
+      # desativado, app mostra placeholder). Depois de provisionar o space via o
+      # bundle opt-in `genie/` (ver genie/README.md), cole aqui o space_id gerado
+      # e redeploy o core para o app embarcar o Genie.
+      # genie_space_id: <your-genie-space-id>

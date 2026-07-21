@@ -22,7 +22,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_SILVER, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_SILVER, USE_MOCK
+from dqx_config import dqx_studio_base_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
@@ -64,10 +65,7 @@ def _dqx_studio_configured_base() -> str | None:
     setou a URL real). Retorna None nesses casos pra UI esconder
     deep-links e a aba Motor de Regras renderizar estado vazio.
     """
-    base = os.getenv("DQX_STUDIO_URL", "").rstrip("/")
-    if not base or base in ("about:blank",):
-        return None
-    return base
+    return dqx_studio_base_url()
 
 
 def dqx_check_url(run_config_name: str | None, check_name: str | None) -> str | None:
@@ -183,11 +181,9 @@ _RC_3040_GAR = "silver_3040_garantias"
 _RC_3040_VEN = "silver_3040_vencimentos"
 _RC_3050 = "silver_3050"
 
-# As 4 regras iniciais do acelerador — mesmo conjunto canônico semeado no
-# deploy em `${var.catalog}.quality.dqx_checks` a partir de
-# `pipelines/silver/dqx_checks/scr3040.yml`. Novas regras serão adicionadas via
-# DQX Studio e aparecerão automaticamente assim que o pipeline silver as
-# executar e popular `silver.criticas_results`.
+# As 4 regras iniciais do acelerador — referência canônica usada para o mapping
+# de dimensões R.18. As regras autoritativas são criadas via DQX Studio e lidas
+# de `dq_quality_rules`; o RC18 não semeia mais regras.
 # Mapping uses the spec-canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2:
 # 1 Acessibilidade, 2 Acurácia, 3 Adaptabilidade, 4 Clareza, 5 Comparabilidade,
 # 6 Completude, 7 Confiabilidade, 8 Consistência, 9 Integridade, 10 Rastreabilidade,
@@ -354,7 +350,7 @@ def _summary_from_results(results) -> ValidationSummary:
 # view that depended on silver pipelines running DQX inline, which RC18 does
 # NOT do yet). Instead it reads ACTIVE/APPROVED rules from
 # `${DQX_CHECKS_TABLE}` + the LATEST run per source_table_fqn from
-# `dqx_catalog.dqx_app.dq_validation_runs`, joined with `dq_metrics`
+# `${DQX_VALIDATION_RUNS_TABLE}`, joined with `${DQX_METRICS_TABLE}`
 # (`metric_name = 'check_metrics'` carries a JSON array of per-check counts).
 # Old rule definitions deleted from `dq_quality_rules` produce check_metrics
 # entries that don't match any active rule — those are dropped silently.
@@ -368,11 +364,12 @@ _DOC_TO_TABLE_PREFIX = {
 async def _load_active_rules() -> dict[str, dict]:
     """Return {check_name: full_check_dict} for every ACTIVE/APPROVED rule.
 
-    `full_check_dict` is the FIRST element of the row's `checks` JSON array
-    (DQX Studio stores per-row arrays; RC18 seeds one element per row).
+    `full_check_dict` is the DQX check definition from the row's `check`
+    VARIANT column (Studio stores one check object per row; we CAST it to a
+    JSON string and the parser also tolerates a legacy array shape).
     """
     rows = await execute_query(
-        f"SELECT rule_id, table_fqn, checks "
+        f"SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
         f"FROM {DQX_CHECKS_TABLE} "
         "WHERE status IN ('active', 'approved')",
         {},
@@ -411,7 +408,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at, "
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn "
-        "  FROM dqx_catalog.dqx_app.dq_validation_runs "
+        f"  FROM {DQX_VALIDATION_RUNS_TABLE} "
         "  WHERE status = 'SUCCESS' "
         f"    AND source_table_fqn LIKE '{prefix}%'"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
@@ -425,7 +422,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
     quoted = ",".join(f"'{r['run_id']}'" for r in runs)
     metrics_sql = (
         "SELECT run_id, metric_value AS check_metrics_json "
-        "FROM dqx_catalog.dqx_app.dq_metrics "
+        f"FROM {DQX_METRICS_TABLE} "
         f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})"
     )
     metrics_rows = await execute_query(metrics_sql, {})

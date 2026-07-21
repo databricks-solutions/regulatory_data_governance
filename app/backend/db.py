@@ -41,14 +41,37 @@ SCHEMA_REFERENCE = os.getenv("SCHEMA_REFERENCE", "reference")
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 POOL_SIZE = int(os.getenv("DATABRICKS_SQL_POOL_SIZE", "5"))
 
-# FQN da tabela onde a DQX Studio (app databrickslabs/dqx) mantém autoria de
-# regras. Configurada via `var.dqx_checks_table` no bundle (default aponta para
-# a Studio compartilhada do workspace). Fallback assume Studio local ao catálogo
-# RC18 para dev/local sem Studio externa.
-DQX_CHECKS_TABLE = os.getenv(
-    "DQX_CHECKS_TABLE",
-    f"{CATALOG}.{SCHEMA_QUALITY}.dq_quality_rules",
+# Catálogo/schema de VÍNCULO com a DQX Studio (app databrickslabs/dqx). As três
+# tabelas que o backend consome — regras (`dq_quality_rules`) + histórico de
+# execução (`dq_validation_runs`, `dq_metrics`) — vivem nesse par catálogo.schema.
+# Configurados via `var.dqx_catalog`/`var.dqx_schema` no bundle (env vars
+# DQX_CATALOG/DQX_SCHEMA). Fallback assume Studio local ao catálogo RC18 para
+# dev/local sem Studio externa.
+DQX_CATALOG = os.getenv("DQX_CATALOG", CATALOG)
+DQX_SCHEMA = os.getenv("DQX_SCHEMA", SCHEMA_QUALITY)
+_DQX_SCHEMA_FQN = f"{DQX_CATALOG}.{DQX_SCHEMA}"
+
+# FQN da tabela de regras (autoria). Override direto via DQX_CHECKS_TABLE apenas
+# se o NOME da tabela divergir do padrão `dq_quality_rules`; caso contrário é
+# derivado do par catálogo.schema acima.
+DQX_CHECKS_TABLE = os.getenv("DQX_CHECKS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_quality_rules")
+# Tabelas irmãs de execução mantidas pela DQX Studio no mesmo schema.
+DQX_VALIDATION_RUNS_TABLE = os.getenv(
+    "DQX_VALIDATION_RUNS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_validation_runs"
 )
+DQX_METRICS_TABLE = os.getenv("DQX_METRICS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_metrics")
+
+# Genie Space ID. O app.yml usa o default `__unset__` (não pode ser string
+# vazia: a Apps API rejeita env sem `value` — ver CLAUDE.md "Bundle gotchas").
+# `__unset__` e "" significam "Genie não provisionado" → o app mostra o
+# placeholder "disponível após deploy". Depois de criar o space via o bundle
+# `genie/`, defina `genie_space_id` no target.yml do core e redeploy.
+_GENIE_UNSET = {"", "__unset__"}
+
+
+def genie_space_id() -> str:
+    raw = (os.getenv("GENIE_SPACE_ID") or "").strip()
+    return "" if raw in _GENIE_UNSET else raw
 
 
 def _get_real_connection():

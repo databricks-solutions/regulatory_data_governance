@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 
-from db import USE_MOCK, CATALOG, SCHEMA_GOLD, SCHEMA_SILVER, SCHEMA_QUALITY, SCHEMA_REFERENCE
+from db import USE_MOCK, CATALOG, SCHEMA_GOLD, SCHEMA_SILVER, SCHEMA_QUALITY, SCHEMA_REFERENCE, genie_space_id
 from models import (
     AppConfig,
     DependencyStatus,
@@ -129,7 +129,7 @@ async def get_app_config():
             "compliance": os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
             "criticas": os.getenv("DASHBOARD_ID_CRITICAS", ""),
         },
-        genie_space_id=os.getenv("GENIE_SPACE_ID", ""),
+        genie_space_id=_genie_space_id(),
         features={
             "xml_viewer": os.getenv("ENABLE_XML_VIEWER", "true").lower() == "true",
             "genie_integration": True,

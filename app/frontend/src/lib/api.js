@@ -38,6 +38,12 @@ export function getDashboardKpis(dataBase) {
   return apiFetch(`/dashboard/kpis${params}`);
 }
 
+// Data-bases disponíveis + a corrente (último CADOC processado). Alimenta o
+// seletor de Data-Base no header — substitui a lista antes hardcoded.
+export function getDataBases() {
+  return apiFetch('/dashboard/data-bases');
+}
+
 // Quality
 export function getQualityDimensions(dataBase, trendMonths = 6) {
   const params = new URLSearchParams();

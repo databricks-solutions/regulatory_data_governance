@@ -90,8 +90,6 @@
       title={$_('dashboard.r18Index')}
       value={kpis.compliance_score}
       unit="%"
-      trend={2.5}
-      trendLabel={$_('dashboard.vsPreviousMonth')}
       status="info"
       href="/quality"
     />
@@ -106,7 +104,6 @@
       title={$_('dashboard.r18Deadline')}
       value={kpis.deadline.days_remaining}
       unit={$_('dashboard.daysUnit')}
-      subtitle={kpis.deadline.phase}
       status="info"
     />
   </div>

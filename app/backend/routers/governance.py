@@ -16,13 +16,13 @@ preserved so the frontend keeps working through the migration.
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from db import CATALOG, USE_MOCK
+from dqx_config import dqx_studio_base_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when governance tables haven't been populated yet.
@@ -114,8 +114,8 @@ def _dqx_studio_url(_run_config_name: str | None, check_name: str | None) -> str
     quando ``DQX_STUDIO_URL`` está como `about:blank`, OU
     quando ``check_name`` é nulo. `_run_config_name` mantido na assinatura
     apenas pra compatibilidade com call sites antigos; não é consumido."""
-    base = (os.getenv("DQX_STUDIO_URL") or "").rstrip("/")
-    if not base or base in ("about:blank",) or not check_name:
+    base = dqx_studio_base_url()
+    if not base or not check_name:
         return None
     return f"{base}/rules/active"
 

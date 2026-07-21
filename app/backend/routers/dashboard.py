@@ -8,7 +8,7 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -85,7 +85,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
                 created_at="2026-03-28T08:00:00Z",
             ),
         ]
-        phase = "Phase 1 - Foundation"
     else:
         alerts = [
             Alert(
@@ -99,7 +98,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
                 created_at="2026-03-28T08:00:00Z",
             ),
         ]
-        phase = "Fase 1 - Fundacao"
     return DashboardKPIs(
         data_base=data_base,
         compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
@@ -115,7 +113,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
         deadline=Deadline(
             date="2026-12-31",
             days_remaining=_days_until_deadline(),
-            phase=phase,
         ),
     )
 
@@ -136,6 +133,53 @@ async def get_dashboard_kpis(
     return await _build_kpis_from_dqx_studio(data_base)
 
 
+# Data-bases mock — espelham os meses que o frontend usava hardcoded, para o
+# dev/mock continuar funcionando sem pipelines.
+_MOCK_DATA_BASES = ["2026-03", "2026-02", "2026-01", "2025-12", "2025-11", "2025-10"]
+
+
+@router.get("/data-bases")
+async def get_data_bases():
+    """Data-bases disponíveis + a corrente (último CADOC processado).
+
+    A data-base corrente vem de `gold.processing_state` (gravada pelo pipeline
+    gold como MAX(dt_base) das posições). As disponíveis são as distintas de
+    `gold.posicao_3040`/`3050`. Em mock (ou antes dos pipelines rodarem), cai
+    para a lista mock. Formato de cada item: `YYYY-MM`.
+    """
+    if USE_MOCK:
+        return {"current": _MOCK_DATA_BASES[0], "available": _MOCK_DATA_BASES}
+
+    # data-base corrente (uma linha em processing_state)
+    current = ""
+    state = await execute_query(
+        f"SELECT data_base_month FROM {CATALOG}.{SCHEMA_GOLD}.processing_state "
+        "ORDER BY updated_at DESC LIMIT 1",
+        {},
+    )
+    if state:
+        current = state[0].get("data_base_month") or ""
+
+    # data-bases distintas observadas nas posições (para popular o seletor)
+    rows = await execute_query(
+        "SELECT DISTINCT date_format(dt_base, 'yyyy-MM') AS m FROM ("
+        f"  SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3040 "
+        f"  UNION ALL SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3050"
+        ") WHERE dt_base IS NOT NULL ORDER BY m DESC",
+        {},
+    )
+    available = [r["m"] for r in rows if r.get("m")]
+
+    # Fallbacks: se processing_state ainda não existe mas há posições, usa a mais
+    # recente; se nada existe, devolve vazio (o frontend lida com isso).
+    if not current and available:
+        current = available[0]
+    if current and current not in available:
+        available = [current, *available]
+
+    return {"current": current, "available": available}
+
+
 # Mapping `R.18 deadline` (BACEN final date for accelerator compliance).
 _R18_DEADLINE = date(2026, 12, 31)
 _R18_DIM_NAMES = {
@@ -148,15 +192,6 @@ _R18_DIM_NAMES = {
 def _days_until_deadline() -> int:
     delta = (_R18_DEADLINE - date.today()).days
     return max(delta, 0)
-
-
-def _deadline_phase(days: int) -> str:
-    # Faixas grosseiras pra dar contexto humano ao número de dias.
-    if days > 270:    return "Fase 1 - Fundação"
-    if days > 180:    return "Fase 2 - Dados e Qualidade"
-    if days > 90:     return "Fase 3 - Reconciliação e XML"
-    if days > 30:     return "Fase 4 - Governança e Relatório"
-    return "Fase 5 - Auditoria e Go-Live"
 
 
 async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
@@ -172,7 +207,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
-        "  FROM dqx_catalog.dqx_app.dq_validation_runs"
+        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
         "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
@@ -193,7 +228,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         quoted = ",".join(f"'{r['run_id']}'" for r in runs)
         metrics_rows = await execute_query(
             "SELECT run_id, metric_value AS check_metrics_json "
-            "FROM dqx_catalog.dqx_app.dq_metrics "
+            f"FROM {DQX_METRICS_TABLE} "
             f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
             {},
         )
@@ -201,7 +236,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
 
         # Cache user_metadata for the rules (used for dimensao_r18 tag).
         rule_rows = await execute_query(
-            f"SELECT checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
+            f"SELECT CAST(check AS STRING) AS checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
             {},
         )
         rule_um_by_name: dict[str, dict] = {}
@@ -299,7 +334,6 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         deadline=Deadline(
             date=_R18_DEADLINE.isoformat(),
             days_remaining=days_left,
-            phase=_deadline_phase(days_left),
         ),
     )
 
@@ -359,11 +393,13 @@ async def get_dashboard_timeline():
     }
 
 
-# Map friendly keys to actual dashboard IDs from env vars
+# Map friendly keys to actual dashboard IDs from env vars. `genie_space_id()`
+# normalizes the `__unset__` sentinel (see db.py) to "" so an unprovisioned
+# Genie renders the frontend placeholder instead of a broken iframe.
 DASHBOARD_KEY_MAP = {
     "conformidade": os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
     "criticas": os.getenv("DASHBOARD_ID_CRITICAS", ""),
-    "genie": os.getenv("GENIE_SPACE_ID", ""),
+    "genie": genie_space_id(),
 }
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",
@@ -383,15 +419,20 @@ async def get_dashboard_embed(key: str):
     real_id = DASHBOARD_KEY_MAP.get(key, key)
     name = DASHBOARD_NAMES.get(key, "Dashboard")
 
-    import re
     from databricks.sdk import WorkspaceClient
+    w = None
+    host = ""
+    workspace_id = ""
     try:
         w = WorkspaceClient()
         host = w.config.host.rstrip("/")
+        # Cloud-agnostic: get_workspace_id() works on AWS (dbc-*.cloud.databricks.com),
+        # Azure (adb-<id>.azuredatabricks.net) and GCP alike. The old `adb-(\d+)`
+        # regex only matched Azure hosts, so on AWS/GCP the embed `?o=` came out
+        # empty and the Genie/dashboard iframe failed to resolve the workspace.
+        workspace_id = str(w.get_workspace_id())
     except Exception:
-        host = ""
-    ws_match = re.search(r"adb-(\d+)", host)
-    workspace_id = ws_match.group(1) if ws_match else ""
+        pass
 
     if key == "genie":
         return DashboardEmbed(

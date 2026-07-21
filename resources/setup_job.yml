@@ -1,19 +1,11 @@
 # One-time setup job for a fresh deploy of the implementation bundle.
 #
-# Four tasks:
+# Three tasks:
 #   1. setup_reference     — seeds reference schema with BCB domains, criticas,
 #                            calendar, equivalencia, R.18 dimensions. Idempotent.
-#   2. seed_dqx_checks     — loads pipelines/silver/dqx_checks/*.yml into the
-#                            EXTERNAL Studio table `dqx_catalog.dqx_app.dq_quality_rules`
-#                            (override via var.dqx_checks_table). Each YAML rule
-#                            is translated to the Studio JSON row shape and
-#                            UPSERTed via MERGE keyed on a deterministic UUIDv5.
-#                            Idempotent. Requires cross-catalog GRANTs on the
-#                            target table (see notebooks/setup/grant_dqx_studio_access.sql).
-#                            Runs after setup_reference for ordering only.
-#   3. load_sample_xmls    — copies sample/Doc3040_*.xml and sample/Doc3050_*.xml
+#   2. load_sample_xmls    — copies sample/Doc3040_*.xml and sample/Doc3050_*.xml
 #                            into landing.scr_xml/{3040,3050}/. Idempotent.
-#   4. setup_byol_lineage  — registers 13 external metadata objects (Oracle, DB2,
+#   3. setup_byol_lineage  — registers 13 external metadata objects (Oracle, DB2,
 #                            Informatica, BACEN validators, STA/CADIP) and 13
 #                            lineage relationships with the UC External Lineage API.
 #                            Requires CREATE EXTERNAL METADATA on the metastore.
@@ -37,18 +29,6 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
-
-        - task_key: "seed_dqx_checks"
-          depends_on:
-            - task_key: "setup_reference"
-          notebook_task:
-            notebook_path: ../notebooks/setup/seed_dqx_checks.py
-            base_parameters:
-              # FQN externo apontando pra dqx_catalog.dqx_app.dq_quality_rules
-              # por padrão. Requer GRANT prévio (USE CATALOG/SCHEMA + SELECT/MODIFY)
-              # — ver notebooks/setup/grant_dqx_studio_access.sql.
-              dqx_checks_table: ${var.dqx_checks_table}
-              checks_dir: ${workspace.file_path}/pipelines/silver/dqx_checks
 
         - task_key: "load_sample_xmls"
           depends_on:

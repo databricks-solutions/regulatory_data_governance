@@ -109,11 +109,10 @@ _MOCK_DOMINIOS_EN = [
     ]),
 ]
 
-# 4 regras iniciais do acelerador (mesmas semeadas em
-# `${var.catalog}.quality.dqx_checks` a partir de
-# `pipelines/silver/dqx_checks/scr3040.yml`). Novas regras serão criadas via
-# DQX Studio (Motor de Regras) e aparecerão aqui assim que o pipeline silver
-# as executar.
+# 4 regras iniciais do acelerador, usadas APENAS no modo mock (USE_MOCK_BACKEND).
+# Em modo real, o catálogo de Críticas é lido de `dq_quality_rules` da DQX Studio
+# — as regras são criadas via DQX Studio (Motor de Regras) e aparecem aqui assim
+# que autoradas. O RC18 não semeia mais regras.
 _MOCK_CRITICAS = [
     CriticaRule(rule_id="S20_001", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="autorzc IN ('S','N')", description="Autorzc deve pertencer ao dominio oficial {'S','N'} do leiaute SCR 3040", bcb_reference="SCR3040_Dominios.xlsx, Anexo Autorzc", layout_version="V1"),
     CriticaRule(rule_id="S20_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="CASE WHEN is_pf THEN porte_cli IN ('0'..'8') WHEN is_pj THEN porte_cli IN ('0'..'4') ELSE FALSE END", description="PorteCli condicional ao tipo de cliente — PF aceita 0-8; PJ aceita 0-4", bcb_reference="SCR3040_Dominios.xlsx, Anexo PorteCli", layout_version="V1"),
@@ -225,12 +224,13 @@ async def get_criticas(
         return CriticasResponse(total=len(rules), rules=rules)
 
     # Lê da tabela autoritativa de regras (DQX Studio `dq_quality_rules`).
-    # Schema: rule_id, table_fqn, checks (JSON ARRAY), version, status, source.
-    # Studio considera "active" tanto status='active' (snapshot inicial) quanto
-    # 'approved' (workflow padrão da UI após aprovação). Outros estados
-    # ('draft', 'archived', etc.) ficam fora.
+    # Schema real (Studio v0.14.0): a definição da regra vive na coluna `check`
+    # (VARIANT, objeto único). Fazemos CAST(check AS STRING) e aliasamos para
+    # `checks` — o parser aceita tanto objeto único quanto array (ver
+    # _parse_dq_quality_rules_rows). Studio considera "active" tanto
+    # status='active' quanto 'approved'; demais estados ficam fora.
     rows = await execute_query(
-        "SELECT rule_id, table_fqn, checks, status, version, source, updated_at "
+        "SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks, status, version, source, updated_at "
         f"FROM {DQX_CHECKS_TABLE} "
         "WHERE status IN ('active', 'approved') "
         "ORDER BY table_fqn, rule_id",
@@ -287,12 +287,13 @@ def _doc_from_table_fqn(table_fqn: str) -> str:
 
 
 def _parse_dq_quality_rules_rows(rows: list[dict]) -> list[CriticaRule]:
-    """Translate dq_quality_rules rows (Studio's JSON ARRAY shape) → CriticaRule.
+    """Translate dq_quality_rules rows (Studio's `check` VARIANT) → CriticaRule.
 
-    Studio stores each rule's `checks` column as a **JSON array** of check
-    definitions (usually 1 element, but multi-check rows are valid). Each
+    Studio stores each rule's definition in the `check` VARIANT column as a
+    single object; the SELECT CASTs it to a JSON string aliased `checks`. Each
     check carries the DQX library shape (`name`, `criticality`, `check`,
     optional `filter`, optional `user_metadata`, optional `run_config_name`).
+    A legacy array shape is still tolerated below.
 
     UI-created rules may omit `run_config_name` and `user_metadata` entirely
     — the binding is then the row's `table_fqn`. We accommodate both shapes.

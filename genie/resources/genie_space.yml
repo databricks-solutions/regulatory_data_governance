@@ -1,0 +1,511 @@
+# Genie Space — bundle SEPARADO e opt-in (rc18-genie), fora do deploy principal.
+#
+# Por que separado: a API create-space valida que TODAS as tabelas do space já
+# existem. No deploy do core elas ainda não existem (nascem quando o job
+# rc18_end_to_end roda), então provisionar o Genie junto quebrava o deploy e
+# derrubava o app em cascata. Isolando aqui, o core sobe limpo e o Genie vira um
+# passo posterior, quando as tabelas já estão populadas.
+#
+# `serialized_space` é INLINE (não file_path) de propósito: só assim o DABs
+# interpola ${var.catalog} dentro da definição, tornando as tabelas portáveis
+# para clientes BYOC. O ID do space é gerado no deploy; o app do core o recebe
+# via `genie_space_id` no target.yml (ver genie/README.md). Para re-sincronizar
+# após editar o space na UI:
+#   databricks bundle generate genie-space --resource rc18_genie --force
+# (depois reverta rc18_catalog -> ${var.catalog} nos identifiers e reconverta
+# file_path -> serialized_space inline).
+resources:
+  genie_spaces:
+    rc18_genie:
+      title: Genie Agent — SCR R.18
+      description: Consultas em linguagem natural sobre dados de risco de crédito reportados ao Banco Central (SCR Doc 3040 e Doc 3050) e sobre a qualidade dos dados segundo a Resolução Conjunta nº 18. Explore posições de crédito, equivalência de modalidades 3040↔3050, as 12 dimensões de qualidade R.18 e incidentes de governança — tudo em Português-BR com a terminologia oficial BCB/SCR.
+      warehouse_id: ${var.warehouse_id}
+      serialized_space:
+        data_sources:
+          tables:
+          - column_configs:
+            - column_name: _gold_timestamp
+              enable_format_assistance: true
+            - column_name: carac_especial
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: cart_prov_min
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: clas_at_fin
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: cli_cd
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: cli_tp
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: cnpj_if
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: contrt
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: det_cli
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dia_atraso
+              enable_format_assistance: true
+            - column_name: dt_base
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_contr
+              enable_format_assistance: true
+            - column_name: dt_venc_op
+              enable_format_assistance: true
+            - column_name: est_inst_fin
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: estagio_dt_alocacao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: estagio_motivo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: indx
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: ipoc
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: mod
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: mod_3050_equiv
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: natu_op
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: origem_rec
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: parte
+              enable_format_assistance: true
+            - column_name: perc_indx
+              enable_format_assistance: true
+            - column_name: pipeline_run_id
+              enable_format_assistance: true
+            - column_name: prov_consttd
+              enable_format_assistance: true
+            - column_name: remessa
+              enable_format_assistance: true
+            - column_name: rend_mes
+              enable_format_assistance: true
+            - column_name: segmento_3050_equiv
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: tax_eft
+              enable_format_assistance: true
+            - column_name: tje
+              enable_format_assistance: true
+            - column_name: total_a_vencer
+              enable_format_assistance: true
+            - column_name: total_coobrigacoes
+              enable_format_assistance: true
+            - column_name: total_limites
+              enable_format_assistance: true
+            - column_name: total_prejuizo
+              enable_format_assistance: true
+            - column_name: total_saldo_vencimentos
+              enable_format_assistance: true
+            - column_name: total_vencido
+              enable_format_assistance: true
+            - column_name: var_camb
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: vlr_cont_br
+              enable_format_assistance: true
+            identifier: ${var.catalog}.gold.posicao_3040
+          - column_configs:
+            - column_name: _gold_timestamp
+              enable_format_assistance: true
+            - column_name: _silver_timestamp
+              enable_format_assistance: true
+            - column_name: carteira
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: cnpj_if
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_base
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_referencia
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: encargo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: file_name
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: ind_remessa
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: leiaute_versao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: modalidade
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: periodicidade
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: pipeline_run_id
+              enable_format_assistance: true
+            - column_name: prz_dec_med_concessoes
+              enable_format_assistance: true
+            - column_name: prz_med_carteira
+              enable_format_assistance: true
+            - column_name: segmento
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: sld_bai_prejuizo
+              enable_format_assistance: true
+            - column_name: sld_car_ate14
+              enable_format_assistance: true
+            - column_name: sld_car_ate60
+              enable_format_assistance: true
+            - column_name: sld_car_ate90
+              enable_format_assistance: true
+            - column_name: sld_car_ativa
+              enable_format_assistance: true
+            - column_name: sld_car_maior90
+              enable_format_assistance: true
+            - column_name: sld_car_total
+              enable_format_assistance: true
+            - column_name: tx_med_enc_fiscais
+              enable_format_assistance: true
+            - column_name: tx_med_enc_operacionais
+              enable_format_assistance: true
+            - column_name: tx_med_juros
+              enable_format_assistance: true
+            - column_name: vlr_concessoes
+              enable_format_assistance: true
+            identifier: ${var.catalog}.gold.posicao_3050
+          - column_configs:
+            - column_name: affected_records
+              enable_format_assistance: true
+            - column_name: artigo_r18
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: assigned_at
+              enable_format_assistance: true
+            - column_name: bcb_communication_required
+              enable_format_assistance: true
+            - column_name: check_name
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: created_at
+              enable_format_assistance: true
+            - column_name: critica_id
+              enable_format_assistance: true
+            - column_name: detected_at
+              enable_format_assistance: true
+            - column_name: detected_by
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dimensao_r18
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: documento
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_base
+              enable_format_assistance: true
+            - column_name: escalated_at
+              enable_format_assistance: true
+            - column_name: escalated_to
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: first_seen_run_id
+              enable_format_assistance: true
+            - column_name: impact
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: incident_id
+              enable_format_assistance: true
+            - column_name: included_in_report
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: last_seen_run_id
+              enable_format_assistance: true
+            - column_name: mensagem
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: nivel_verificacao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: owner
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: remedial_action
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: reopened_at
+              enable_format_assistance: true
+            - column_name: resolved_at
+              enable_format_assistance: true
+            - column_name: resolved_by
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: responded_at
+              enable_format_assistance: true
+            - column_name: responded_by
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: root_cause
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: rule_fingerprint
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: run_config_name
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: severidade
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: status
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: taxa_violacao_pct
+              enable_format_assistance: true
+            - column_name: timeline
+            - column_name: total_records
+              enable_format_assistance: true
+            - column_name: updated_at
+              enable_format_assistance: true
+            - column_name: validated_at
+              enable_format_assistance: true
+            - column_name: validated_by
+              enable_entity_matching: true
+              enable_format_assistance: true
+            identifier: ${var.catalog}.governance.incidents
+          - column_configs:
+            - column_name: ano
+              enable_format_assistance: true
+            - column_name: data
+              enable_format_assistance: true
+            - column_name: dias_corridos_ate_fim_mes
+              enable_format_assistance: true
+            - column_name: dt_base_semanal
+              enable_format_assistance: true
+            - column_name: is_dia_util
+              enable_format_assistance: true
+            - column_name: is_feriado_nacional
+              enable_format_assistance: true
+            - column_name: is_ponto_facultativo
+              enable_format_assistance: true
+            - column_name: is_primeiro_du_mes
+              enable_format_assistance: true
+            - column_name: is_ultimo_du_mes
+              enable_format_assistance: true
+            - column_name: is_ultimo_du_semana
+              enable_format_assistance: true
+            - column_name: nm_feriado
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: prazo_envio_3050
+              enable_format_assistance: true
+            - column_name: semana_bcb_num
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.bcb_calendar
+          - column_configs:
+            - column_name: artigo_r18
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: capacidade_databricks
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dashboard_widget
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: definicao_regulatoria
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dimensao_id
+              enable_format_assistance: true
+            - column_name: expectation_prefix
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: is_implementado_mvp
+              enable_format_assistance: true
+            - column_name: meta_padrao_pct
+              enable_format_assistance: true
+            - column_name: metrica_implementacao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: nivel_implementacao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: nome
+              enable_entity_matching: true
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.dimensoes_r18
+          - column_configs:
+            - column_name: anexo_referencia
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: campo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: documento
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dominio_sk
+              enable_format_assistance: true
+            - column_name: dt_vigencia_fim
+              enable_format_assistance: true
+            - column_name: dt_vigencia_ini
+              enable_format_assistance: true
+            - column_name: is_current
+              enable_format_assistance: true
+            - column_name: leiaute_versao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: observacoes
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: valor_codigo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: valor_descricao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.dominios
+          - column_configs:
+            - column_name: changelog
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: criticas_count
+              enable_format_assistance: true
+            - column_name: criticas_novas
+            - column_name: documento
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_publicacao_bcb
+              enable_format_assistance: true
+            - column_name: dt_vigencia_fim
+              enable_format_assistance: true
+            - column_name: dt_vigencia_ini
+              enable_format_assistance: true
+            - column_name: is_current
+              enable_format_assistance: true
+            - column_name: leiaute_sk
+              enable_format_assistance: true
+            - column_name: modalidades_novas
+            - column_name: modalidades_removidas
+            - column_name: versao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: xsd_path
+              enable_entity_matching: true
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.leiaute_versoes
+          - column_configs:
+            - column_name: encargo_3050
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: equiv_sk
+              enable_format_assistance: true
+            - column_name: mod_3040
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: mod_3040_descricao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: modalidade_3050
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: observacoes
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: pagina_equivalencia
+              enable_format_assistance: true
+            - column_name: regra_especial
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: segmento_3050
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: submod_0202_pf_se_pj
+              enable_format_assistance: true
+            - column_name: submod_natu4_pf_se_pj
+              enable_format_assistance: true
+            - column_name: tem_regra_especial
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.modalidades_equivalencia
+          - column_configs:
+            - column_name: acao_dlt
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: artigo_r18
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: campo_alvo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: critica_id
+              enable_format_assistance: true
+            - column_name: critica_sk
+              enable_format_assistance: true
+            - column_name: descricao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dimensao_r18
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: documento
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: dt_vigencia_fim
+              enable_format_assistance: true
+            - column_name: dt_vigencia_ini
+              enable_format_assistance: true
+            - column_name: expressao_sql
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: grupo
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: is_active
+              enable_format_assistance: true
+            - column_name: leiaute_versao
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: mensagem_erro
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: severidade
+              enable_entity_matching: true
+              enable_format_assistance: true
+            - column_name: updated_at
+              enable_format_assistance: true
+            identifier: ${var.catalog}.reference.validation_rules
+        instructions:
+          text_instructions:
+          - content:
+            - |-
+              Este espaço responde perguntas sobre dados de risco de crédito reportados ao Banco Central do Brasil (SCR) sob a Resolução Conjunta nº 18.
+
+              Contexto de negócio:
+              - SCR Doc 3040: operações de crédito individualizadas (tabela gold.posicao_3040).
+              - SCR Doc 3050: dados agregados de crédito (tabela gold.posicao_3050).
+              - "dt_base" é a data-base de referência da posição; "cnpj_if" identifica a instituição financeira.
+              - As 12 dimensões de qualidade R.18 estão em reference.dimensoes_r18 (coluna dimensao_id em algarismos romanos I–XII, com meta_padrao_pct por dimensão).
+              - Incidentes de qualidade ficam em governance.incidents; modalidades 3040↔3050 se relacionam via reference.modalidades_equivalencia; o calendário de dias úteis BCB está em reference.bcb_calendar.
+
+              Regras de resposta:
+              - Sempre responda em Português-BR usando a terminologia oficial BCB/SCR.
+              - Valores monetários em reais (R$); percentuais com uma casa decimal.
+              - Ao filtrar por período, use a coluna dt_base (3040) ou dt_referencia (3050).
+              - Modalidades 3040 e 3050 se relacionam via reference.modalidades_equivalencia.
+        version: 2

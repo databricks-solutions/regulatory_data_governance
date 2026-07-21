@@ -5,16 +5,24 @@
 # schema reference E carrega os XMLs de exemplo em sample/ para o landing volume,
 # permitindo rodar fim-a-fim com `databricks bundle deploy` apenas.
 #
-# Customers que já possuem catálogo/warehouse podem sobrepor --var catalog=<name>
-# e --var warehouse_id=<id>; nesse caso comentar resources/{catalog,warehouse}.yml
-# para evitar que o bundle tente gerenciar o lifecycle de assets externos.
+# Customers que já possuem catálogo/warehouse configuram `catalog` e
+# `warehouse_id` no target.yml; nesse caso comentar
+# resources/{catalog,warehouse}.yml para o bundle não gerenciar assets externos.
 #
 # Para o bundle de demo (mock app + geradores sintéticos), ver demo/databricks.yml.
 
 bundle:
   name: rc18-starter-kit
+  # Direct deployment engine é OBRIGATÓRIO por causa do recurso `catalogs:`
+  # (o Terraform engine falha com "Catalog resources are only supported with
+  # direct deployment mode"). Declarado aqui para que `databricks bundle ...`
+  # nativo funcione sem env var/wrapper — tem prioridade sobre
+  # DATABRICKS_BUNDLE_ENGINE.
+  engine: direct
 
 include:
+  # Single default target. Copy target.yml.example to the git-ignored target.yml.
+  - target.yml
   - resources/*.yml
   - resources/**/*.yml
 
@@ -36,15 +44,15 @@ sync:
 variables:
   catalog:
     default: "rc18_catalog"
-    description: "Unity Catalog name (override per-target or via DATABRICKS_BUNDLE_VAR_catalog)"
+    description: "Unity Catalog name. Omit in target.yml to provision and use rc18_catalog."
 
   warehouse_id:
-    description: "SQL Warehouse ID — defaults to the bundle-provisioned 2X-Small serverless warehouse. Override with --var warehouse_id=<id> or BUNDLE_VAR_warehouse_id to reuse an existing warehouse."
+    description: "SQL Warehouse ID. Omit in target.yml to provision and use the bundle-managed Serverless 2X-Small warehouse."
     default: ${resources.sql_warehouses.rc18_warehouse.id}
 
   genie_space_id:
-    description: "Genie Room ID for the SCR R.18 NL→SQL space — set per-target or via DATABRICKS_BUNDLE_VAR_genie_space_id"
-    default: ""
+    description: "Genie Space ID. Sentinela __unset__ = Genie desativado (placeholder no app). Setar no target.yml após criar o space via bundle genie/."
+    default: "__unset__"
 
   app_name:
     default: "rc18-starter-kit"
@@ -58,35 +66,31 @@ variables:
   schema_quality:
     default: "quality"
 
+  dqx_catalog:
+    description: |
+      Unity Catalog de VÍNCULO com a DQX Studio (env var `DQX_CATALOG` no app
+      databrickslabs/dqx). É onde a Studio persiste as regras — o backend RC18
+      lê de `${dqx_catalog}.${dqx_schema}.dq_quality_rules`. Ajuste no target.yml
+      quando a Studio vive em outro catálogo que não o default.
+    default: "dqx"
+
+  dqx_schema:
+    description: |
+      Schema da DQX Studio dentro de `${var.dqx_catalog}` (env var `DQX_SCHEMA`
+      no app databrickslabs/dqx). Junto com o catálogo forma o FQN da tabela de
+      regras.
+    default: "dqx_studio"
+
   dqx_checks_table:
     description: |
-      FQN da tabela onde a DQX Studio armazena as regras (esquema interno
-      `dq_quality_rules`). Override apenas se você deployou a Studio em outro
-      catálogo/schema (ver env vars `DQX_CATALOG` / `DQX_SCHEMA` no app
-      databrickslabs/dqx).
-    default: "dqx_catalog.dqx_app.dq_quality_rules"
+      FQN completo da tabela onde a DQX Studio armazena as regras. Composto por
+      padrão a partir de `dqx_catalog` + `dqx_schema` (tabela `dq_quality_rules`).
+      Override direto apenas se o nome da tabela divergir desse padrão.
+    default: ${var.dqx_catalog}.${var.dqx_schema}.dq_quality_rules
 
   dqx_studio_url:
     description: |
-      URL do app DQX Studio (Motor de Regras). Override por workspace.
-      Quando default `about:blank` o backend trata como
-      None e a aba Motor de Regras mostra estado vazio. Use --var
-      dqx_studio_url=https://<dqx-studio>.databricksapps.com para habilitar.
+      REQUIRED. Public URL of the DQX Studio app embedded by Motor de Regras.
+      DQX Studio must already be deployed in the target workspace.
       Valor NÃO pode ser string vazia (API de Databricks Apps rejeita env vars
       sem valor — ver CLAUDE.md "Bundle gotchas").
-    default: "about:blank"
-
-targets:
-  dev:
-    default: true
-    workspace:
-      # User path is resolved per-deployer via the DABs builtin ${workspace.current_user.userName}
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
-
-  prod:
-    mode: production
-    workspace:
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
-    permissions:
-      - group_name: users
-        level: CAN_MANAGE

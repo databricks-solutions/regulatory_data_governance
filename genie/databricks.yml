@@ -1,0 +1,43 @@
+# Bundle do GENIE SCR R.18 (rc18-genie) — opt-in, separado do deploy principal.
+#
+# Por que existe como bundle próprio:
+#   A API `POST /genie/spaces` valida, na criação, que TODAS as tabelas do space
+#   já existem. No `bundle deploy` do core, as tabelas (gold.posicao_*,
+#   reference.*, governance.incidents) ainda não existem — só nascem quando o job
+#   `rc18_end_to_end` roda. Provisionar o Genie junto com o core quebrava o deploy
+#   com 403 "Catalog does not exist" e, como o app referenciava o space, derrubava
+#   app + job + permissions em cascata. Isolando o Genie aqui, o deploy principal
+#   fica limpo e o Genie vira um passo OPCIONAL e POSTERIOR.
+#
+# Fluxo (ver genie/README.md):
+#   1. (core) databricks bundle deploy                 # sobe app + job + pipelines, SEM genie
+#   2. (core) databricks bundle run rc18_end_to_end    # cria/popula as tabelas
+#   3. (genie) databricks bundle deploy          # cria o Genie Space (tabelas já existem)
+#   4. copie o space_id gerado -> genie_space_id no target.yml do core -> databricks bundle deploy
+#
+# Este bundle NÃO provisiona catálogo/warehouse/tabelas — ele apenas cria o Genie
+# Space sobre o que o core já deployou. `catalog`/`warehouse_id` DEVEM apontar
+# para os mesmos valores do core (o target.yml local aqui espelha o do core).
+
+bundle:
+  name: rc18-genie
+  # Direct deployment engine — consistente com o core e recomendado para o
+  # recurso `genie_spaces` (novo). Evita depender de env var/wrapper.
+  engine: direct
+
+include:
+  # Copie genie/target.yml.example para o git-ignored genie/target.yml.
+  - target.yml
+  - resources/*.yml
+
+sync:
+  paths:
+    - resources
+
+variables:
+  catalog:
+    description: "Unity Catalog do core (MESMO valor usado no deploy principal). Default rc18_catalog."
+    default: "rc18_catalog"
+
+  warehouse_id:
+    description: "SQL Warehouse que o Genie Space usa para executar as queries. Aponte para o warehouse do core (rc18-warehouse-<target>) ou um existente."

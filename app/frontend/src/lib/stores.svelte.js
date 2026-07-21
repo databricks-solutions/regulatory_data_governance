@@ -11,7 +11,11 @@ function readInitialTheme() {
 }
 
 export const appState = $state({
-  dataBase: '2026-03',
+  // dataBase e dataBaseOptions são preenchidos em runtime a partir de
+  // /dashboard/data-bases (último CADOC processado). Inicia vazio; o layout
+  // resolve no onMount. Nada de meses hardcoded.
+  dataBase: '',
+  dataBaseOptions: [],
   sidebarCollapsed: false,
   theme: readInitialTheme(),
   user: {
@@ -28,6 +32,15 @@ export const appState = $state({
 
 export function setDataBase(value) {
   appState.dataBase = value;
+}
+
+// Preenche o seletor de Data-Base a partir do backend. `current` é o último
+// CADOC processado (de gold.processing_state); `available` são as data-bases
+// distintas observadas nas posições. Só sobrescreve a seleção atual se ela
+// ainda não foi definida pelo usuário.
+export function setDataBaseOptions({ current, available } = {}) {
+  appState.dataBaseOptions = Array.isArray(available) ? available : [];
+  if (!appState.dataBase && current) appState.dataBase = current;
 }
 
 export function toggleSidebar() {

@@ -47,7 +47,10 @@ class Alert(BaseModel):
 class Deadline(BaseModel):
     date: str
     days_remaining: int
-    phase: str
+    # Rótulo de fase do roadmap: removido da UI por não ser um valor calculado
+    # (era uma faixa fabricada a partir dos dias restantes). Mantido opcional no
+    # schema para compatibilidade da API; default vazio.
+    phase: str = ""
 
 
 class DashboardKPIs(BaseModel):

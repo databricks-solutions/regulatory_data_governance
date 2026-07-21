@@ -12,11 +12,12 @@ they never get hardcoded into the bundled frontend). Currently:
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
+
+from dqx_config import dqx_studio_base_url
 
 router = APIRouter()
 
@@ -57,8 +58,9 @@ def _save(config: dict) -> None:
 def get_brand_config():
     config = _load()
     # Surface runtime-configurable embed URLs alongside branding so the SPA
-    # only needs one fetch on bootstrap. Empty string = unset.
-    config["dqx_studio_url"] = os.getenv("DQX_STUDIO_URL", "")
+    # only needs one fetch on bootstrap. Empty string = unset; in particular,
+    # never expose the bundle's `about:blank` sentinel as an iframe URL.
+    config["dqx_studio_url"] = dqx_studio_base_url() or ""
     return config
 
 

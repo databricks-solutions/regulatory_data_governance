@@ -11,11 +11,12 @@
 # via `${var.catalog}`.
 #
 # Quality lifecycle (autoria de regras + execução) vive fora deste bundle, no
-# DQX Studio (Databricks App externa do Databricks Labs DQX) — embarcado via
-# iframe na rota `/rules` do app RC18 quando `DQX_STUDIO_URL` está setado. O
-# schema `quality` (homes para `dqx_checks` + `dqx_summary_metrics`) é
-# provisionado por este bundle e semeado pelo task `seed_dqx_checks` do setup
-# job a partir de `pipelines/silver/dqx_checks/*.yml`.
+# DQX Studio (pré-requisito obrigatório, deployado separadamente) — embarcado
+# via iframe na rota `/rules` usando a URL obrigatória definida no target. As
+# regras e o histórico de execução são de propriedade da DQX Studio (tabelas
+# `dq_quality_rules`/`dq_validation_runs`/`dq_metrics` em `${var.dqx_catalog}`);
+# o app RC18 apenas as LÊ. O schema `quality` abaixo permanece disponível para
+# artefatos locais de qualidade, mas não é mais semeado por nenhum job.
 
 resources:
   schemas:
@@ -47,7 +48,7 @@ resources:
     quality:
       catalog_name: ${var.catalog}
       name: ${var.schema_quality}
-      comment: "Quality — DQX rule definitions (dqx_checks) + run-level metrics (dqx_summary_metrics). Owned by DQX Studio after the initial seed by the setup job."
+      comment: "Quality — schema reservado para artefatos locais de qualidade. As regras e métricas autoritativas são de propriedade da DQX Studio (schema ${var.dqx_schema} no catálogo ${var.dqx_catalog}); o app RC18 apenas as lê."
 
     governance:
       catalog_name: ${var.catalog}

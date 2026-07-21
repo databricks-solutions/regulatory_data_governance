@@ -1,17 +1,21 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC # Cross-catalog GRANTs for the seed_dqx_checks task
+-- MAGIC # Cross-catalog read GRANTs para o app RC18 acessar a DQX Studio
 -- MAGIC
--- MAGIC O bundle RC18 (`rc18-starter-kit-dev`) faz seed das 4 regras iniciais
--- MAGIC na tabela externa **`dqx_catalog.dqx_app.dq_quality_rules`** — propriedade
--- MAGIC do app DQX Studio (`databrickslabs/dqx`). Para o service principal do
--- MAGIC bundle conseguir ler+escrever nessa tabela, é preciso conceder
--- MAGIC permissões cross-catalog **manualmente** (uma vez por workspace).
+-- MAGIC O app RC18 **lê** (não escreve) as tabelas da DQX Studio
+-- MAGIC (`databrickslabs/dqx`) para popular o catálogo de Críticas SCR, os KPIs de
+-- MAGIC qualidade e as validações. As regras em si são criadas pelo usuário na
+-- MAGIC própria DQX Studio — o RC18 não faz mais seed automático de regras.
+-- MAGIC
+-- MAGIC Para o service principal do bundle conseguir LER essas tabelas
+-- MAGIC (que vivem em `dqx.dqx_studio`, um catálogo/schema diferente do
+-- MAGIC `rc18_catalog`), é preciso conceder SELECT cross-catalog **uma vez por
+-- MAGIC workspace**. Apenas leitura — nenhum MODIFY é necessário.
 -- MAGIC
 -- MAGIC ## Pré-requisitos
 -- MAGIC
--- MAGIC - Você precisa ser **owner** do catálogo `dqx_catalog` ou ter `MANAGE`
--- MAGIC   sobre a tabela `dq_quality_rules`.
+-- MAGIC - Você precisa ser **owner** do catálogo `dqx` ou ter `MANAGE` sobre o
+-- MAGIC   schema `dqx.dqx_studio`.
 -- MAGIC - Descubra o service principal (SP) que executa o bundle:
 -- MAGIC
 -- MAGIC   ```bash
@@ -26,32 +30,30 @@
 -- MAGIC
 -- MAGIC ## Quando rodar
 -- MAGIC
--- MAGIC - **Uma vez**, depois do primeiro `databricks bundle deploy` e **antes**
--- MAGIC   do primeiro `databricks bundle run setup_reference_tables`.
+-- MAGIC - **Uma vez**, depois do primeiro `databricks bundle deploy`.
 -- MAGIC - Re-rodar é seguro: `GRANT` é idempotente.
--- MAGIC - Se a DQX Studio for redeployada em outro catálogo/schema, ajuste o
--- MAGIC   FQN abaixo e atualize `var.dqx_checks_table` em `databricks.yml`.
--- MAGIC
--- MAGIC ## Por que não está no setup_job
--- MAGIC
--- MAGIC O `seed_dqx_checks` task roda **como** o SP que precisa do grant — incluí-lo
--- MAGIC na chain criaria um deadlock circular. Este notebook é executado pelo
--- MAGIC humano-admin uma vez como pré-requisito.
+-- MAGIC - Se a DQX Studio for redeployada em outro catálogo/schema, ajuste os
+-- MAGIC   FQNs abaixo e atualize `var.dqx_catalog`/`var.dqx_schema` no target.yml.
+-- MAGIC - Alternativa automática: o task `grant_warehouse_perms` do job
+-- MAGIC   `rc18_end_to_end` reaplica esses mesmos grants a cada execução (útil
+-- MAGIC   porque `bundle destroy` recria o SP do app). Este SQL é o equivalente
+-- MAGIC   manual, para quando você quer conceder acesso sem rodar o job.
 
 -- COMMAND ----------
 
 -- MAGIC %md
--- MAGIC ## GRANTs
+-- MAGIC ## GRANTs (somente leitura)
 
 -- COMMAND ----------
 
 -- Substitua <RC18_SP> pelo identificador real do service principal antes de rodar.
 -- Backticks são necessários se o identificador contiver caracteres especiais.
 
-GRANT USE CATALOG ON CATALOG dqx_catalog                          TO `<RC18_SP>`;
-GRANT USE SCHEMA  ON SCHEMA  dqx_catalog.dqx_app                  TO `<RC18_SP>`;
-GRANT SELECT      ON TABLE   dqx_catalog.dqx_app.dq_quality_rules TO `<RC18_SP>`;
-GRANT MODIFY      ON TABLE   dqx_catalog.dqx_app.dq_quality_rules TO `<RC18_SP>`;
+GRANT USE CATALOG ON CATALOG dqx                                     TO `<RC18_SP>`;
+GRANT USE SCHEMA  ON SCHEMA  dqx.dqx_studio                          TO `<RC18_SP>`;
+GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_quality_rules         TO `<RC18_SP>`;
+GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_validation_runs       TO `<RC18_SP>`;
+GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_metrics               TO `<RC18_SP>`;
 
 -- COMMAND ----------
 
@@ -62,10 +64,10 @@ GRANT MODIFY      ON TABLE   dqx_catalog.dqx_app.dq_quality_rules TO `<RC18_SP>`
 
 -- COMMAND ----------
 
-SHOW GRANTS ON TABLE dqx_catalog.dqx_app.dq_quality_rules;
+SHOW GRANTS ON TABLE dqx.dqx_studio.dq_quality_rules;
 
 -- COMMAND ----------
 
 -- MAGIC %md
--- MAGIC Após rodar, o próximo `databricks bundle run setup_reference_tables -t dev --profile azure`
--- MAGIC vai conseguir executar o task `seed_dqx_checks` sem erro de permissão.
+-- MAGIC Após rodar, o app RC18 (página Críticas SCR / `/rules`) conseguirá ler as
+-- MAGIC regras autoradas na DQX Studio sem erro de permissão.
