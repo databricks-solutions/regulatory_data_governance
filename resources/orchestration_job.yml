@@ -2,19 +2,17 @@
 #
 # Chains the existing assets in dependency order so a single
 # `databricks bundle run rc18_end_to_end` brings the whole stack
-# from a fresh deploy to populated gold tables + DQX rules semeadas:
+# from a fresh deploy to populated gold tables:
 #
 #   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
-#                    └─→  seed_dqx_checks (paralelo; popula as 4 regras RC18
-#                                          em dqx.dqx_studio.dq_quality_rules)
+#                    └─→  grant_warehouse_perms (paralelo)
 #
 # Cada step espera o predecessor concluir com sucesso. As DLT pipelines são
 # referenciadas via bundle resource IDs para o prefixing dev-mode ser aplicado
 # automaticamente.
 #
-# Pré-requisito do `seed_dqx_checks` (rodar UMA vez como admin do catálogo da
-# DQX Studio — default `dqx`, ajustável via var.dqx_catalog):
-#   notebooks/setup/grant_dqx_studio_access.sql
+# As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
+# o RC18 apenas LÊ `dq_quality_rules`. Não há mais seed automático de regras.
 
 resources:
   jobs:
@@ -38,18 +36,6 @@ resources:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
               source_dir: ${workspace.file_path}/sample
-
-        - task_key: "seed_dqx_checks"
-          depends_on:
-            - task_key: "setup_reference"
-          notebook_task:
-            notebook_path: ../notebooks/setup/seed_dqx_checks.py
-            base_parameters:
-              # FQN externo da tabela DQX Studio (override via var.dqx_checks_table).
-              # Requer GRANT cross-catalog (USE CATALOG/SCHEMA + SELECT/MODIFY) —
-              # ver notebooks/setup/grant_dqx_studio_access.sql.
-              dqx_checks_table: ${var.dqx_checks_table}
-              checks_dir: ${workspace.file_path}/pipelines/silver/dqx_checks
 
         - task_key: "grant_warehouse_perms"
           depends_on:

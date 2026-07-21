@@ -181,11 +181,9 @@ _RC_3040_GAR = "silver_3040_garantias"
 _RC_3040_VEN = "silver_3040_vencimentos"
 _RC_3050 = "silver_3050"
 
-# As 4 regras iniciais do acelerador — mesmo conjunto canônico semeado no
-# deploy em `${var.catalog}.quality.dqx_checks` a partir de
-# `pipelines/silver/dqx_checks/scr3040.yml`. Novas regras serão adicionadas via
-# DQX Studio e aparecerão automaticamente assim que o pipeline silver as
-# executar e popular `silver.criticas_results`.
+# As 4 regras iniciais do acelerador — referência canônica usada para o mapping
+# de dimensões R.18. As regras autoritativas são criadas via DQX Studio e lidas
+# de `dq_quality_rules`; o RC18 não semeia mais regras.
 # Mapping uses the spec-canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2:
 # 1 Acessibilidade, 2 Acurácia, 3 Adaptabilidade, 4 Clareza, 5 Comparabilidade,
 # 6 Completude, 7 Confiabilidade, 8 Consistência, 9 Integridade, 10 Rastreabilidade,
@@ -366,11 +364,12 @@ _DOC_TO_TABLE_PREFIX = {
 async def _load_active_rules() -> dict[str, dict]:
     """Return {check_name: full_check_dict} for every ACTIVE/APPROVED rule.
 
-    `full_check_dict` is the FIRST element of the row's `checks` JSON array
-    (DQX Studio stores per-row arrays; RC18 seeds one element per row).
+    `full_check_dict` is the DQX check definition from the row's `check`
+    VARIANT column (Studio stores one check object per row; we CAST it to a
+    JSON string and the parser also tolerates a legacy array shape).
     """
     rows = await execute_query(
-        f"SELECT rule_id, table_fqn, checks "
+        f"SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
         f"FROM {DQX_CHECKS_TABLE} "
         "WHERE status IN ('active', 'approved')",
         {},

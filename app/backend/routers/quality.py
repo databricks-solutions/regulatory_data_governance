@@ -232,7 +232,7 @@ async def _load_rule_user_metadata() -> dict[str, dict]:
     `RC18_RULE_META` only if the tag is missing).
     """
     rows = await execute_query(
-        f"SELECT checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
+        f"SELECT CAST(check AS STRING) AS checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
         {},
     )
     out: dict[str, dict] = {}

@@ -18,23 +18,21 @@ Dois caminhos:
 > comunidade Databricks, **não** entram nos SLAs de produto comerciais e podem
 > introduzir mudanças incompatíveis em versões menores.
 >
-> Por isso este acelerador **fixa explicitamente a versão da DQX** nos notebooks
-> que a invocam ([`notebooks/setup/seed_dqx_checks.py`](notebooks/setup/seed_dqx_checks.py),
-> [`notebooks/dqx_tutorial/dqx_basics.py`](notebooks/dqx_tutorial/dqx_basics.py), este aviso).
-> Antes de promover para um ambiente produtivo:
+> Por isso este acelerador **fixa explicitamente a versão da DQX** no notebook
+> que a invoca ([`notebooks/dqx_tutorial/dqx_basics.py`](notebooks/dqx_tutorial/dqx_basics.py),
+> este aviso). Antes de promover para um ambiente produtivo:
 >
 > 1. Faça fork deste repositório.
 > 2. Mantenha a versão fixa congelada — atualize só dentro do seu ciclo de
 >    recertificação (ler [CHANGELOG da DQX](https://github.com/databrickslabs/dqx/releases)
 >    primeiro).
-> 3. As regras DQX vivem em **`dqx.dqx_studio.dq_quality_rules`** (autoria
->    via DQX Studio). O seed inicial do RC18 (4 regras CADOC 3040) é executado
->    pelo task `seed_dqx_checks` do setup job e usa MERGE idempotente — re-rodar
->    é seguro. **Pré-requisito:** workspace admin precisa rodar
+> 3. As regras DQX vivem em **`dqx.dqx_studio.dq_quality_rules`** e são criadas
+>    inteiramente via DQX Studio (Motor de Regras) — o RC18 apenas as LÊ, não faz
+>    mais seed automático. **Pré-requisito:** workspace admin precisa rodar
 >    [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql)
->    UMA vez para conceder os GRANTs cross-catalog ao SP do bundle. Customers
->    que deployaram a DQX Studio em outro catálogo/schema sobrescrevem
->    `dqx_checks_table` no `target.yml`.
+>    UMA vez para conceder os GRANTs de leitura cross-catalog ao SP do bundle.
+>    Customers que deployaram a DQX Studio em outro catálogo/schema ajustam
+>    `dqx_catalog`/`dqx_schema` no `target.yml`.
 >
 > **A DQX Studio é um pré-requisito obrigatório deste acelerador.** Se a sua
 > organização optar por outra engine, isso constitui uma customização/fork fora
@@ -218,7 +216,7 @@ Abrir http://localhost:5173.
 
 - `databricks` CLI autenticada com um profile apontando para o workspace destino
 - `target.yml` criado a partir de `target.yml.example`; `bundle.sh` configura automaticamente o direct deployment engine exigido pelo recurso `catalogs:`
-- **DQX Studio é requisito obrigatório e deve estar deployada no mesmo workspace** (ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio)). A URL pública é obrigatória no `target.yml`. Sem a Studio, o acelerador está incompleto e os tasks `seed_dqx_checks` e `grant_warehouse_perms` falham ao acessar a tabela de regras.
+- **DQX Studio é requisito obrigatório e deve estar deployada no mesmo workspace** (ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio)). A URL pública é obrigatória no `target.yml`. Sem a Studio, o acelerador está incompleto: o app não consegue ler a tabela de regras e a página Críticas SCR fica vazia.
 
 ### Target único
 
@@ -308,17 +306,18 @@ A camada de qualidade do acelerador (autoria e execução de regras) é obrigato
 **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)**,
 um app externo do [Databricks Labs DQX](https://github.com/databrickslabs/dqx).
 O acelerador **não** provisiona a DQX Studio — ela precisa estar deployada **no
-mesmo workspace destino** antes de rodar `rc18_end_to_end`, porque cria e é dona
-da tabela de regras `dqx.dqx_studio.dq_quality_rules` que o acelerador
-consome (task `seed_dqx_checks`, página `/rules` do app).
+mesmo workspace destino**, porque cria e é dona da tabela de regras
+`dqx.dqx_studio.dq_quality_rules` que o acelerador consome (página `/rules` do
+app + catálogo de Críticas SCR). As regras são autoradas na própria Studio; o
+RC18 apenas as LÊ.
 
 > **Por que é um pré-requisito.** O `bundle deploy` e os pipelines
-> bronze→silver→gold (ELT puro) **não** dependem da DQX. Mas o job
-> `rc18_end_to_end` inclui os tasks `seed_dqx_checks` e `grant_warehouse_perms`,
-> que leem/escrevem em `dqx.dqx_studio.dq_quality_rules`. Sem a DQX Studio
-> deployada, esses dois tasks falham com
-> `CATALOG_DOES_NOT_EXIST` / `TABLE_OR_VIEW_NOT_FOUND` (os demais tasks concluem
-> normalmente).
+> bronze→silver→gold (ELT puro) **não** dependem da DQX. Mas o app (Críticas SCR,
+> KPIs de qualidade, validações) e o task `grant_warehouse_perms` do job
+> `rc18_end_to_end` leem `dqx.dqx_studio.dq_quality_rules` e suas tabelas de
+> execução. Sem a DQX Studio deployada, essas leituras retornam vazio e o task de
+> grant falha com `CATALOG_DOES_NOT_EXIST` / `TABLE_OR_VIEW_NOT_FOUND` (os demais
+> tasks concluem normalmente).
 
 ### Instalação (resumo)
 
@@ -338,10 +337,10 @@ existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada
 
 ### Depois de instalar
 
-1. **Conceda os grants cross-catalog (uma vez, como admin do `dqx`):**
+1. **Conceda os grants de leitura cross-catalog (uma vez, como admin do `dqx`):**
    rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql),
-   preenchendo o service principal do bundle RC18. Isso libera o task
-   `seed_dqx_checks` a fazer `MERGE` na tabela de regras.
+   preenchendo o service principal do bundle RC18. Isso libera o app RC18 a LER a
+   tabela de regras (e as tabelas de execução) da DQX Studio.
 2. **Obrigatório — configure a URL pública no `target.yml`:**
    ```yaml
    variables:

@@ -201,7 +201,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
 
         # Cache user_metadata for the rules (used for dimensao_r18 tag).
         rule_rows = await execute_query(
-            f"SELECT checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
+            f"SELECT CAST(check AS STRING) AS checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
             {},
         )
         rule_um_by_name: dict[str, dict] = {}

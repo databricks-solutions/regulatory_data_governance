@@ -11,16 +11,17 @@
 # MAGIC Este notebook reaplica TODOS os grants necessários a CADA execução:
 # MAGIC
 # MAGIC   1. CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
-# MAGIC   2. USE CATALOG + USE SCHEMA + SELECT/MODIFY em
+# MAGIC   2. USE CATALOG + USE SCHEMA + SELECT em
 # MAGIC      `dqx.dqx_studio.dq_quality_rules` + SELECT em
 # MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
+# MAGIC      (o RC18 apenas LÊ as tabelas da DQX Studio)
 # MAGIC   3. USE CATALOG em `rc18_catalog` + SELECT nos schemas de dados
 # MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
 # MAGIC      tabela `governance.incidents` (necessário para criação de
 # MAGIC      incidentes via POST /governance/incidents)
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
-# MAGIC quem dispara o notebook precisa ser owner do warehouse e ter MANAGE no
+# MAGIC quem dispara o notebook precisa ser owner do warehouse e ter USE/SELECT no
 # MAGIC catálogo/schema da DQX Studio (default `dqx`/`dqx_studio`, derivados do FQN
 # MAGIC passado em `dqx_checks_table`).
 
@@ -112,16 +113,14 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 # MAGIC O SP do app precisa ler `dqx.dqx_studio.dq_quality_rules` pra
 # MAGIC popular o catálogo de regras de Críticas SCR. Como é cross-catalog
 # MAGIC (RC18 vive em `rc18_catalog`), precisamos USE CATALOG/SCHEMA + SELECT.
-# MAGIC O seed (`seed_dqx_checks`) também precisa de MODIFY pra fazer MERGE
-# MAGIC da YAML; concedemos MODIFY também — ambos os papéis usam o mesmo SP
-# MAGIC quando rodam no contexto do app/job do bundle.
+# MAGIC Apenas leitura: as regras são autoradas na DQX Studio, não pelo RC18 —
+# MAGIC nenhum MODIFY é concedido nas tabelas da Studio.
 
 # COMMAND ----------
 
 # Grants no catálogo DQX (regras + tabelas de execução do DQX Studio):
 #   - USE CATALOG / USE SCHEMA — pré-requisito para qualquer SELECT no schema DQX
-#   - SELECT/MODIFY em dq_quality_rules — catálogo de regras (lido por
-#     /reference/criticas; escrito pelo task seed_dqx_checks)
+#   - SELECT em dq_quality_rules — catálogo de regras (lido por /reference/criticas)
 #   - SELECT em validation_runs/metrics/quarantine_records — feeds para os
 #     endpoints /validations/*/results e /quality/dimensions
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
@@ -134,11 +133,11 @@ _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 _RC18_READ_SCHEMAS = ["silver", "reference", "bronze", "gold"]
 
 grants = [
-    # catálogo DQX (DQX Studio) — pré-requisitos + dq_quality_rules
+    # catálogo DQX (DQX Studio) — pré-requisitos + dq_quality_rules (SELECT only;
+    # o RC18 apenas lê a tabela de regras, que é escrita pela DQX Studio).
     f"GRANT USE CATALOG ON CATALOG `{DQX_CATALOG}` TO `{sp_client_id}`",
     f"GRANT USE SCHEMA  ON SCHEMA  `{DQX_CATALOG}`.`{DQX_SCHEMA}` TO `{sp_client_id}`",
     f"GRANT SELECT      ON TABLE   {DQX_CHECKS_TABLE} TO `{sp_client_id}`",
-    f"GRANT MODIFY      ON TABLE   {DQX_CHECKS_TABLE} TO `{sp_client_id}`",
 ] + [
     f"GRANT SELECT      ON TABLE   `{DQX_CATALOG}`.`{DQX_SCHEMA}`.`{t}` TO `{sp_client_id}`"
     for t in _DQX_READ_TABLES
