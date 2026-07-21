@@ -8,7 +8,7 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -359,11 +359,13 @@ async def get_dashboard_timeline():
     }
 
 
-# Map friendly keys to actual dashboard IDs from env vars
+# Map friendly keys to actual dashboard IDs from env vars. `genie_space_id()`
+# normalizes the `__unset__` sentinel (see db.py) to "" so an unprovisioned
+# Genie renders the frontend placeholder instead of a broken iframe.
 DASHBOARD_KEY_MAP = {
     "conformidade": os.getenv("DASHBOARD_ID_CONFORMIDADE", ""),
     "criticas": os.getenv("DASHBOARD_ID_CRITICAS", ""),
-    "genie": os.getenv("GENIE_SPACE_ID", ""),
+    "genie": genie_space_id(),
 }
 DASHBOARD_NAMES = {
     "conformidade": "Painel de Conformidade R.18",

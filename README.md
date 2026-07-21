@@ -87,7 +87,7 @@ Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 | `DQX_STUDIO_URL` | URL pública obrigatória da DQX Studio para usar o app local completo |
 | `DQX_CHECKS_TABLE` | FQN da tabela de regras da DQX Studio |
 | `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para dev local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
-| `GENIE_SPACE_ID` | Apenas para dev local; em deploy o bundle provisiona o Genie Space e resolve via `${resources.genie_spaces.rc18_genie.id}` |
+| `GENIE_SPACE_ID` | ID do Genie Space. Default `__unset__` (desativado). Provisionado pelo bundle opt-in `genie/`; o ID é setado via `genie_space_id` no `target.yml` do core |
 | `USE_MOCK_BACKEND` | `true` no dev para servir fixtures sem Databricks |
 
 ---
@@ -144,13 +144,19 @@ regulatory-data-governance/
 │   │   ├── bronze.yml
 │   │   ├── silver.yml
 │   │   └── gold.yml
-│   ├── analytics/                 # Dashboards
-│   │   ├── dashboard_conformidade.yml
-│   │   └── dashboard_criticas.yml
-│   └── rc18_genie.genie_space.yml # Genie Space (serialized_space inline, ${var.catalog})
+│   └── analytics/                 # Dashboards
+│       ├── dashboard_conformidade.yml
+│       └── dashboard_criticas.yml
 │
 ├── scripts/                       # Utilitários de dev (não deploy)
 │   └── gen_doc3040_pdf.py
+│
+├── genie/                         # Bundle opt-in do Genie Space (rc18-genie)
+│   ├── README.md                  # Runbook: quando/como provisionar
+│   ├── databricks.yml             # Bundle rc18-genie (só o Genie Space)
+│   ├── target.yml.example         # Template (profile + warehouse_id)
+│   └── resources/
+│       └── genie_space.yml        # Genie Space (serialized_space inline, ${var.catalog})
 │
 └── demo/                          # Modo demo — dados sintéticos para experimentar o acelerador
     ├── README.md                  # Como rodar as demos
@@ -170,7 +176,7 @@ regulatory-data-governance/
 | Backend | FastAPI, Pydantic v2, databricks-sdk | `app/backend/` |
 | Pipelines | DLT/SDP com Expectations | `pipelines/` |
 | Dashboards | Lakeview (AI/BI) JSON | `dashboards/` |
-| NL Queries | Genie Space | `resources/rc18_genie.genie_space.yml` |
+| NL Queries | Genie Space (bundle opt-in) | `genie/resources/genie_space.yml` |
 | Deployment | Databricks Asset Bundles | `databricks.yml` + `resources/**` |
 | Dados | Unity Catalog (catálogo parametrizável via `${var.catalog}`) | — |
 
@@ -243,7 +249,7 @@ Campos opcionais:
 - `dqx_checks_table`: omitido, usa
   `dqx.dqx_studio.dq_quality_rules`.
 - schemas (`schema_bronze`/`silver`/`gold`) e vínculo DQX (`dqx_catalog`/`dqx_schema`): possuem defaults.
-- Genie Space: provisionado pelo bundle (`resources/rc18_genie.genie_space.yml`); o app recebe o ID via resource, sem parametrização manual.
+- Genie Space: bundle opt-in separado (`genie/`), fora do deploy principal; o app recebe o ID via `genie_space_id` no target.yml após provisioná-lo (ver "Genie Space (bundle opt-in, separado)").
 
 Ao usar catálogo ou warehouse existentes, comente também o recurso correspondente
 em `resources/catalog.yml` ou `resources/warehouse.yml`; caso contrário o bundle
@@ -286,35 +292,38 @@ Publica o código no compute e deixa o app acessível:
 ./bundle.sh run r18_compliance_app
 ```
 
-### Genie Space (provisionamento em 2 fases)
+### Genie Space (bundle opt-in, separado)
 
-O bundle traz um Genie Space (`resources/rc18_genie.genie_space.yml`) que embarca
-9 tabelas do ambiente (posições gold, incidentes, dimensões R.18, equivalência
-etc.). **A API `POST /genie/spaces` valida, no momento da criação, que essas
-tabelas já existem** — mas elas só nascem quando `rc18_end_to_end` roda, DEPOIS
-do deploy. Por isso o Genie vem **desabilitado por padrão** (arquivo com sufixo
-`.yml.disabled`, fora do `include`) e é provisionado numa 3ª fase:
+O Genie Space (agente NL→SQL sobre os dados SCR/R.18) **não** faz parte do deploy
+principal. Ele vive num bundle próprio em [`genie/`](genie/README.md), porque a
+API `POST /genie/spaces` valida — no momento da criação — que todas as tabelas do
+space já existem, e elas só nascem quando `rc18_end_to_end` roda. Provisioná-lo
+junto com o core quebrava o deploy e derrubava o app em cascata.
+
+Por isso o deploy principal (`./bundle.sh deploy`) sobe **sem Genie**, e o app
+mostra um placeholder "disponível após deploy" na aba Genie até você optar por
+criá-lo. Para ativar (depois de o core estar no ar e `rc18_end_to_end` ter criado
+as tabelas):
 
 ```bash
-# Fase 1 — deploy do stack SEM o Genie (sobe catálogo, schemas, app, job, pipelines)
-./bundle.sh deploy
+# 1. Configure o target do bundle genie (mesmo profile/catálogo do core + warehouse)
+cp genie/target.yml.example genie/target.yml   # preencha profile, warehouse_id
 
-# Fase 2 — cria as tabelas que o Genie precisa
-./bundle.sh run rc18_end_to_end            # setup_reference → load_sample_xmls → bronze → silver → gold
+# 2. Provisione o Genie Space
+cd genie && databricks bundle deploy            # cria "Genie Agent — SCR R.18"
+databricks genie list-spaces --profile <profile>   # copie o space_id gerado
 
-# Fase 3 — habilita e provisiona o Genie (as tabelas já existem)
-mv resources/rc18_genie.genie_space.yml.disabled resources/rc18_genie.genie_space.yml
-#   e descomente o bloco GENIE_SPACE_ID em resources/app.yml
-./bundle.sh deploy
+# 3. Conecte ao app: defina genie_space_id no target.yml do CORE e redeploy
+#      variables:
+#        genie_space_id: 01f1....
+cd .. && ./bundle.sh deploy
 ```
 
-Depois da fase 3, o app resolve `GENIE_SPACE_ID` via
-`${resources.genie_spaces.rc18_genie.id}` — o ID é gerado pelo deploy (muda a
-cada recriação) e nunca é hardcoded. Para re-sincronizar após editar o space na
-UI: `databricks bundle generate genie-space --resource rc18_genie --force`, e
-então reverta `rc18_catalog` → `${var.catalog}` nos identifiers e reconverta
-`file_path` para `serialized_space` inline (necessário para a interpolação de
-`${var.catalog}` funcionar — ver CLAUDE.md).
+Runbook completo, incluindo re-sincronização após editar o space na UI:
+[`genie/README.md`](genie/README.md). O ID do space nunca é hardcoded no código —
+o app o recebe via a variável `genie_space_id` (default `__unset__` = Genie
+desativado). Lembre-se de aprovar o domínio do app (seção acima) para o iframe do
+Genie carregar.
 
 ### Aprovar o domínio do app (obrigatório para dashboards e Genie)
 

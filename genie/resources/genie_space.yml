@@ -1,12 +1,19 @@
-# Genie Space provisionado pelo bundle (rc18-starter-kit).
+# Genie Space — bundle SEPARADO e opt-in (rc18-genie), fora do deploy principal.
+#
+# Por que separado: a API create-space valida que TODAS as tabelas do space já
+# existem. No deploy do core elas ainda não existem (nascem quando o job
+# rc18_end_to_end roda), então provisionar o Genie junto quebrava o deploy e
+# derrubava o app em cascata. Isolando aqui, o core sobe limpo e o Genie vira um
+# passo posterior, quando as tabelas já estão populadas.
 #
 # `serialized_space` é INLINE (não file_path) de propósito: só assim o DABs
 # interpola ${var.catalog} dentro da definição, tornando as tabelas portáveis
-# para clientes BYOC. O ID do space é gerado a cada deploy — o app o consome
-# via ${resources.genie_spaces.rc18_genie.id} (ver resources/app.yml), nunca
-# hardcoded. Para re-sincronizar após editar o space na UI:
+# para clientes BYOC. O ID do space é gerado no deploy; o app do core o recebe
+# via `genie_space_id` no target.yml (ver genie/README.md). Para re-sincronizar
+# após editar o space na UI:
 #   databricks bundle generate genie-space --resource rc18_genie --force
-# (depois reverta rc18_catalog -> ${var.catalog} nos identifiers).
+# (depois reverta rc18_catalog -> ${var.catalog} nos identifiers e reconverta
+# file_path -> serialized_space inline).
 resources:
   genie_spaces:
     rc18_genie:

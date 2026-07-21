@@ -1,0 +1,22 @@
+# Copie para genie/target.yml e preencha. genie/target.yml é ignorado pelo Git.
+#
+# Este bundle é opt-in: só rode DEPOIS que o core (rc18-starter-kit) tiver
+# deployado e o job rc18_end_to_end tiver criado as tabelas. Ver genie/README.md.
+#
+# O target é sempre `dev`; cloud/workspace vem do profile do CLI (o MESMO usado
+# no core). catalog e warehouse_id DEVEM espelhar o que o core provisionou.
+targets:
+  dev:
+    default: true
+    workspace:
+      profile: <your-databricks-cli-profile>
+    variables:
+      # OBRIGATÓRIO — warehouse que o Genie Space usa para executar as queries.
+      # Use o warehouse do core (nome: rc18-warehouse-dev) ou um existente.
+      # Descubra o ID com: databricks warehouses list --profile <profile>
+      warehouse_id: <your-sql-warehouse-id>
+
+      # OPCIONAL — só se o core usa um catálogo diferente de rc18_catalog.
+      # DEVE ser o MESMO valor de `catalog` do target.yml do core, senão o
+      # Genie apontará para tabelas inexistentes.
+      # catalog: <your-existing-catalog>

@@ -35,5 +35,8 @@ targets:
       # schema_gold: <your-gold-schema>
       # schema_quality: <your-quality-schema>
 
-      # OPTIONAL — only when an external Genie space is available.
+      # OPTIONAL — Genie Space. Deixe omitido (default __unset__ = Genie
+      # desativado, app mostra placeholder). Depois de provisionar o space via o
+      # bundle opt-in `genie/` (ver genie/README.md), cole aqui o space_id gerado
+      # e redeploy o core para o app embarcar o Genie.
       # genie_space_id: <your-genie-space-id>

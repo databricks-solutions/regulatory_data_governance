@@ -44,6 +44,10 @@ variables:
     description: "SQL Warehouse ID. Omit in target.yml to provision and use the bundle-managed Serverless 2X-Small warehouse."
     default: ${resources.sql_warehouses.rc18_warehouse.id}
 
+  genie_space_id:
+    description: "Genie Space ID. Sentinela __unset__ = Genie desativado (placeholder no app). Setar no target.yml após criar o space via bundle genie/."
+    default: "__unset__"
+
   app_name:
     default: "rc18-starter-kit"
 

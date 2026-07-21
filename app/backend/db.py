@@ -61,6 +61,18 @@ DQX_VALIDATION_RUNS_TABLE = os.getenv(
 )
 DQX_METRICS_TABLE = os.getenv("DQX_METRICS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_metrics")
 
+# Genie Space ID. O app.yml usa o default `__unset__` (não pode ser string
+# vazia: a Apps API rejeita env sem `value` — ver CLAUDE.md "Bundle gotchas").
+# `__unset__` e "" significam "Genie não provisionado" → o app mostra o
+# placeholder "disponível após deploy". Depois de criar o space via o bundle
+# `genie/`, defina `genie_space_id` no target.yml do core e redeploy.
+_GENIE_UNSET = {"", "__unset__"}
+
+
+def genie_space_id() -> str:
+    raw = (os.getenv("GENIE_SPACE_ID") or "").strip()
+    return "" if raw in _GENIE_UNSET else raw
+
 
 def _get_real_connection():
     """Create a real Databricks SQL connection using service principal auth."""
