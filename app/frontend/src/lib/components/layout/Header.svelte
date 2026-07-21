@@ -2,16 +2,15 @@
   import { _, locale } from 'svelte-i18n';
   import { SUPPORTED_LOCALES, setLocale } from '$lib/i18n';
 
-  let { title = '', onToggleSidebar, dataBase = '2026-03', onDataBaseChange, alertCount = 0, onOpenBrandSettings, theme = 'light', onToggleTheme, action = null } = $props();
-
-  const dataBaseOptions = [
-    '2026-03', '2026-02', '2026-01', '2025-12', '2025-11', '2025-10'
-  ];
+  let { title = '', onToggleSidebar, dataBase = '', dataBaseOptions = [], onDataBaseChange, alertCount = 0, onOpenBrandSettings, theme = 'light', onToggleTheme, action = null } = $props();
 
   function formatDataBaseLabel(db) {
+    if (!db) return '—';
     const [year, month] = db.split('-');
+    const idx = parseInt(month) - 1;
     const months = $_('header.months').split(',');
-    return `${months[parseInt(month) - 1]} ${year}`;
+    if (Number.isNaN(idx) || !months[idx]) return db;
+    return `${months[idx]} ${year}`;
   }
 
   let langOpen = $state(false);
@@ -55,15 +54,19 @@
         <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
       </svg>
       <span class="db-label">{$_('header.dataBase')}</span>
-      <select
-        class="db-select"
-        value={dataBase}
-        onchange={(e) => onDataBaseChange(e.target.value)}
-      >
-        {#each dataBaseOptions as opt}
-          <option value={opt}>{formatDataBaseLabel(opt)}</option>
-        {/each}
-      </select>
+      {#if dataBaseOptions.length > 0}
+        <select
+          class="db-select"
+          value={dataBase}
+          onchange={(e) => onDataBaseChange(e.target.value)}
+        >
+          {#each dataBaseOptions as opt}
+            <option value={opt}>{formatDataBaseLabel(opt)}</option>
+          {/each}
+        </select>
+      {:else}
+        <span class="db-empty">{dataBase ? formatDataBaseLabel(dataBase) : '—'}</span>
+      {/if}
     </div>
 
     <div class="header-divider"></div>
@@ -259,6 +262,7 @@
     appearance: auto;
     outline: none;
   }
+  .db-empty { font-size: var(--font-size-sm); font-weight: 600; color: var(--primary); white-space: nowrap; }
 
   .icon-btn {
     position: relative;

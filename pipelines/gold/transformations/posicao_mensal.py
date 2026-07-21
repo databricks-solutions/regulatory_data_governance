@@ -101,3 +101,28 @@ def posicao_3050():
         spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr3050")
         .withColumn("_gold_timestamp", F.current_timestamp())
     )
+
+
+# ── Estado de processamento (data-base corrente) ─────────────────────────────
+# O app usa este valor para preencher o seletor de Data-Base com o ÚLTIMO CADOC
+# processado, em vez de uma lista hardcoded. Gravado aqui (no pipeline gold, que
+# escreve no schema gold) porque cada pipeline DLT escreve em UM único schema —
+# não podemos escrever em reference/ daqui. Uma única linha, recalculada a cada
+# run como o MAX(dt_base) observado nas posições 3040/3050.
+
+@dlt.table(
+    name="processing_state",
+    comment="Estado de processamento do pipeline gold — data-base do último CADOC processado (MAX dt_base 3040/3050). Consumido pelo app para o seletor de Data-Base.",
+    table_properties={"quality": "gold"},
+)
+def processing_state():
+    # dlt.read (não spark.table) para tabelas do MESMO pipeline: garante que o
+    # DLT ordene este cálculo DEPOIS de posicao_3040/3050 materializarem.
+    p3040 = dlt.read("posicao_3040").select("dt_base")
+    p3050 = dlt.read("posicao_3050").select("dt_base")
+    return (
+        p3040.unionByName(p3050)
+        .agg(F.max("dt_base").alias("current_data_base"))
+        .withColumn("data_base_month", F.date_format(F.col("current_data_base"), "yyyy-MM"))
+        .withColumn("updated_at", F.current_timestamp())
+    )

@@ -8,7 +8,7 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, USE_MOCK, genie_space_id
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -85,7 +85,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
                 created_at="2026-03-28T08:00:00Z",
             ),
         ]
-        phase = "Phase 1 - Foundation"
     else:
         alerts = [
             Alert(
@@ -99,7 +98,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
                 created_at="2026-03-28T08:00:00Z",
             ),
         ]
-        phase = "Fase 1 - Fundacao"
     return DashboardKPIs(
         data_base=data_base,
         compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
@@ -115,7 +113,6 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
         deadline=Deadline(
             date="2026-12-31",
             days_remaining=_days_until_deadline(),
-            phase=phase,
         ),
     )
 
@@ -136,6 +133,53 @@ async def get_dashboard_kpis(
     return await _build_kpis_from_dqx_studio(data_base)
 
 
+# Data-bases mock — espelham os meses que o frontend usava hardcoded, para o
+# dev/mock continuar funcionando sem pipelines.
+_MOCK_DATA_BASES = ["2026-03", "2026-02", "2026-01", "2025-12", "2025-11", "2025-10"]
+
+
+@router.get("/data-bases")
+async def get_data_bases():
+    """Data-bases disponíveis + a corrente (último CADOC processado).
+
+    A data-base corrente vem de `gold.processing_state` (gravada pelo pipeline
+    gold como MAX(dt_base) das posições). As disponíveis são as distintas de
+    `gold.posicao_3040`/`3050`. Em mock (ou antes dos pipelines rodarem), cai
+    para a lista mock. Formato de cada item: `YYYY-MM`.
+    """
+    if USE_MOCK:
+        return {"current": _MOCK_DATA_BASES[0], "available": _MOCK_DATA_BASES}
+
+    # data-base corrente (uma linha em processing_state)
+    current = ""
+    state = await execute_query(
+        f"SELECT data_base_month FROM {CATALOG}.{SCHEMA_GOLD}.processing_state "
+        "ORDER BY updated_at DESC LIMIT 1",
+        {},
+    )
+    if state:
+        current = state[0].get("data_base_month") or ""
+
+    # data-bases distintas observadas nas posições (para popular o seletor)
+    rows = await execute_query(
+        "SELECT DISTINCT date_format(dt_base, 'yyyy-MM') AS m FROM ("
+        f"  SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3040 "
+        f"  UNION ALL SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3050"
+        ") WHERE dt_base IS NOT NULL ORDER BY m DESC",
+        {},
+    )
+    available = [r["m"] for r in rows if r.get("m")]
+
+    # Fallbacks: se processing_state ainda não existe mas há posições, usa a mais
+    # recente; se nada existe, devolve vazio (o frontend lida com isso).
+    if not current and available:
+        current = available[0]
+    if current and current not in available:
+        available = [current, *available]
+
+    return {"current": current, "available": available}
+
+
 # Mapping `R.18 deadline` (BACEN final date for accelerator compliance).
 _R18_DEADLINE = date(2026, 12, 31)
 _R18_DIM_NAMES = {
@@ -148,15 +192,6 @@ _R18_DIM_NAMES = {
 def _days_until_deadline() -> int:
     delta = (_R18_DEADLINE - date.today()).days
     return max(delta, 0)
-
-
-def _deadline_phase(days: int) -> str:
-    # Faixas grosseiras pra dar contexto humano ao número de dias.
-    if days > 270:    return "Fase 1 - Fundação"
-    if days > 180:    return "Fase 2 - Dados e Qualidade"
-    if days > 90:     return "Fase 3 - Reconciliação e XML"
-    if days > 30:     return "Fase 4 - Governança e Relatório"
-    return "Fase 5 - Auditoria e Go-Live"
 
 
 async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
@@ -299,7 +334,6 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         deadline=Deadline(
             date=_R18_DEADLINE.isoformat(),
             days_remaining=days_left,
-            phase=_deadline_phase(days_left),
         ),
     )
 

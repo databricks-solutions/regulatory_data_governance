@@ -187,7 +187,7 @@ local-dev overrides.
 | `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
 | `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
 | `silver` | 6 | Normalized SCR tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050`. Written by the silver DLT pipeline (DLT writes to a single schema). |
-| `gold` | 2 | Curated (`posicao_3040`, `posicao_3050`) |
+| `gold` | 3 | Curated (`posicao_3040`, `posicao_3050`) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at` = último CADOC processado, MAX dt_base; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`) |
 | `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
 
 ## Key Links
