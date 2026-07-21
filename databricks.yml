@@ -60,13 +60,27 @@ variables:
   schema_quality:
     default: "quality"
 
+  dqx_catalog:
+    description: |
+      Unity Catalog de VÍNCULO com a DQX Studio (env var `DQX_CATALOG` no app
+      databrickslabs/dqx). É onde a Studio persiste as regras — o backend RC18
+      lê de `${dqx_catalog}.${dqx_schema}.dq_quality_rules`. Ajuste no target.yml
+      quando a Studio vive em outro catálogo que não o default.
+    default: "dqx"
+
+  dqx_schema:
+    description: |
+      Schema da DQX Studio dentro de `${var.dqx_catalog}` (env var `DQX_SCHEMA`
+      no app databrickslabs/dqx). Junto com o catálogo forma o FQN da tabela de
+      regras.
+    default: "dqx_app"
+
   dqx_checks_table:
     description: |
-      FQN da tabela onde a DQX Studio armazena as regras (esquema interno
-      `dq_quality_rules`). Override apenas se você deployou a Studio em outro
-      catálogo/schema (ver env vars `DQX_CATALOG` / `DQX_SCHEMA` no app
-      databrickslabs/dqx).
-    default: "dqx_catalog.dqx_app.dq_quality_rules"
+      FQN completo da tabela onde a DQX Studio armazena as regras. Composto por
+      padrão a partir de `dqx_catalog` + `dqx_schema` (tabela `dq_quality_rules`).
+      Override direto apenas se o nome da tabela divergir desse padrão.
+    default: ${var.dqx_catalog}.${var.dqx_schema}.dq_quality_rules
 
   dqx_studio_url:
     description: |

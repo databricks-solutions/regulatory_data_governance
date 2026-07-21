@@ -42,6 +42,14 @@ resources:
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
             value: ${resources.schemas.reference.name}
+          # Catálogo/schema de vínculo com a DQX Studio. O backend deriva daqui
+          # o FQN das três tabelas que consome (dq_quality_rules +
+          # dq_validation_runs + dq_metrics), populando Críticas SCR e KPIs de
+          # qualidade. Trocar `dqx_catalog` no target.yml reaponta todas de uma vez.
+          - name: DQX_CATALOG
+            value: ${var.dqx_catalog}
+          - name: DQX_SCHEMA
+            value: ${var.dqx_schema}
           # FQN da tabela onde a DQX Studio mantém as regras (autoria + estado).
           # O backend RC18 lê dessa tabela para popular o catálogo de Críticas SCR,
           # garantindo bi-direção: regras criadas no Studio aparecem em RC18.

@@ -27,7 +27,7 @@ Dois caminhos:
 > 2. Mantenha a versão fixa congelada — atualize só dentro do seu ciclo de
 >    recertificação (ler [CHANGELOG da DQX](https://github.com/databrickslabs/dqx/releases)
 >    primeiro).
-> 3. As regras DQX vivem em **`dqx_catalog.dqx_app.dq_quality_rules`** (autoria
+> 3. As regras DQX vivem em **`dqx.dqx_app.dq_quality_rules`** (autoria
 >    via DQX Studio). O seed inicial do RC18 (4 regras CADOC 3040) é executado
 >    pelo task `seed_dqx_checks` do setup job e usa MERGE idempotente — re-rodar
 >    é seguro. **Pré-requisito:** workspace admin precisa rodar
@@ -183,7 +183,7 @@ regulatory-data-governance/
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada
 - Python 3.11+ (backend)
 - Node.js 18+ e npm (frontend)
-- **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployada no workspace destino** — provê a camada de qualidade (autoria/execução de regras) e cria a tabela `dqx_catalog.dqx_app.dq_quality_rules` que o acelerador consome. Ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio) abaixo.
+- **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployada no workspace destino** — provê a camada de qualidade (autoria/execução de regras) e cria a tabela `dqx.dqx_app.dq_quality_rules` que o acelerador consome. Ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio) abaixo.
 
 ---
 
@@ -243,7 +243,7 @@ Campos opcionais:
 - `catalog`: omitido, o bundle cria e gerencia `rc18_catalog`; preenchido,
   aponta para um catálogo existente.
 - `dqx_checks_table`: omitido, usa
-  `dqx_catalog.dqx_app.dq_quality_rules`.
+  `dqx.dqx_app.dq_quality_rules`.
 - schemas e `genie_space_id`: possuem defaults ou integrações opcionais.
 
 Ao usar catálogo ou warehouse existentes, comente também o recurso correspondente
@@ -309,13 +309,13 @@ A camada de qualidade do acelerador (autoria e execução de regras) é obrigato
 um app externo do [Databricks Labs DQX](https://github.com/databrickslabs/dqx).
 O acelerador **não** provisiona a DQX Studio — ela precisa estar deployada **no
 mesmo workspace destino** antes de rodar `rc18_end_to_end`, porque cria e é dona
-da tabela de regras `dqx_catalog.dqx_app.dq_quality_rules` que o acelerador
+da tabela de regras `dqx.dqx_app.dq_quality_rules` que o acelerador
 consome (task `seed_dqx_checks`, página `/rules` do app).
 
 > **Por que é um pré-requisito.** O `bundle deploy` e os pipelines
 > bronze→silver→gold (ELT puro) **não** dependem da DQX. Mas o job
 > `rc18_end_to_end` inclui os tasks `seed_dqx_checks` e `grant_warehouse_perms`,
-> que leem/escrevem em `dqx_catalog.dqx_app.dq_quality_rules`. Sem a DQX Studio
+> que leem/escrevem em `dqx.dqx_app.dq_quality_rules`. Sem a DQX Studio
 > deployada, esses dois tasks falham com
 > `CATALOG_DOES_NOT_EXIST` / `TABLE_OR_VIEW_NOT_FOUND` (os demais tasks concluem
 > normalmente).
@@ -338,7 +338,7 @@ existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada
 
 ### Depois de instalar
 
-1. **Conceda os grants cross-catalog (uma vez, como admin do `dqx_catalog`):**
+1. **Conceda os grants cross-catalog (uma vez, como admin do `dqx`):**
    rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql),
    preenchendo o service principal do bundle RC18. Isso libera o task
    `seed_dqx_checks` a fazer `MERGE` na tabela de regras.
@@ -347,12 +347,16 @@ existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada
    variables:
      dqx_studio_url: https://<your-dqx-studio-app-host>
    ```
-3. **Opcional — somente se a Studio usa outro catálogo/schema:** sobrescreva a
-   tabela padrão no mesmo arquivo:
+3. **Opcional — somente se a Studio usa outro catálogo/schema:** parametrize o
+   catálogo (e, se necessário, o schema) de vínculo no mesmo arquivo. O FQN da
+   tabela de regras é montado como `${dqx_catalog}.${dqx_schema}.dq_quality_rules`:
    ```yaml
    variables:
-     dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+     dqx_catalog: <your-dqx-catalog>   # default: dqx
+     dqx_schema: <your-dqx-schema>     # default: dqx_app
    ```
+   Se o nome da tabela divergir do padrão `dq_quality_rules`, sobrescreva o FQN
+   completo com `dqx_checks_table: <catalog>.<schema>.<table>`.
 
 ### Destroy e recursos órfãos
 

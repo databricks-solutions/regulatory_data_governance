@@ -8,7 +8,7 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -172,7 +172,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
-        "  FROM dqx_catalog.dqx_app.dq_validation_runs"
+        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
         "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
@@ -193,7 +193,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         quoted = ",".join(f"'{r['run_id']}'" for r in runs)
         metrics_rows = await execute_query(
             "SELECT run_id, metric_value AS check_metrics_json "
-            "FROM dqx_catalog.dqx_app.dq_metrics "
+            f"FROM {DQX_METRICS_TABLE} "
             f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
             {},
         )

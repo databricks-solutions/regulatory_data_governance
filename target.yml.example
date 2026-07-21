@@ -13,7 +13,14 @@ targets:
       # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
       dqx_studio_url: https://<your-dqx-studio-app-host>
 
-      # OPTIONAL — omit to use dqx_catalog.dqx_app.dq_quality_rules.
+      # OPTIONAL — catálogo/schema de vínculo com a DQX Studio (onde a Studio
+      # persiste as regras). O FQN da tabela de regras é montado como
+      # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_app.
+      # dqx_catalog: <your-dqx-catalog>
+      # dqx_schema: <your-dqx-schema>
+
+      # OPTIONAL — override do FQN completo, só se o nome da tabela divergir do
+      # padrão dq_quality_rules. Normalmente basta ajustar dqx_catalog/dqx_schema acima.
       # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
 
       # OPTIONAL — omit both to let the bundle create and manage them.

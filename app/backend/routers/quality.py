@@ -1,8 +1,8 @@
 """Quality dimension endpoints.
 
 Post-DQX-Studio integration: scores são computados em runtime a partir da
-última execução DQX por tabela (`dqx_catalog.dqx_app.dq_validation_runs` +
-`dq_metrics`), agrupados por dimensão R.18 conforme metadados do
+última execução DQX por tabela (`${DQX_VALIDATION_RUNS_TABLE}` +
+`${DQX_METRICS_TABLE}`), agrupados por dimensão R.18 conforme metadados do
 `rc18_rule_meta`. Não dependemos mais de `gold.qualidade_dimensoes_mensal`
 (pipeline silver→gold ainda não aplica DQX inline).
 """
@@ -13,7 +13,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_GOLD, USE_MOCK
+from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -265,7 +265,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
-        "  FROM dqx_catalog.dqx_app.dq_validation_runs"
+        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
         "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
         ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
@@ -277,7 +277,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
     quoted = ",".join(f"'{r['run_id']}'" for r in runs)
     metrics_rows = await execute_query(
         "SELECT run_id, metric_value AS check_metrics_json "
-        "FROM dqx_catalog.dqx_app.dq_metrics "
+        f"FROM {DQX_METRICS_TABLE} "
         f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
         {},
     )
@@ -425,7 +425,7 @@ async def get_quality_trend(
         "         MAX(CASE WHEN metric_name = 'input_row_count'  THEN CAST(metric_value AS BIGINT) END) AS total_rows,"
         "         MAX(CASE WHEN metric_name = 'error_row_count'  THEN CAST(metric_value AS BIGINT) END) AS error_rows,"
         "         MAX(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warn_rows"
-        "  FROM dqx_catalog.dqx_app.dq_metrics m"
+        f"  FROM {DQX_METRICS_TABLE} m"
         "  WHERE metric_name IN ('input_row_count','error_row_count','warning_row_count')"
         "  GROUP BY m.run_id"
         ") SELECT month, "

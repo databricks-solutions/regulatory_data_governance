@@ -11,8 +11,8 @@
 # MAGIC do Studio e faz `MERGE` idempotente.
 # MAGIC
 # MAGIC **Pré-requisito (UMA vez):** rodar `notebooks/setup/grant_dqx_studio_access.sql`
-# MAGIC como admin do catálogo `dqx_catalog` para conceder permissões cross-catalog
-# MAGIC ao service principal do bundle.
+# MAGIC como admin do catálogo da DQX Studio (default `dqx`) para conceder
+# MAGIC permissões cross-catalog ao service principal do bundle.
 
 # COMMAND ----------
 
@@ -26,7 +26,7 @@ dbutils.library.restartPython()
 
 dbutils.widgets.text(
     "dqx_checks_table",
-    "dqx_catalog.dqx_app.dq_quality_rules",
+    "dqx.dqx_app.dq_quality_rules",
     "FQN da tabela `dq_quality_rules` da DQX Studio (catalog.schema.table)",
 )
 dbutils.widgets.text(
