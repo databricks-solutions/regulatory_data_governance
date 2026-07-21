@@ -383,15 +383,20 @@ async def get_dashboard_embed(key: str):
     real_id = DASHBOARD_KEY_MAP.get(key, key)
     name = DASHBOARD_NAMES.get(key, "Dashboard")
 
-    import re
     from databricks.sdk import WorkspaceClient
+    w = None
+    host = ""
+    workspace_id = ""
     try:
         w = WorkspaceClient()
         host = w.config.host.rstrip("/")
+        # Cloud-agnostic: get_workspace_id() works on AWS (dbc-*.cloud.databricks.com),
+        # Azure (adb-<id>.azuredatabricks.net) and GCP alike. The old `adb-(\d+)`
+        # regex only matched Azure hosts, so on AWS/GCP the embed `?o=` came out
+        # empty and the Genie/dashboard iframe failed to resolve the workspace.
+        workspace_id = str(w.get_workspace_id())
     except Exception:
-        host = ""
-    ws_match = re.search(r"adb-(\d+)", host)
-    workspace_id = ws_match.group(1) if ws_match else ""
+        pass
 
     if key == "genie":
         return DashboardEmbed(
