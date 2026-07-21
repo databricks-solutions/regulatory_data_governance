@@ -46,9 +46,9 @@ Você usa o repositório como **atalho** para construir sua própria solução d
 git clone <repo>
 cd regulatory-data-governance
 cp target.yml.example target.yml                             # preencha profile e URL obrigatória da DQX
-./bundle.sh deploy                                           # cria todos os recursos do acelerador
-./bundle.sh run rc18_end_to_end                              # orquestra setup → bronze → silver → gold
-./bundle.sh run r18_compliance_app                           # disponibiliza o app após o deployment
+databricks bundle deploy                                           # cria todos os recursos do acelerador
+databricks bundle run rc18_end_to_end                              # orquestra setup → bronze → silver → gold
+databricks bundle run r18_compliance_app                           # disponibiliza o app após o deployment
 ```
 
 > Prefere rodar passo a passo? Veja [Passo a passo](#passo-a-passo) abaixo, que dispara cada job/pipeline individualmente.
@@ -73,7 +73,7 @@ databricks bundle deploy -t dev    # sobe acelerador + geradores sintéticos + l
 
 | Cenário | Como configura |
 |---------|----------------|
-| **Deploy do bundle** (Databricks Apps + pipelines) | Usa exclusivamente o `target.yml` local. `bundle.sh` habilita o direct engine e chama o Databricks CLI. O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env`. |
+| **Deploy do bundle** (Databricks Apps + pipelines) | Usa exclusivamente o `target.yml` local, via `databricks bundle ...`. O direct deployment engine (exigido pelo recurso `catalogs:`) já está fixado em `databricks.yml` (`bundle.engine: direct`). O bundle provisiona catálogo, warehouse, schemas e dashboards e injeta os IDs no app via `apps.config.env`. |
 | **Dev local** (`./run_local.sh`) | Usa `.env`, carregado via `python-dotenv`. Portanto, `.env.example` continua necessário apenas como template para desenvolvimento local; ele não participa do deploy. |
 | **Frontend** | Não lê `.env` direto — recebe URLs/IDs via API do backend. |
 
@@ -100,7 +100,6 @@ regulatory-data-governance/
 ├── databricks.yml                 # Bundle do ACELERADOR (rc18-starter-kit)
 ├── target.yml.example             # Template do único target (obrigatórios/opcionais)
 ├── target.yml                     # Configuração local de deploy, ignorada pelo Git
-├── bundle.sh                      # Habilita direct engine e executa `databricks bundle ...`
 ├── README.md                      # Este arquivo
 ├── CLAUDE.md                      # Guia de contexto para Claude Code
 ├── .env.example                   # Template de configuração (copie para .env)
@@ -221,7 +220,7 @@ Abrir http://localhost:5173.
 ### Pré-requisitos
 
 - `databricks` CLI autenticada com um profile apontando para o workspace destino
-- `target.yml` criado a partir de `target.yml.example`; `bundle.sh` configura automaticamente o direct deployment engine exigido pelo recurso `catalogs:`
+- `target.yml` criado a partir de `target.yml.example`; o direct deployment engine exigido pelo recurso `catalogs:` já vem fixado em `databricks.yml` (`bundle.engine: direct`), então `databricks bundle ...` funciona direto
 - **DQX Studio é requisito obrigatório e deve estar deployada no mesmo workspace** (ver [Camada de qualidade (DQX Studio)](#camada-de-qualidade-dqx-studio)). A URL pública é obrigatória no `target.yml`. Sem a Studio, o acelerador está incompleto: o app não consegue ler a tabela de regras e a página Críticas SCR fica vazia.
 
 ### Target único
@@ -233,7 +232,7 @@ cp target.yml.example target.yml
 # O target já é fixo como `dev`; preencha os dois campos obrigatórios:
 #   <your-databricks-cli-profile>
 #   https://<your-dqx-studio-app-host>
-./bundle.sh validate
+databricks bundle validate
 ```
 
 O target `dev` é marcado como default. Cloud e workspace são definidos
@@ -256,7 +255,7 @@ em `resources/catalog.yml` ou `resources/warehouse.yml`; caso contrário o bundl
 ainda criará um recurso gerenciado duplicado, mesmo que o app use o ID informado.
 
 > **Troca de workspace.** Como existe apenas um target, primeiro execute
-> `./bundle.sh destroy` usando o `target.yml` atual. Somente depois altere o
+> `databricks bundle destroy` usando o `target.yml` atual. Somente depois altere o
 > `workspace.profile`. Reutilizar o estado de `dev` em outro workspace pode deixar
 > recursos órfãos.
 
@@ -271,17 +270,17 @@ cd -
 #    setup_job e o job de orquestração rc18_end_to_end.
 #    O app já é configurado via `apps.config.env` (USE_MOCK_BACKEND=false, dashboards, warehouse) —
 #    nenhum overlay de `app.yaml` é necessário.
-./bundle.sh deploy
+databricks bundle deploy
 
 # 2a. Atalho: orquestração fim-a-fim (setup_reference → load_sample_xmls → bronze → silver → gold).
 #     Roda tudo em um único job com dependências encadeadas.
-./bundle.sh run rc18_end_to_end
+databricks bundle run rc18_end_to_end
 
 # 2b. Alternativa: disparar cada etapa manualmente (útil para reprocessar uma camada).
-./bundle.sh run setup_reference_tables   # seeds reference + carrega XMLs de exemplo
-./bundle.sh run bronze
-./bundle.sh run silver
-./bundle.sh run gold
+databricks bundle run setup_reference_tables   # seeds reference + carrega XMLs de exemplo
+databricks bundle run bronze
+databricks bundle run silver
+databricks bundle run gold
 ```
 
 ### Disponibilizando o app após o deployment
@@ -289,7 +288,7 @@ cd -
 Publica o código no compute e deixa o app acessível:
 
 ```bash
-./bundle.sh run r18_compliance_app
+databricks bundle run r18_compliance_app
 ```
 
 ### Genie Space (bundle opt-in, separado)
@@ -300,7 +299,7 @@ API `POST /genie/spaces` valida — no momento da criação — que todas as tab
 space já existem, e elas só nascem quando `rc18_end_to_end` roda. Provisioná-lo
 junto com o core quebrava o deploy e derrubava o app em cascata.
 
-Por isso o deploy principal (`./bundle.sh deploy`) sobe **sem Genie**, e o app
+Por isso o deploy principal (`databricks bundle deploy`) sobe **sem Genie**, e o app
 mostra um placeholder "disponível após deploy" na aba Genie até você optar por
 criá-lo. Para ativar (depois de o core estar no ar e `rc18_end_to_end` ter criado
 as tabelas):
@@ -316,7 +315,7 @@ databricks genie list-spaces --profile <profile>   # copie o space_id gerado
 # 3. Conecte ao app: defina genie_space_id no target.yml do CORE e redeploy
 #      variables:
 #        genie_space_id: 01f1....
-cd .. && ./bundle.sh deploy
+cd .. && databricks bundle deploy
 ```
 
 Runbook completo, incluindo re-sincronização após editar o space na UI:
@@ -431,7 +430,7 @@ existente e um SQL warehouse. Consulte o guia para a lista completa e atualizada
 O target é sempre `dev` e o profile vem do `target.yml`; não são necessários argumentos adicionais:
 
 ```bash
-./bundle.sh destroy
+databricks bundle destroy
 ```
 
 Se um workspace já tiver recursos órfãos de uma configuração anterior, remova o

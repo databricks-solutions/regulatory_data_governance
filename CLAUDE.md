@@ -131,21 +131,22 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 # `bundle run r18_compliance_app`) once to recover.
 # Copy target.yml.example to target.yml and set the CLI profile and REQUIRED
 # DQX Studio URL. The single target is fixed as `dev`; cloud/workspace selection
-# belongs to the profile. bundle.sh enables the direct deployment
-# engine required by `catalogs:`.
-./bundle.sh deploy                                                             # creates resources + starts compute
+# belongs to the profile. The direct deployment engine required by `catalogs:`
+# is pinned in databricks.yml (`bundle.engine: direct`), so plain
+# `databricks bundle ...` works with no wrapper or env var.
+databricks bundle deploy                                                             # creates resources + starts compute
 # If app shows UNAVAILABLE after a destroy+deploy, recover with one of:
-#   ./bundle.sh deploy                                                         # second run pushes code
-#   ./bundle.sh run r18_compliance_app                                         # manual code push
-./bundle.sh run setup_reference_tables                                         # seeds reference + loads sample XMLs into landing
-./bundle.sh run bronze                                                         # ingests sample XMLs
-./bundle.sh run silver                                                         # bronze→silver ELT
-./bundle.sh run gold                                                           # curated position tables
+#   databricks bundle deploy                                                         # second run pushes code
+#   databricks bundle run r18_compliance_app                                         # manual code push
+databricks bundle run setup_reference_tables                                         # seeds reference + loads sample XMLs into landing
+databricks bundle run bronze                                                         # ingests sample XMLs
+databricks bundle run silver                                                         # bronze→silver ELT
+databricks bundle run gold                                                           # curated position tables
 
 # Bring-your-own catalog / warehouse: set catalog and warehouse_id under the
 # target's variables in target.yml AND comment out the corresponding
 # resources/catalog.yml / resources/warehouse.yml so the bundle doesn't manage them.
-./bundle.sh deploy
+databricks bundle deploy
 
 # === Internal Databricks demo (mock app + synthetic XML generators) ===
 # `lifecycle.started: true` on the app makes re-deploys auto-push the code.
@@ -233,7 +234,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 
 ## Bundle gotchas (learned the hard way)
 
-- `catalogs:` resources require **direct deployment engine**. Root `bundle.sh` sets `DATABRICKS_BUNDLE_ENGINE=direct` automatically. When bypassing the wrapper, export it manually or the CLI fails with "Catalog resources are only supported with direct deployment mode".
+- `catalogs:` resources require **direct deployment engine**. This is pinned in `databricks.yml` as `bundle.engine: direct` (also in `genie/databricks.yml`), which takes priority over the `DATABRICKS_BUNDLE_ENGINE` env var and makes plain `databricks bundle ...` work without any wrapper. Without it (engine defaults to `terraform`) the CLI fails with "Catalog resources are only supported with direct deployment mode". The `--plan` flag on `bundle deploy` is direct-engine-only.
 - **App env vars cannot be empty** — `apps.config.env` entries with `value: ""` get serialized without a `value` field, which the Apps API rejects with "Must specify environment variable source using either `value` or `valueFrom`." Either provide a non-empty default or omit the env entry entirely (the app code's `os.getenv(..., "")` covers absence).
 - **App auto-start during `bundle deploy`** — set `lifecycle.started: true` on the `apps` resource to make `bundle deploy` push the code AND start the app in one shot. Without it, the app stays in "Unavailable" until you run `bundle run <app_key>` separately. Only works in direct deployment mode. The IDE's bundle schema may flag `started` as unknown — that's a stale schema in the IDE; the CLI accepts it (verified via `bundle validate`).
 - **`lifecycle.started: true` is unreliable on the FIRST deploy after `bundle destroy`** — the compute starts, but the source-code deployment step is silently skipped (likely a race between compute-creation and the apps-deploy hook in the DABs CLI). Symptoms: `compute_status=ACTIVE`, `app_status=UNAVAILABLE`, `active_deployment=None`. Reproducer: `bundle destroy` → `bundle deploy` → check via `databricks apps get <app-name>`. Workaround on subsequent deploys works fine — the flag triggers code-push every time once an app already exists. Two ways to recover after a destroy+deploy:
@@ -253,7 +254,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
 - Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.
 - **Direct-engine state is target-scoped, not profile-scoped** — this repository has one default target fixed as `dev`. Before changing `workspace.profile` in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.
-- **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the CLI profile and required DQX Studio URL. Azure/AWS/GCP selection belongs to the profile, never to the target name. `bundle.sh` only enables the direct engine and proxies bundle commands; `.env` is exclusively for local app development.
+- **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the CLI profile and required DQX Studio URL. Azure/AWS/GCP selection belongs to the profile, never to the target name. The direct engine is set via `bundle.engine: direct` in `databricks.yml` (no wrapper); `.env` is exclusively for local app development.
 
 ## Key Decisions & Constraints
 

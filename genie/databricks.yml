@@ -10,10 +10,10 @@
 #   fica limpo e o Genie vira um passo OPCIONAL e POSTERIOR.
 #
 # Fluxo (ver genie/README.md):
-#   1. (core) ./bundle.sh deploy                 # sobe app + job + pipelines, SEM genie
-#   2. (core) ./bundle.sh run rc18_end_to_end    # cria/popula as tabelas
+#   1. (core) databricks bundle deploy                 # sobe app + job + pipelines, SEM genie
+#   2. (core) databricks bundle run rc18_end_to_end    # cria/popula as tabelas
 #   3. (genie) databricks bundle deploy          # cria o Genie Space (tabelas já existem)
-#   4. copie o space_id gerado -> genie_space_id no target.yml do core -> ./bundle.sh deploy
+#   4. copie o space_id gerado -> genie_space_id no target.yml do core -> databricks bundle deploy
 #
 # Este bundle NÃO provisiona catálogo/warehouse/tabelas — ele apenas cria o Genie
 # Space sobre o que o core já deployou. `catalog`/`warehouse_id` DEVEM apontar
@@ -21,6 +21,9 @@
 
 bundle:
   name: rc18-genie
+  # Direct deployment engine — consistente com o core e recomendado para o
+  # recurso `genie_spaces` (novo). Evita depender de env var/wrapper.
+  engine: direct
 
 include:
   # Copie genie/target.yml.example para o git-ignored genie/target.yml.

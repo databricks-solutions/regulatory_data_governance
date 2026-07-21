@@ -13,6 +13,12 @@
 
 bundle:
   name: rc18-starter-kit
+  # Direct deployment engine é OBRIGATÓRIO por causa do recurso `catalogs:`
+  # (o Terraform engine falha com "Catalog resources are only supported with
+  # direct deployment mode"). Declarado aqui para que `databricks bundle ...`
+  # nativo funcione sem env var/wrapper — tem prioridade sobre
+  # DATABRICKS_BUNDLE_ENGINE.
+  engine: direct
 
 include:
   # Single default target. Copy target.yml.example to the git-ignored target.yml.

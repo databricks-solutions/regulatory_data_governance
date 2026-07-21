@@ -18,7 +18,7 @@ deploy principal fica limpo e o Genie vira um passo **opcional e posterior**.
 
 ## Pré-requisitos
 
-1. O core (`rc18-starter-kit`) já deployado (`./bundle.sh deploy` na raiz).
+1. O core (`rc18-starter-kit`) já deployado (`databricks bundle deploy` na raiz).
 2. O job `rc18_end_to_end` já executado (as 9 tabelas do space existem e estão
    populadas).
 3. `genie/target.yml` criado a partir de `genie/target.yml.example`, com o
@@ -52,7 +52,7 @@ compartilham `${resources...}` entre si, então o wiring é manual (2 passos):
 #   variables:
 #     genie_space_id: 01f1....
 # e redeploy o core para o app receber a env var:
-./bundle.sh deploy
+databricks bundle deploy
 ```
 
 Sem esse passo, o app mostra o placeholder "disponível após deploy" na aba Genie
