@@ -285,6 +285,35 @@ Publica o código no compute e deixa o app acessível:
 ./bundle.sh run r18_compliance_app
 ```
 
+### Aprovar o domínio do app (obrigatório para dashboards e Genie)
+
+O app RC18 embarca via `iframe` os **dashboards Lakeview** (`/dashboards`) e a
+**sala Genie** (`/genie`). Por padrão, o Databricks bloqueia esses iframes quando
+carregados a partir de um domínio de Databricks Apps — as páginas aparecem em
+branco (ou com erro de _refused to connect_ / `X-Frame-Options`) até que o
+domínio do app seja adicionado à allowlist do workspace.
+
+Após o deploy, um **admin do workspace** precisa registrar a URL do app deployado
+em **Settings → Security → Approved domains** (allowlist de domínios para
+embedding de iframe). O passo é feito **uma vez por workspace** (e refeito se a
+URL do app mudar):
+
+1. Copie a URL do app:
+   ```bash
+   databricks apps get r18_compliance_app --profile <seu-profile> \
+     | grep -i "url"
+   # ex.: https://rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com
+   ```
+2. No workspace, vá em **Settings → Security → Approved domains** e adicione o
+   host do app (ex.: `rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com`).
+3. Salve. Recarregue as páginas `/dashboards` e `/genie` do app — os iframes
+   passam a carregar.
+
+> Sem este passo, o restante do app (Visão Geral, Críticas SCR, `/rules` com a DQX
+> Studio) funciona normalmente; apenas os embeds de dashboard Lakeview e Genie
+> ficam bloqueados. A DQX Studio embarcada em `/rules` também é um app Databricks —
+> se ela também aparecer em branco, adicione o domínio dela à mesma allowlist.
+
 ### Bring-your-own (BYOC) catálogo / warehouse
 
 Para apontar o bundle ao seu próprio catálogo e warehouse em vez dos provisionados,
