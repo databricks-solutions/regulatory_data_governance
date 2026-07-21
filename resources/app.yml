@@ -60,10 +60,18 @@ resources:
           - name: DASHBOARD_ID_CRITICAS
             value: ${resources.dashboards.monitor_criticas.id}
           # Genie Space provisionado pelo bundle (resources/rc18_genie.genie_space.yml).
+          # DESABILITADO no primeiro deploy: a API create-space valida que as
+          # tabelas do space existem, mas elas só nascem quando `rc18_end_to_end`
+          # roda — DEPOIS do deploy. Provisionar o Genie é a FASE 3 (ver README
+          # "Genie Space (provisionamento em 2 fases)"):
+          #   1) bundle deploy            (sobe app + job, SEM genie)
+          #   2) bundle run rc18_end_to_end  (cria as 9 tabelas)
+          #   3) renomeie rc18_genie.genie_space.yml.disabled -> .yml,
+          #      descomente o bloco abaixo, e rode bundle deploy de novo.
           # O ID é resolvido do recurso — nunca hardcoded — então cada deploy usa
-          # o space que ele mesmo criou/atualizou (o ID muda a cada recriação).
-          - name: GENIE_SPACE_ID
-            value: ${resources.genie_spaces.rc18_genie.id}
+          # o space que ele mesmo criou/atualizou.
+          # - name: GENIE_SPACE_ID
+          #   value: ${resources.genie_spaces.rc18_genie.id}
 
           # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
           # via `var.dqx_studio_url`. Obrigatório: DQX Studio deve existir no

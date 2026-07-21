@@ -286,6 +286,36 @@ Publica o código no compute e deixa o app acessível:
 ./bundle.sh run r18_compliance_app
 ```
 
+### Genie Space (provisionamento em 2 fases)
+
+O bundle traz um Genie Space (`resources/rc18_genie.genie_space.yml`) que embarca
+9 tabelas do ambiente (posições gold, incidentes, dimensões R.18, equivalência
+etc.). **A API `POST /genie/spaces` valida, no momento da criação, que essas
+tabelas já existem** — mas elas só nascem quando `rc18_end_to_end` roda, DEPOIS
+do deploy. Por isso o Genie vem **desabilitado por padrão** (arquivo com sufixo
+`.yml.disabled`, fora do `include`) e é provisionado numa 3ª fase:
+
+```bash
+# Fase 1 — deploy do stack SEM o Genie (sobe catálogo, schemas, app, job, pipelines)
+./bundle.sh deploy
+
+# Fase 2 — cria as tabelas que o Genie precisa
+./bundle.sh run rc18_end_to_end            # setup_reference → load_sample_xmls → bronze → silver → gold
+
+# Fase 3 — habilita e provisiona o Genie (as tabelas já existem)
+mv resources/rc18_genie.genie_space.yml.disabled resources/rc18_genie.genie_space.yml
+#   e descomente o bloco GENIE_SPACE_ID em resources/app.yml
+./bundle.sh deploy
+```
+
+Depois da fase 3, o app resolve `GENIE_SPACE_ID` via
+`${resources.genie_spaces.rc18_genie.id}` — o ID é gerado pelo deploy (muda a
+cada recriação) e nunca é hardcoded. Para re-sincronizar após editar o space na
+UI: `databricks bundle generate genie-space --resource rc18_genie --force`, e
+então reverta `rc18_catalog` → `${var.catalog}` nos identifiers e reconverta
+`file_path` para `serialized_space` inline (necessário para a interpolação de
+`${var.catalog}` funcionar — ver CLAUDE.md).
+
 ### Aprovar o domínio do app (obrigatório para dashboards e Genie)
 
 O app RC18 embarca via `iframe` os **dashboards Lakeview** (`/dashboards`) e a
