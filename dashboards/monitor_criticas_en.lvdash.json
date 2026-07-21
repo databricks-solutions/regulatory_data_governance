@@ -208,11 +208,8 @@
       "queryLines": [
         "WITH rule_dims AS ( ",
         "  SELECT ",
-        "    chk.user_metadata['dimensao_r18'] AS dimensao_r18 ",
+        "    check:user_metadata:dimensao_r18::string AS dimensao_r18 ",
         "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
-        "  LATERAL VIEW explode( ",
-        "    from_json(checks, 'array<struct<name:string,user_metadata:map<string,string>>>') ",
-        "  ) AS chk ",
         "  WHERE status IN ('active', 'approved') ",
         "), dim_rules AS ( ",
         "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
