@@ -59,11 +59,11 @@ resources:
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
             value: ${resources.dashboards.monitor_criticas.id}
-          # GENIE_SPACE_ID intentionally omitted — Databricks Apps rejects env
-          # entries without a `value`, and DABs serializes empty-string vars
-          # without one. To enable the Genie tab, set it post-deploy with:
-          #   databricks apps update <app-name> --env GENIE_SPACE_ID=<id>
-          # or re-add this block once you have a non-empty default for the var.
+          # Genie Space provisionado pelo bundle (resources/rc18_genie.genie_space.yml).
+          # O ID é resolvido do recurso — nunca hardcoded — então cada deploy usa
+          # o space que ele mesmo criou/atualizou (o ID muda a cada recriação).
+          - name: GENIE_SPACE_ID
+            value: ${resources.genie_spaces.rc18_genie.id}
 
           # URL do DQX Studio app (embarcada via iframe na rota /rules). Setado
           # via `var.dqx_studio_url`. Obrigatório: DQX Studio deve existir no

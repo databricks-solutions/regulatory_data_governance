@@ -162,9 +162,13 @@ databricks bundle run synthetic_data_loader -t dev-azure  # populate ${var.catal
 
 ## Databricks Assets
 
-Asset IDs (workspace, warehouse, dashboards, Genie space) are not committed.
-Configure them via `.env` for local dev or `app.yaml` env vars for the deployed
-Databricks App. See [.env.example](.env.example) for the full list of variables.
+For LOCAL dev, asset IDs are configured via `.env` (see [.env.example](.env.example)).
+On DEPLOY, the bundle provisions the assets and injects their IDs into the app via
+`resources/app.yml` `apps.config.env` — dashboards resolve via
+`${resources.dashboards.*.id}` and the Genie Space via
+`${resources.genie_spaces.rc18_genie.id}` (the Genie Space is now bundle-managed;
+see `resources/rc18_genie.genie_space.yml`). The env vars below are the local-dev
+overrides.
 
 | Asset | Env var |
 |-------|---------|
@@ -235,6 +239,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - **`lifecycle.started: true` is unreliable on the FIRST deploy after `bundle destroy`** — the compute starts, but the source-code deployment step is silently skipped (likely a race between compute-creation and the apps-deploy hook in the DABs CLI). Symptoms: `compute_status=ACTIVE`, `app_status=UNAVAILABLE`, `active_deployment=None`. Reproducer: `bundle destroy` → `bundle deploy` → check via `databricks apps get <app-name>`. Workaround on subsequent deploys works fine — the flag triggers code-push every time once an app already exists. Two ways to recover after a destroy+deploy:
   - run `databricks bundle deploy` a SECOND time (the second run pushes code), or
   - run `databricks bundle run r18_compliance_app -t <target>` once to push code manually.
+- **Genie Space `serialized_space` must be INLINE, not `file_path`, for `${var.catalog}` to interpolate** — the `genie_spaces` bundle resource accepts the space definition either as `file_path: <x>.geniespace.json` OR inline under `serialized_space:`. DABs treats a `file_path` JSON as **opaque** (no variable substitution — same as `.lvdash.json` dashboards), so `${var.catalog}` stays literal and BYOC customers get tables pointing at a nonexistent catalog. Inlining the definition as native YAML under `serialized_space:` DOES interpolate `${var.catalog}`/`${var.warehouse_id}`. `resources/rc18_genie.genie_space.yml` uses the inline form on purpose. Workflow to re-sync after editing the space in the UI: `databricks bundle generate genie-space --resource rc18_genie --force`, then convert the regenerated `file_path` back to inline `serialized_space` and re-replace `rc18_catalog` → `${var.catalog}` in the table identifiers. The app consumes the generated space ID via `${resources.genie_spaces.rc18_genie.id}` — never hardcode the ID (it changes on every recreation). `databricks genie create-space` exists in CLI v1.8.0+ but the Python SDK (`w.genie.*`) only exposes conversation methods, not space creation.
 - **Approved domains for iframe embedding** — the app embeds Lakeview dashboards (`/dashboards`) and Genie (`/genie`) via `iframe`. Databricks blocks these iframes (blank page / `X-Frame-Options` refusal) until the **deployed app's own domain** is added to the workspace allowlist at **Settings → Security → Approved domains**. This is a manual, admin-only, once-per-workspace step done AFTER deploy (not expressible in the bundle). Get the host via `databricks apps get r18_compliance_app | grep url` (e.g. `rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com`). The rest of the app works without it — only dashboard/Genie embeds are affected. The DQX Studio embed at `/rules` is a separate Databricks App; if it also renders blank, add its domain to the same allowlist. Documented in README "Aprovar o domínio do app".
 - DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines.
 - `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`.

@@ -44,10 +44,6 @@ variables:
     description: "SQL Warehouse ID. Omit in target.yml to provision and use the bundle-managed Serverless 2X-Small warehouse."
     default: ${resources.sql_warehouses.rc18_warehouse.id}
 
-  genie_space_id:
-    description: "Optional Genie Room ID for the SCR R.18 NL→SQL space."
-    default: ""
-
   app_name:
     default: "rc18-starter-kit"
 

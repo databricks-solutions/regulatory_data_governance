@@ -87,7 +87,7 @@ Variáveis relevantes (ver [.env.example](.env.example) para a lista completa):
 | `DQX_STUDIO_URL` | URL pública obrigatória da DQX Studio para usar o app local completo |
 | `DQX_CHECKS_TABLE` | FQN da tabela de regras da DQX Studio |
 | `DASHBOARD_ID_CONFORMIDADE` / `_CRITICAS` | Apenas para dev local; em deploy o bundle resolve via `${resources.dashboards.*.id}` |
-| `GENIE_SPACE_ID` | Set quando houver um Genie Room provisionado externamente |
+| `GENIE_SPACE_ID` | Apenas para dev local; em deploy o bundle provisiona o Genie Space e resolve via `${resources.genie_spaces.rc18_genie.id}` |
 | `USE_MOCK_BACKEND` | `true` no dev para servir fixtures sem Databricks |
 
 ---
@@ -144,10 +144,10 @@ regulatory-data-governance/
 │   │   ├── bronze.yml
 │   │   ├── silver.yml
 │   │   └── gold.yml
-│   └── analytics/                 # Dashboards + Genie
-│       ├── dashboard_conformidade.yml
-│       ├── dashboard_criticas.yml
-│       └── genie_scr.yml
+│   ├── analytics/                 # Dashboards
+│   │   ├── dashboard_conformidade.yml
+│   │   └── dashboard_criticas.yml
+│   └── rc18_genie.genie_space.yml # Genie Space (serialized_space inline, ${var.catalog})
 │
 ├── scripts/                       # Utilitários de dev (não deploy)
 │   └── gen_doc3040_pdf.py
@@ -170,7 +170,7 @@ regulatory-data-governance/
 | Backend | FastAPI, Pydantic v2, databricks-sdk | `app/backend/` |
 | Pipelines | DLT/SDP com Expectations | `pipelines/` |
 | Dashboards | Lakeview (AI/BI) JSON | `dashboards/` |
-| NL Queries | Genie Room | `resources/analytics/genie_scr.yml` |
+| NL Queries | Genie Space | `resources/rc18_genie.genie_space.yml` |
 | Deployment | Databricks Asset Bundles | `databricks.yml` + `resources/**` |
 | Dados | Unity Catalog (catálogo parametrizável via `${var.catalog}`) | — |
 
@@ -242,7 +242,8 @@ Campos opcionais:
   aponta para um catálogo existente.
 - `dqx_checks_table`: omitido, usa
   `dqx.dqx_studio.dq_quality_rules`.
-- schemas e `genie_space_id`: possuem defaults ou integrações opcionais.
+- schemas (`schema_bronze`/`silver`/`gold`) e vínculo DQX (`dqx_catalog`/`dqx_schema`): possuem defaults.
+- Genie Space: provisionado pelo bundle (`resources/rc18_genie.genie_space.yml`); o app recebe o ID via resource, sem parametrização manual.
 
 Ao usar catálogo ou warehouse existentes, comente também o recurso correspondente
 em `resources/catalog.yml` ou `resources/warehouse.yml`; caso contrário o bundle
