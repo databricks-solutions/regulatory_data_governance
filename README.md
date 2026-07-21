@@ -6,7 +6,7 @@ Você usa este repositório como **atalho** para construir a sua **própria plat
 
 O que o deploy entrega:
 
-- **App** de monitoramento de qualidade e validação (FastAPI + Svelte)
+- **App** de monitoramento de qualidade e validação (FastAPI + Svelte) + Motor de Regras vinculados ao DQX Studio.
 - **Pipelines** medallion (bronze → silver → gold) de exemplo para os CADOCs 3040/3050 — em **dois modos** à escolha: **clássico** (jobs + notebooks PySpark, padrão) ou **SDP/DLT** (declarativo). Ver [Modo de pipeline](#modo-de-pipeline-clássico-vs-sdpdlt).
 - **Dashboards** com AI/BI
 - **Catálogo, warehouse e schemas** no Unity Catalog
