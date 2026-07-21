@@ -26,7 +26,7 @@ dbutils.library.restartPython()
 
 dbutils.widgets.text(
     "dqx_checks_table",
-    "dqx.dqx_app.dq_quality_rules",
+    "dqx.dqx_studio.dq_quality_rules",
     "FQN da tabela `dq_quality_rules` da DQX Studio (catalog.schema.table)",
 )
 dbutils.widgets.text(

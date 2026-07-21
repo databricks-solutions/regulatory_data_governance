@@ -77,7 +77,7 @@
           "keyword": "dqx_schema",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_app"}]}
+            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_studio"}]}
           }
         }
       ]
@@ -138,7 +138,7 @@
           "keyword": "dqx_schema",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_app"}]}
+            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_studio"}]}
           }
         }
       ]
@@ -218,7 +218,7 @@
           "keyword": "dqx_schema",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_app"}]}
+            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_studio"}]}
           }
         }
       ]
@@ -310,7 +310,7 @@
           "keyword": "dqx_schema",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_app"}]}
+            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_studio"}]}
           }
         }
       ]

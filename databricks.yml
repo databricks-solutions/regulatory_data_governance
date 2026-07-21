@@ -73,7 +73,7 @@ variables:
       Schema da DQX Studio dentro de `${var.dqx_catalog}` (env var `DQX_SCHEMA`
       no app databrickslabs/dqx). Junto com o catálogo forma o FQN da tabela de
       regras.
-    default: "dqx_app"
+    default: "dqx_studio"
 
   dqx_checks_table:
     description: |

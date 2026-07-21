@@ -15,7 +15,7 @@ targets:
 
       # OPTIONAL — catálogo/schema de vínculo com a DQX Studio (onde a Studio
       # persiste as regras). O FQN da tabela de regras é montado como
-      # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_app.
+      # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_studio.
       # dqx_catalog: <your-dqx-catalog>
       # dqx_schema: <your-dqx-schema>
 

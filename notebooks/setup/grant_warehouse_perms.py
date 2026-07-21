@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Cada `bundle destroy + deploy` recria o SP do Databricks App com um
 # MAGIC novo `client_id`. O ACL do warehouse e os grants cross-catalog em
-# MAGIC `dqx.dqx_app.dq_quality_rules` ficam apontando pro SP antigo
+# MAGIC `dqx.dqx_studio.dq_quality_rules` ficam apontando pro SP antigo
 # MAGIC (que foi deletado), então o app novo retorna HTTP 500 ("Error during
 # MAGIC request to server" + INSUFFICIENT_PERMISSIONS) até alguém regrantar.
 # MAGIC
@@ -12,7 +12,7 @@
 # MAGIC
 # MAGIC   1. CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
 # MAGIC   2. USE CATALOG + USE SCHEMA + SELECT/MODIFY em
-# MAGIC      `dqx.dqx_app.dq_quality_rules` + SELECT em
+# MAGIC      `dqx.dqx_studio.dq_quality_rules` + SELECT em
 # MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
 # MAGIC   3. USE CATALOG em `rc18_catalog` + SELECT nos schemas de dados
 # MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
@@ -21,14 +21,14 @@
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter MANAGE no
-# MAGIC catálogo/schema da DQX Studio (default `dqx`/`dqx_app`, derivados do FQN
+# MAGIC catálogo/schema da DQX Studio (default `dqx`/`dqx_studio`, derivados do FQN
 # MAGIC passado em `dqx_checks_table`).
 
 # COMMAND ----------
 
 dbutils.widgets.text("app_name", "", "Nome do app (ex: rc18-starter-kit-dev)")
 dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehouse-dev)")
-dbutils.widgets.text("dqx_checks_table", "dqx.dqx_app.dq_quality_rules",
+dbutils.widgets.text("dqx_checks_table", "dqx.dqx_studio.dq_quality_rules",
                      "FQN da tabela DQX Studio (catalog.schema.table)")
 
 APP_NAME = dbutils.widgets.get("app_name")
@@ -109,7 +109,7 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 # MAGIC %md
 # MAGIC ## 2. SQL GRANTs cross-catalog na tabela DQX Studio
 # MAGIC
-# MAGIC O SP do app precisa ler `dqx.dqx_app.dq_quality_rules` pra
+# MAGIC O SP do app precisa ler `dqx.dqx_studio.dq_quality_rules` pra
 # MAGIC popular o catálogo de regras de Críticas SCR. Como é cross-catalog
 # MAGIC (RC18 vive em `rc18_catalog`), precisamos USE CATALOG/SCHEMA + SELECT.
 # MAGIC O seed (`seed_dqx_checks`) também precisa de MODIFY pra fazer MERGE
