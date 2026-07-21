@@ -508,5 +508,4 @@ resources:
               - Valores monetários em reais (R$); percentuais com uma casa decimal.
               - Ao filtrar por período, use a coluna dt_base (3040) ou dt_referencia (3050).
               - Modalidades 3040 e 3050 se relacionam via reference.modalidades_equivalencia.
-            id: 01f18516fe1d1ed5b2dcc01d86c1f1ad
         version: 2
