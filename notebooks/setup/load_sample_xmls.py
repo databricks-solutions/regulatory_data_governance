@@ -37,19 +37,24 @@ if not SOURCE_DIR:
 VOLUME_ROOT = f"/Volumes/{CATALOG}/{LANDING}/scr_xml"
 DEST_3040 = f"{VOLUME_ROOT}/3040"
 DEST_3050 = f"{VOLUME_ROOT}/3050"
+# CADOC 4010 (Balancete COSIF) chega como CSV (tabular), não XML. Mesmo volume,
+# subpasta própria — o bronze 4010 lê via Auto Loader CSV.
+DEST_4010 = f"{VOLUME_ROOT}/4010"
 
 print(f"Catalog:        {CATALOG}")
 print(f"Landing schema: {LANDING}")
 print(f"Source dir:     {SOURCE_DIR}")
 print(f"Dest 3040:      {DEST_3040}")
 print(f"Dest 3050:      {DEST_3050}")
+print(f"Dest 4010:      {DEST_4010}")
 
 # COMMAND ----------
 
 # Volume already declared by the bundle (resources/uc_assets.yml -> volumes.scr_xml),
-# but the 3040/ and 3050/ subdirectories are runtime artifacts. Create them via FUSE.
+# but the 3040/ 3050/ 4010/ subdirectories are runtime artifacts. Create them via FUSE.
 os.makedirs(DEST_3040, exist_ok=True)
 os.makedirs(DEST_3050, exist_ok=True)
+os.makedirs(DEST_4010, exist_ok=True)
 
 # COMMAND ----------
 
@@ -78,10 +83,13 @@ copy_pattern("Doc3040_*.xml", DEST_3040, "3040")
 print("Copying Doc 3050 samples (Doc3050_*.xml)…")
 copy_pattern("Doc3050_*.xml", DEST_3050, "3050")
 
+print("Copying Doc 4010 samples (Doc4010_*.csv)…")
+copy_pattern("Doc4010_*.csv", DEST_4010, "4010")
+
 # COMMAND ----------
 
-print("Sample XMLs ready under:")
-for sub, label in ((DEST_3040, "3040"), (DEST_3050, "3050")):
+print("Sample files ready under:")
+for sub, label in ((DEST_3040, "3040"), (DEST_3050, "3050"), (DEST_4010, "4010")):
     print(f"  {label}: {sub}")
     for f in sorted(os.listdir(sub)):
         print(f"    - {f}")

@@ -91,6 +91,17 @@ resources:
               landing_schema: ${resources.schemas.landing.name}
               bronze_schema: ${resources.schemas.bronze_schema.name}
 
+        - task_key: "bronze_4010"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
         # ── Silver (clássico) ── normaliza cada CADOC após seu bronze ──────────
         - task_key: "silver_3040"
           depends_on:
@@ -116,11 +127,24 @@ resources:
               silver_schema: ${resources.schemas.silver_schema.name}
               reference_schema: ${resources.schemas.reference.name}
 
-        # ── Gold (clássico) ── posições + processing_state; espera os dois silver
+        - task_key: "silver_4010"
+          depends_on:
+            - task_key: "bronze_4010"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+
+        # ── Gold (clássico) ── posições + batimento COSIF + processing_state.
+        # Espera os três silver (o batimento cruza 3040 × 4010).
         - task_key: "gold"
           depends_on:
             - task_key: "silver_3040"
             - task_key: "silver_3050"
+            - task_key: "silver_4010"
           environment_key: serverless_env
           notebook_task:
             notebook_path: ../../pipelines/classical/gold/posicao_mensal.py
@@ -128,3 +152,4 @@ resources:
               catalog: ${var.catalog}
               silver_schema: ${resources.schemas.silver_schema.name}
               gold_schema: ${resources.schemas.gold_schema.name}
+              reference_schema: ${resources.schemas.reference.name}

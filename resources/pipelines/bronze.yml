@@ -23,3 +23,6 @@ resources:
             path: ../../pipelines/bronze/transformations/raw_3040.py
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_3050.py
+        # CADOC 4010 (Balancete COSIF) — Auto Loader CSV (tabular, sem XML/lxml).
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_4010.py

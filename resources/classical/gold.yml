@@ -18,3 +18,4 @@ resources:
               catalog: ${var.catalog}
               silver_schema: ${resources.schemas.silver_schema.name}
               gold_schema: ${resources.schemas.gold_schema.name}
+              reference_schema: ${resources.schemas.reference.name}

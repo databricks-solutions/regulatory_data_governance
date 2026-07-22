@@ -22,3 +22,5 @@ resources:
             path: ../../pipelines/silver/transformations/scr3040.py
         - notebook:
             path: ../../pipelines/silver/transformations/scr3050.py
+        - notebook:
+            path: ../../pipelines/silver/transformations/scr4010.py
