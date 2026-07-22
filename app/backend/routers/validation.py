@@ -413,15 +413,20 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
     doc_tables = tables_by_doc.get(document, [])
 
     # Step 1: latest SUCCESS run per source_table_fqn — scoped to the CADOC's
-    # tables (IN list) when linked, else the legacy prefix LIKE.
+    # tables (IN list) when linked, else the legacy prefix LIKE. Table names are
+    # parameterized (never interpolated) to avoid any SQL-injection surface.
+    run_params: dict = {}
     if doc_tables:
-        quoted_tables = ",".join(f"'{t}'" for t in doc_tables)
-        scope_clause = f"source_table_fqn IN ({quoted_tables})"
+        keys = [f"t{i}" for i in range(len(doc_tables))]
+        placeholders = ",".join(f":{k}" for k in keys)
+        run_params = {k: v for k, v in zip(keys, doc_tables)}
+        scope_clause = f"source_table_fqn IN ({placeholders})"
     else:
         prefix = _DOC_TO_TABLE_PREFIX.get(document)
         if not prefix:
             return [], None, None
-        scope_clause = f"source_table_fqn LIKE '{prefix}%'"
+        run_params = {"prefix": f"{prefix}%"}
+        scope_clause = "source_table_fqn LIKE :prefix"
 
     runs_sql = (
         "WITH ranked AS ("
@@ -433,18 +438,19 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1"
     )
-    runs = await execute_query(runs_sql, {})
+    runs = await execute_query(runs_sql, run_params)
     if not runs:
         return [], None, None
 
-    # Step 2: check_metrics for those run_ids.
-    quoted = ",".join(f"'{r['run_id']}'" for r in runs)
+    # Step 2: check_metrics for those run_ids (run_ids are DB-sourced; still
+    # bound as params rather than interpolated).
+    rk = [f"r{i}" for i in range(len(runs))]
     metrics_sql = (
         "SELECT run_id, metric_value AS check_metrics_json "
         f"FROM {DQX_METRICS_TABLE} "
-        f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})"
+        f"WHERE metric_name = 'check_metrics' AND run_id IN ({','.join(f':{k}' for k in rk)})"
     )
-    metrics_rows = await execute_query(metrics_sql, {})
+    metrics_rows = await execute_query(metrics_sql, {k: r["run_id"] for k, r in zip(rk, runs)})
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
     # Step 3: active rules (check_name → check definition).

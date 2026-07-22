@@ -137,9 +137,32 @@ class LinkingRouterMockTest(unittest.TestCase):
 
     def test_dimension_out_of_range_rejected(self):
         r = self.client.post("/api/v1/linking/links", json={
-            "check_name": "c", "table_fqn": "t", "dimensao_r18": 13,
+            "check_name": "c", "table_fqn": "rc18_catalog.silver.scr3040_clientes", "dimensao_r18": 13,
         })
         self.assertEqual(r.status_code, 400)
+
+    def test_table_fqn_injection_rejected_on_write(self):
+        # A malicious / malformed table_fqn must be rejected at write time
+        # (defense-in-depth against stored injection), not stored verbatim.
+        for bad in [
+            "x') UNION SELECT cpf_cnpj, nome_cliente, '' FROM rc18_catalog.silver.scr3040_clientes -- ",
+            "other_catalog.silver.scr3040_clientes",       # wrong catalog
+            "rc18_catalog.governance.regra_vinculos",       # non-browsable schema
+            "rc18_catalog.silver.tab; DROP TABLE x",        # junk table name
+            "rc18_catalog.silver",                           # not 3 parts
+        ]:
+            r = self.client.post("/api/v1/linking/links", json={
+                "check_name": "c", "table_fqn": bad, "dimensao_r18": 1,
+            })
+            self.assertEqual(r.status_code, 400, f"esperado 400 para {bad!r}, veio {r.status_code}")
+            r2 = self.client.post("/api/v1/linking/cadocs/3040/tables", json={"table_fqn": bad})
+            self.assertEqual(r2.status_code, 400, f"associate esperava 400 para {bad!r}")
+
+    def test_valid_table_fqn_accepted(self):
+        r = self.client.post("/api/v1/linking/links", json={
+            "check_name": "some_check", "table_fqn": "rc18_catalog.silver.scr3040_operacoes", "dimensao_r18": 2,
+        })
+        self.assertEqual(r.status_code, 201, r.text)
 
 
 if __name__ == "__main__":

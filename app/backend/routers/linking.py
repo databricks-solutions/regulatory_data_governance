@@ -24,6 +24,7 @@ UPDATE via `db.execute_query`). Reads use the tolerant `execute_query_or_empty`.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -68,6 +69,41 @@ _LINKS = f"{CATALOG}.governance.regra_vinculos"
 
 # Schemas the browser is allowed to list (data schemas the app SP can SELECT).
 _BROWSABLE_SCHEMAS = {"silver", "bronze", "gold", "reference"}
+
+
+def _validate_table_fqn(table_fqn: str) -> str:
+    """Validate a written `table_fqn` to `{CATALOG}.<browsable_schema>.<table>`.
+
+    Defense-in-depth against a stored value later reaching a query: even though
+    all IN-lists are now parameterized, a stored FQN pointing at another
+    catalog/schema is a data-integrity + least-privilege concern. Rejects
+    anything outside the app's own catalog and allowlisted data schemas, and
+    any table name that isn't a plain identifier.
+    """
+    fqn = (table_fqn or "").strip()
+    parts = fqn.split(".")
+    if len(parts) != 3:
+        raise HTTPException(status_code=400, detail=f"table_fqn inválido (esperado catalog.schema.tabela): {table_fqn!r}")
+    cat, schema, table = parts
+    if cat != CATALOG:
+        raise HTTPException(status_code=400, detail=f"table_fqn deve estar no catálogo {CATALOG}")
+    if schema not in _BROWSABLE_SCHEMAS:
+        raise HTTPException(status_code=400, detail=f"Schema não permitido: {schema}")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table):
+        raise HTTPException(status_code=400, detail="Nome de tabela inválido")
+    return fqn
+
+
+def _in_clause(values: list[str], prefix: str) -> tuple[str, dict]:
+    """Build a parameterized ``IN (:p0, :p1, ...)`` clause + params dict.
+
+    Never interpolate values (esp. user-supplied `table_fqn`) directly into
+    SQL — that is a SQL-injection vector. Returns ("(:p0,:p1)", {"p0":..}).
+    Caller must guard against an empty list (produces "()", invalid SQL).
+    """
+    keys = [f"{prefix}{i}" for i in range(len(values))]
+    placeholders = ",".join(f":{k}" for k in keys)
+    return f"({placeholders})", {k: v for k, v in zip(keys, values)}
 
 
 def _caller_email(request: Request) -> str:
@@ -268,6 +304,7 @@ async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest
     table_fqn = (body.table_fqn or "").strip()
     if not table_fqn:
         raise HTTPException(status_code=400, detail="table_fqn é obrigatório")
+    table_fqn = _validate_table_fqn(table_fqn)
 
     if USE_MOCK:
         cur = _MOCK_CADOC_TABLES.setdefault(documento, [])
@@ -378,25 +415,25 @@ async def _effective_names_by_table(table_fqns: list[str]) -> dict[str, list[str
     """
     if not table_fqns:
         return {}
-    quoted = ",".join(f"'{t}'" for t in table_fqns)
+    in_tables, tbl_params = _in_clause(table_fqns, "t")
     runs = await execute_query(
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, "
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn "
         f"  FROM {DQX_VALIDATION_RUNS_TABLE} "
-        f"  WHERE status = 'SUCCESS' AND source_table_fqn IN ({quoted})"
+        f"  WHERE status = 'SUCCESS' AND source_table_fqn IN {in_tables}"
         ") SELECT run_id, source_table_fqn FROM ranked WHERE rn = 1",
-        {},
+        tbl_params,
     )
     if not runs:
         return {}
     run_to_table = {r["run_id"]: r["source_table_fqn"] for r in runs}
-    run_quoted = ",".join(f"'{rid}'" for rid in run_to_table)
+    in_runs, run_params = _in_clause(list(run_to_table), "r")
     metrics = await execute_query(
         "SELECT run_id, metric_value AS check_metrics_json "
         f"FROM {DQX_METRICS_TABLE} "
-        f"WHERE metric_name = 'check_metrics' AND run_id IN ({run_quoted})",
-        {},
+        f"WHERE metric_name = 'check_metrics' AND run_id IN {in_runs}",
+        run_params,
     )
     out: dict[str, list[str]] = {}
     for m in metrics:
@@ -471,14 +508,15 @@ async def list_linkable_rules(
     if not target_tables:
         return LinkableRulesResponse(rules=[])
 
-    # DQX rule definitions for those tables.
-    quoted = ",".join(f"'{t}'" for t in target_tables)
+    # DQX rule definitions for those tables. `target_tables` may include a
+    # user-supplied `table_fqn` query param, so it MUST be parameterized.
+    in_tables, tbl_params = _in_clause(target_tables, "t")
     rule_rows = await execute_query(
         f"SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
         f"FROM {DQX_CHECKS_TABLE} "
-        f"WHERE status IN ('active','approved') AND table_fqn IN ({quoted}) "
+        f"WHERE status IN ('active','approved') AND table_fqn IN {in_tables} "
         "ORDER BY table_fqn, rule_id",
-        {},
+        tbl_params,
     )
     eff_names = await _effective_names_by_table(target_tables)
     link_rows = await execute_query(
@@ -562,6 +600,7 @@ async def create_link(body: RegraVinculoCreateRequest, request: Request):
     table_fqn = (body.table_fqn or "").strip()
     if not check_name or not table_fqn:
         raise HTTPException(status_code=400, detail="check_name e table_fqn são obrigatórios")
+    table_fqn = _validate_table_fqn(table_fqn)
     if not (1 <= int(body.dimensao_r18) <= 12):
         raise HTTPException(status_code=400, detail="dimensao_r18 deve estar entre 1 e 12")
 
