@@ -87,7 +87,8 @@
     '/dashboards/criticas': 'titles.dashboardCriticas',
     '/reference': 'titles.reference',
     '/governance': 'titles.governance',
-    '/rules': 'titles.rules'
+    '/rules': 'titles.rules',
+    '/linking': 'titles.linking'
   };
 
   let currentTitle = $derived.by(() => {

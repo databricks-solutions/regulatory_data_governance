@@ -25,7 +25,8 @@ from models import (
     TrendPoint,
     Violation,
 )
-from rc18_rule_meta import meta_for
+from rc18_rule_meta import meta_for, resolve_meta
+from rc18_links import load_vinculos
 
 router = APIRouter()
 
@@ -286,10 +287,13 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
     # Pre-load user_metadata por check_name uma única vez — `dimensao_r18` da
     # DQX Studio é a fonte autoritativa para o agrupamento por dimensão.
     rule_meta_cache = await _load_rule_user_metadata()
+    # Link maps: uma regra vinculada via /linking conta mesmo sem `name` explícito.
+    vinc_by_pair, _vinc_by_rule = await load_vinculos()
 
     out: dict[int, dict] = {}
     for r in runs:
         total = int(r.get("total_rows") or 0)
+        source_table = r.get("source_table_fqn", "")
         cm = metrics_by_run.get(r["run_id"])
         if not cm:
             continue
@@ -307,13 +311,18 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             # dq_quality_rules — mesma semântica de /validations/*/results
             # e /dashboard/kpis. Sem isso, dimensões podiam ser inflacionadas
             # por execuções históricas de regras stale (source='ui' apagadas).
-            if check_name not in rule_meta_cache:
+            # EXCEÇÃO: se houver vínculo (source_table, check_name) na tela
+            # /linking, a regra conta mesmo sem entrada em dq_quality_rules
+            # (regra criada sem `name` explícito).
+            link = vinc_by_pair.get((source_table, check_name))
+            if check_name not in rule_meta_cache and not link:
                 continue
-            um = rule_meta_cache[check_name]
-            meta = meta_for(
+            um = rule_meta_cache.get(check_name, {})
+            meta = resolve_meta(
                 check_name,
-                table_fqn=r.get("source_table_fqn", ""),
+                table_fqn=source_table,
                 user_metadata=um,
+                vinculos_by_pair=vinc_by_pair,
             )
             dim_id = meta["dimension_r18"]
             err = int(cmrow.get("error_count") or 0)

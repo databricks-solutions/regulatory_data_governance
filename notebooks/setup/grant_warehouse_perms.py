@@ -158,6 +158,16 @@ grants = [
     f"GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`governance` TO `{sp_client_id}`",
     f"GRANT SELECT     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
     f"GRANT MODIFY     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
+] + [
+    # governance.<cadoc_documentos|cadoc_tabelas|regra_vinculos> — tabelas de
+    # vínculo Regra↔CADOC↔Dimensão, escritas pela tela /linking (routers/linking.py).
+    # SELECT+MODIFY por TABELA (mesma granularidade de incidents).
+    cmd.format(t=t, sp=sp_client_id)
+    for t in ("cadoc_documentos", "cadoc_tabelas", "regra_vinculos")
+    for cmd in (
+        "GRANT SELECT ON TABLE `rc18_catalog`.`governance`.`{t}` TO `{sp}`",
+        "GRANT MODIFY ON TABLE `rc18_catalog`.`governance`.`{t}` TO `{sp}`",
+    )
 ]
 for g in grants:
     spark.sql(g)

@@ -184,3 +184,75 @@ export function updateIncidentStatus(incidentId, payload) {
 export function getBrandConfig() {
   return apiFetch('/brand/config');
 }
+
+// =============================================================================
+// Linking — Regra DQX ↔ CADOC ↔ Dimensão R.18 (tela /linking)
+//
+// CADOCs, associação de tabelas e vínculos de regras. Escritas seguem o mesmo
+// padrão de createIncident (JSON POST/PATCH); 409 carrega o id existente em
+// ApiError.body (existing_vinculo_id / documento).
+// =============================================================================
+
+// CADOC CRUD
+export function getCadocs() {
+  return apiFetch('/linking/cadocs');
+}
+export function createCadoc(payload) {
+  return apiFetch('/linking/cadocs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function updateCadoc(documento, payload) {
+  return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function deleteCadoc(documento) {
+  return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}`, { method: 'DELETE' });
+}
+
+// CADOC ↔ tabelas
+export function getCadocTables(documento) {
+  return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}/tables`);
+}
+export function associateCadocTable(documento, payload) {
+  return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}/tables`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function removeCadocTable(documento, tableFqn) {
+  const params = new URLSearchParams({ table_fqn: tableFqn });
+  return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}/tables?${params}`, { method: 'DELETE' });
+}
+
+// Navegação de schema
+export function getSchemaTables(schema = 'silver', search = '') {
+  const params = new URLSearchParams({ schema });
+  if (search) params.set('search', search);
+  return apiFetch(`/linking/schema-tables?${params}`);
+}
+
+// Regras vinculáveis + vínculos
+export function getLinkableRules(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') params.set(k, v); });
+  return apiFetch(`/linking/rules?${params}`);
+}
+export function getLinks(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') params.set(k, v); });
+  return apiFetch(`/linking/links?${params}`);
+}
+export function createLink(payload) {
+  return apiFetch('/linking/links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function updateLink(vinculoId, payload) {
+  return apiFetch(`/linking/links/${encodeURIComponent(vinculoId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function deleteLink(vinculoId) {
+  return apiFetch(`/linking/links/${encodeURIComponent(vinculoId)}`, { method: 'DELETE' });
+}

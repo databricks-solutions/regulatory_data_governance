@@ -27,6 +27,7 @@ from routers import (
     governance,
     health,
     lineage,
+    linking,
     quality,
     reference,
     submissions,
@@ -93,6 +94,7 @@ app.include_router(xml_processing.router, prefix="/api/v1/xml", tags=["xml"])
 app.include_router(reference.router, prefix="/api/v1/reference", tags=["reference"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["submissions"])
 app.include_router(governance.router, prefix="/api/v1/governance", tags=["governance"])
+app.include_router(linking.router, prefix="/api/v1/linking", tags=["linking"])
 app.include_router(branding.router, prefix="/api/v1/brand", tags=["brand"])
 
 # --- Brand static assets (uploaded logos) ---

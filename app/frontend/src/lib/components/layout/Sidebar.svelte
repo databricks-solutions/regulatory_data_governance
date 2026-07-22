@@ -24,7 +24,8 @@
     {
       title: 'nav.sectionRules',
       items: [
-        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine' }
+        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine' },
+        { label: 'nav.ruleLinking', href: '/linking', icon: 'link' }
       ]
     },
     {
@@ -72,7 +73,8 @@
     chart: 'M3 3v18h18M7 16V8m4 8v-5m4 5V5m4 11V9',
     alert: 'M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4m0 4h.01',
     book: 'M4 19.5A2.5 2.5 0 016.5 17H20M4 4.5A2.5 2.5 0 016.5 2H20v20H6.5a2.5 2.5 0 010-5',
-    engine: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 0V6m6 10v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4'
+    engine: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 0V6m6 10v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4',
+    link: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71'
   };
 </script>
 

@@ -753,3 +753,135 @@ class AppConfig(BaseModel):
     deadline: str = "2026-12-31"
     language: str = "pt-BR"
 
+
+# --- Rule ↔ CADOC ↔ Dimensão linking (tela /linking) -------------------------
+#
+# Modelos da feature de vínculo. Persistência em ${CATALOG}.governance
+# (cadoc_documentos, cadoc_tabelas, regra_vinculos) — ver routers/linking.py e
+# notebooks/setup/setup_reference_tables.py §8. O vínculo é a fonte de verdade
+# para regra→documento→dimensão, substituindo o prefixo hard-coded scr3040_.
+
+class CadocDocument(BaseModel):
+    """Um CADOC registrado (3040, 3050, ou novos cadastrados via UI)."""
+    documento: str                    # chave natural: '3040', '3050', '4111'...
+    nome: str
+    descricao: str | None = None
+    leiaute_versao: str | None = None
+    is_ativo: bool = True
+    # Contagens derivadas (preenchidas no GET /cadocs para a tela de gestão).
+    table_count: int = 0
+    rule_count: int = 0
+    created_at: str | None = None
+    created_by: str | None = None
+    updated_at: str | None = None
+    updated_by: str | None = None
+
+
+class CadocCreateRequest(BaseModel):
+    documento: str
+    nome: str
+    descricao: str | None = None
+    leiaute_versao: str | None = None
+
+
+class CadocUpdateRequest(BaseModel):
+    nome: str | None = None
+    descricao: str | None = None
+    leiaute_versao: str | None = None
+    is_ativo: bool | None = None
+
+
+class CadocListResponse(BaseModel):
+    cadocs: list[CadocDocument] = []
+
+
+class CadocTable(BaseModel):
+    """Associação CADOC → tabela silver (1:N)."""
+    documento: str
+    table_fqn: str
+    is_ativo: bool = True
+
+
+class CadocTableAssociateRequest(BaseModel):
+    table_fqn: str
+
+
+class CadocTablesResponse(BaseModel):
+    documento: str
+    tables: list[CadocTable] = []
+
+
+class SchemaTable(BaseModel):
+    """Tabela encontrada ao navegar um schema do catálogo (information_schema)."""
+    table_fqn: str
+    table_schema: str
+    table_name: str
+    # Documento ao qual esta tabela já está vinculada (None se ainda livre).
+    already_linked_documento: str | None = None
+
+
+class SchemaTablesResponse(BaseModel):
+    # `schema` é palavra reservada do BaseModel (Pydantic); expõe via alias.
+    schema_name: str = Field(serialization_alias="schema", validation_alias="schema")
+    tables: list[SchemaTable] = []
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RegraVinculo(BaseModel):
+    """Vínculo persistido de uma regra DQX a um CADOC + dimensão R.18."""
+    vinculo_id: str
+    check_name: str                   # nome efetivo/runtime = chave de junção com métricas
+    rule_id: str | None = None        # dq_quality_rules.rule_id (estável)
+    table_fqn: str
+    documento: str | None = None
+    dimensao_r18: int | None = None   # 1..12
+    dimension_name: str = ""          # preenchido server-side via _DIM_NAMES
+    critica_id: str | None = None
+    nivel_verificacao: int | None = None
+    descricao: str | None = None
+    is_ativo: bool = True
+
+
+class RegraVinculoCreateRequest(BaseModel):
+    check_name: str
+    table_fqn: str
+    rule_id: str | None = None
+    documento: str | None = None      # inferido de cadoc_tabelas se omitido
+    dimensao_r18: int                 # obrigatório na criação (1..12)
+    critica_id: str | None = None
+    nivel_verificacao: int | None = None
+    descricao: str | None = None
+
+
+class RegraVinculoUpdateRequest(BaseModel):
+    check_name: str | None = None
+    documento: str | None = None
+    dimensao_r18: int | None = None
+    critica_id: str | None = None
+    nivel_verificacao: int | None = None
+    descricao: str | None = None
+    is_ativo: bool | None = None
+
+
+class LinksResponse(BaseModel):
+    total: int = 0
+    links: list[RegraVinculo] = []
+
+
+class LinkableRule(BaseModel):
+    """Regra DQX candidata a vínculo, anotada com o estado atual do vínculo."""
+    rule_id: str
+    definition_name: str = ""             # `name` da definição (vazio se ausente)
+    function: str = ""                    # is_in_range, sql_expression, ...
+    arguments_summary: str = ""           # resumo curto dos argumentos (coluna/expr)
+    table_fqn: str
+    documento: str | None = None
+    # check_names observados no último run SUCCESS da table_fqn — candidatos que
+    # o usuário confirma no modal (resolve o nome efetivo de regras sem `name`).
+    effective_check_names: list[str] = []
+    current_link: RegraVinculo | None = None
+
+
+class LinkableRulesResponse(BaseModel):
+    rules: list[LinkableRule] = []
+

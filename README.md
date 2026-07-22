@@ -96,6 +96,45 @@ Depois de instalar a Studio ([guia oficial](https://databrickslabs.github.io/dqx
 
 ---
 
+## Criação de regras
+
+As regras são criadas **na interface do DQX Studio**. Para uma regra nova aparecer nas **Críticas** do app, defina dois atributos ao criá-la:
+
+- **Documento (3040 ou 3050):** definido pela **tabela que a regra valida**. Selecione uma tabela `${var.catalog}.silver.scr3040_*` (→ documento 3040) ou `${var.catalog}.silver.scr3050` (→ documento 3050).
+- **Dimensão R.18:** adicione à regra uma **tag** de nome `dimensao_r18` cujo **valor é o número da dimensão (1 a 12)**:
+
+  | # | Dimensão | # | Dimensão | # | Dimensão |
+  |--:|----------|--:|----------|--:|----------|
+  | 1 | Acessibilidade | 5 | Comparabilidade | 9  | Integridade |
+  | 2 | Acurácia | 6 | Completude | 10 | Rastreabilidade |
+  | 3 | Adaptabilidade | 7 | Confiabilidade | 11 | Relevância |
+  | 4 | Clareza | 8 | Consistência | 12 | Tempestividade |
+
+Passo a passo na UI da Studio — exemplo de regra de **3040** na dimensão **Acurácia** (`2`):
+
+1. **Crie a regra** apontando para a tabela silver do documento (ex.: `scr3040_operacoes` → documento 3040).
+2. Defina a verificação (ex.: expressão SQL `dia_atraso >= 0`) e a **criticidade**: `error` vira crítica **BLOQUEANTE**, `warn` vira **ALERTA**.
+3. Adicione a **tag** `dimensao_r18` com o valor da dimensão — `2` para Acurácia. (Opcional: uma tag `descricao` com o texto exibido no app.)
+4. Deixe a regra **ativa/aprovada** e **execute-a ao menos uma vez** — o app lê os resultados da última execução.
+
+> **Equivalente em YAML** (o que a Studio grava por baixo): selecionar a tabela define o `run_config_name`, e a tag vira uma entrada em `user_metadata`.
+> ```yaml
+> - name: dia_atraso_nao_negativo            # nome da regra: chave que a liga ao acelerador
+>   criticality: error                        # error → BLOQUEANTE; warn → ALERTA
+>   run_config_name: silver_3040_operacoes    # tabela .silver.scr3040_* → documento 3040
+>   check:
+>     function: sql_expression
+>     arguments:
+>       expression: "dia_atraso >= 0"
+>   user_metadata:
+>     dimensao_r18: "2"                        # tag: número da dimensão (1 a 12)
+>     descricao: "DiaAtraso não pode ser negativo."
+> ```
+
+> **Sem a dimensão?** Regras sem a tag `dimensao_r18` (ou com valor fora de 1–12) caem em "Outras" — continuam aparecendo, mas sem o vínculo com a dimensão R.18.
+
+---
+
 ## Aprovar o domínio do app
 
 O app embarca via `iframe` os **dashboards Lakeview** (`/dashboards`), a **sala Genie** (`/genie`) e a **DQX Studio** (`/rules`). O Databricks bloqueia esses iframes até que o domínio do app entre na allowlist do workspace — as páginas aparecem em branco (erro `X-Frame-Options`).
