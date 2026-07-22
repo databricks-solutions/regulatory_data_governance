@@ -624,10 +624,11 @@ async def update_link(vinculo_id: str, body: RegraVinculoUpdateRequest, request:
     if body.dimensao_r18 is not None and not (1 <= int(body.dimensao_r18) <= 12):
         raise HTTPException(status_code=400, detail="dimensao_r18 deve estar entre 1 e 12")
 
+    _UPDATABLE = ("check_name", "documento", "dimensao_r18", "critica_id", "nivel_verificacao", "descricao", "is_ativo")
     if USE_MOCK:
         for l in _MOCK_LINKS:
             if l["vinculo_id"] == vinculo_id:
-                for f in ("check_name", "dimensao_r18", "critica_id", "nivel_verificacao", "descricao", "is_ativo"):
+                for f in _UPDATABLE:
                     v = getattr(body, f)
                     if v is not None:
                         l[f] = v
@@ -635,7 +636,7 @@ async def update_link(vinculo_id: str, body: RegraVinculoUpdateRequest, request:
         raise HTTPException(status_code=404, detail="Vínculo não encontrado")
 
     sets, params = [], {"vinculo_id": vinculo_id, "actor": actor}
-    for f in ("check_name", "dimensao_r18", "critica_id", "nivel_verificacao", "descricao", "is_ativo"):
+    for f in _UPDATABLE:
         v = getattr(body, f)
         if v is not None:
             sets.append(f"{f} = :{f}")

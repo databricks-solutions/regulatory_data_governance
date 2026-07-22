@@ -154,7 +154,9 @@
   let linkModalOpen = $state(false);
   let linkSaving = $state(false);
   let editing = $state(null); // the LinkableRule being linked/edited
-  let linkForm = $state({ check_name: '', dimensao_r18: '', critica_id: '', nivel_verificacao: '', descricao: '', manualCheck: false });
+  let linkForm = $state({ check_name: '', documento: '', dimensao_r18: '', critica_id: '', nivel_verificacao: '', descricao: '', manualCheck: false });
+  // CADOC derivado da tabela da regra (via cadoc_tabelas) — default do seletor.
+  let derivedDocumento = $state('');
 
   const ruleFilterDefs = $derived.by(() => [
     { key: 'document', label: $_('linking.rulesFilterDocument'), type: 'select',
@@ -183,8 +185,11 @@
     editing = rule;
     const cur = rule.current_link;
     const candidates = rule.effective_check_names || [];
+    // CADOC derivado: o documento que o backend resolveu a partir da tabela.
+    derivedDocumento = rule.documento || '';
     linkForm = {
       check_name: cur?.check_name || rule.definition_name || candidates[0] || '',
+      documento: cur?.documento || rule.documento || '',
       dimensao_r18: cur?.dimensao_r18 ? String(cur.dimensao_r18) : '',
       critica_id: cur?.critica_id || '',
       nivel_verificacao: cur?.nivel_verificacao ? String(cur.nivel_verificacao) : '',
@@ -202,6 +207,7 @@
       if (cur?.vinculo_id) {
         await updateLink(cur.vinculo_id, {
           check_name: linkForm.check_name,
+          documento: linkForm.documento || null,
           dimensao_r18: Number(linkForm.dimensao_r18),
           critica_id: linkForm.critica_id || null,
           nivel_verificacao: linkForm.nivel_verificacao ? Number(linkForm.nivel_verificacao) : null,
@@ -212,7 +218,7 @@
           check_name: linkForm.check_name,
           table_fqn: editing.table_fqn,
           rule_id: editing.rule_id || null,
-          documento: editing.documento || null,
+          documento: linkForm.documento || editing.documento || null,
           dimensao_r18: Number(linkForm.dimensao_r18),
           critica_id: linkForm.critica_id || null,
           nivel_verificacao: linkForm.nivel_verificacao ? Number(linkForm.nivel_verificacao) : null,
@@ -352,6 +358,7 @@
               <th>{$_('linking.ruleColCheck')}</th>
               <th>{$_('linking.ruleColFunction')}</th>
               <th>{$_('linking.ruleColTable')}</th>
+              <th>{$_('linking.ruleColDocument')}</th>
               <th>{$_('linking.ruleColDimension')}</th>
               <th class="actions">{$_('linking.ruleColActions')}</th>
             </tr>
@@ -364,6 +371,7 @@
                 <td class="mono">{effName}</td>
                 <td>{r.function || '—'}</td>
                 <td class="mono tbl-cell">{r.table_fqn.split('.').pop()}</td>
+                <td>{r.current_link?.documento || r.documento || '—'}</td>
                 <td>
                   {#if r.current_link}
                     <Badge label={`${r.current_link.dimensao_r18} · ${r.current_link.dimension_name}`} variant="success" />
@@ -432,6 +440,19 @@
           {#if (editing.effective_check_names || []).length === 0}
             <small class="hint">{$_('linking.noCheckCandidates')}</small>
           {/if}
+        {/if}
+      </label>
+      <label>{$_('linking.fieldCadoc')}
+        <select bind:value={linkForm.documento}>
+          <option value="" disabled>—</option>
+          {#each cadocs as c}
+            <option value={c.documento}>{c.documento} — {c.nome}</option>
+          {/each}
+        </select>
+        {#if derivedDocumento && linkForm.documento === derivedDocumento}
+          <small class="hint">{$_('linking.cadocDerived', { values: { documento: derivedDocumento } })}</small>
+        {:else if derivedDocumento && linkForm.documento && linkForm.documento !== derivedDocumento}
+          <small class="hint warn">{$_('linking.cadocMismatch', { values: { documento: derivedDocumento } })}</small>
         {/if}
       </label>
       <label>{$_('linking.fieldDimension')}
@@ -511,6 +532,7 @@
   .form label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-sm); font-weight: 500; color: var(--gray-700); }
   .form input, .form select, .form textarea { padding: var(--space-2) var(--space-3); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: inherit; }
   .form .hint { font-weight: 400; color: var(--gray-500); font-size: var(--font-size-xs); }
+  .form .hint.warn { color: var(--warning); }
   .form-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
   .rule-ctx { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--gray-50); border-radius: var(--radius-sm); }
   .ctx-sep { color: var(--gray-400); }

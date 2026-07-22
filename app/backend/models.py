@@ -855,6 +855,7 @@ class RegraVinculoCreateRequest(BaseModel):
 
 class RegraVinculoUpdateRequest(BaseModel):
     check_name: str | None = None
+    documento: str | None = None
     dimensao_r18: int | None = None
     critica_id: str | None = None
     nivel_verificacao: int | None = None
