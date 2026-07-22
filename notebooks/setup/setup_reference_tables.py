@@ -523,3 +523,63 @@ TBLPROPERTIES (
 """)
 
 print(f"CADOC linking tables ready at {CATALOG}.governance.(cadoc_documentos, cadoc_tabelas, regra_vinculos)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9. Contas COSIF para batimento inter-CADOC (SCR 3040 × Doc 4010)
+# MAGIC
+# MAGIC `reference.cosif_contas` (ver docs/spec/03_data_model.md §5.7) define QUAIS contas
+# MAGIC do Balancete COSIF (Documento 4010) correspondem a cada regra de reconciliação
+# MAGIC (T = totais, M = por modalidade) e como a "perna SCR" do batimento é montada
+# MAGIC (predicado sobre a modalidade do 3040). Consumida pelo gold `reconciliacao_cosif`.
+# MAGIC
+# MAGIC ⚠️ SIMULAÇÃO: subconjunto REPRESENTATIVO de regras T/M com terminologia COSIF
+# MAGIC padrão — não o mapa COSIF completo do BACEN nem o leiaute byte-exato do 4010.
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.cosif_contas (
+    cosif_sk             BIGINT GENERATED ALWAYS AS IDENTITY,
+    cosif_conta          STRING NOT NULL,
+    descricao            STRING NOT NULL,
+    grupo_reconciliacao  STRING NOT NULL,   -- T01, T06, M01, M02, ...
+    tipo_regra           STRING NOT NULL,   -- 'T' (totais) | 'M' (modalidade)
+    predicado_3040       STRING,            -- expressão SQL sobre a operação silver 3040
+    coluna_saldo_3040    STRING NOT NULL,   -- total_saldo | total_limites
+    modalidade_3040      STRING,            -- Mod correspondente (apenas tipo 'M')
+    sinal_soma           INT NOT NULL,      -- +1 soma | -1 subtrai na reconciliação
+    nivel_conta          INT NOT NULL,      -- nível hierárquico COSIF (1-8)
+    is_ativo             BOOLEAN NOT NULL DEFAULT true
+)
+USING DELTA
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported',
+    'delta.logRetentionDuration'        = 'interval 1825 days'
+)
+""")
+
+# Seed idempotente (subconjunto representativo alinhado ao gerador do 4010).
+spark.sql(f"""
+INSERT INTO {CATALOG}.{SCHEMA}.cosif_contas
+  (cosif_conta, descricao, grupo_reconciliacao, tipo_regra, predicado_3040, coluna_saldo_3040, modalidade_3040, sinal_soma, nivel_conta, is_ativo)
+SELECT * FROM (
+  -- cosif_conta no formato POSICIONAL oficial: 10 dígitos, só numéricos (leiaute
+  -- Doc 4010 registro de dados, campo "Código de conta" N(010)). Casa com
+  -- silver.scr4010_saldos.codigo_conta produzido pelo parser posicional.
+  SELECT '0031000000' AS cosif_conta, 'Total de créditos - carteira ativa' AS descricao, 'T01' AS grupo_reconciliacao, 'T' AS tipo_regra, 'total_saldo > 0' AS predicado_3040, 'total_saldo' AS coluna_saldo_3040, CAST(NULL AS STRING) AS modalidade_3040, 1 AS sinal_soma, 3 AS nivel_conta, true AS is_ativo
+  UNION ALL SELECT '0030980004','Créditos a liberar e limites','T06','T','total_limites > 0','total_limites',NULL,1,4,true
+  UNION ALL SELECT '0016110001','Adiantamentos a depositantes','M01','M',"mod = '0101'",'total_saldo','0101',1,5,true
+  UNION ALL SELECT '0016120008','Empréstimos (capital de giro)','M02','M',"mod IN ('0201','0202')",'total_saldo','0201',1,5,true
+  UNION ALL SELECT '0016130005','Títulos descontados','M03','M',"mod = '0301'",'total_saldo','0301',1,5,true
+  UNION ALL SELECT '0016210004','Financiamentos','M04','M',"mod IN ('0401','0402')",'total_saldo','0401',1,5,true
+  UNION ALL SELECT '0018100002','Crédito pessoal / outros créditos','M13','M',"mod = '0204'",'total_saldo','0204',1,5,true
+) src
+WHERE NOT EXISTS (
+  SELECT 1 FROM {CATALOG}.{SCHEMA}.cosif_contas c
+  WHERE c.cosif_conta = src.cosif_conta AND c.grupo_reconciliacao = src.grupo_reconciliacao
+)
+""")
+
+print(f"COSIF reconciliation map ready at {CATALOG}.{SCHEMA}.cosif_contas")

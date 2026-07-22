@@ -1,0 +1,98 @@
+# CADOC 4010 (Balancete COSIF) synthetic generator — 4-step sequential job.
+# Deriva os saldos COSIF dos microdados do 3040 (f_3040_*), injeta ~5% de
+# divergências e materializa gold.reconciliacao_cosif (batimento inter-CADOC).
+#
+# Consome as tabelas f_3040_* produzidas pelo job `scr3040_generator`.
+#
+# Diferença consciente vs. 3040/3050: NÃO há passo de validador BACEN — não
+# existe binário validador oficial do 4010 no repo. Todas as tasks rodam
+# serverless (compartilham contexto via `%run ./00_Setup_e_Plano_Contas`).
+resources:
+  jobs:
+    doc4010_generator:
+      name: "rc18-doc4010-generator"
+      description: "Gera saldos COSIF sintéticos (Doc 4010) a partir do 3040 e materializa o batimento inter-CADOC (gold.reconciliacao_cosif)."
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: dt_base
+          default: "2026-03"
+        - name: cnpj_if
+          default: "99999999"
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${resources.schemas.reference.name}
+        - name: gold_schema
+          default: "gold"
+        - name: src_prefix_3040
+          default: "${var.catalog}.${resources.schemas.reference.name}.f_3040_"
+        - name: pct_divergencia
+          default: "0.05"
+        - name: tolerancia_pct
+          default: "0.10"
+        - name: seed
+          default: "42"
+
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "2"
+
+      tasks:
+        - task_key: setup_e_plano_contas
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../notebooks/doc4010_generator/00_Setup_e_Plano_Contas.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              src_prefix_3040: "{{job.parameters.src_prefix_3040}}"
+              pct_divergencia: "{{job.parameters.pct_divergencia}}"
+              tolerancia_pct: "{{job.parameters.tolerancia_pct}}"
+              seed: "{{job.parameters.seed}}"
+
+        - task_key: ingestao_dados_3040
+          depends_on:
+            - task_key: setup_e_plano_contas
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../notebooks/doc4010_generator/01_Ingestao_Dados_3040.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              src_prefix_3040: "{{job.parameters.src_prefix_3040}}"
+
+        - task_key: motor_de_saldos_cosif
+          depends_on:
+            - task_key: ingestao_dados_3040
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../notebooks/doc4010_generator/02_Motor_de_Saldos_COSIF.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              pct_divergencia: "{{job.parameters.pct_divergencia}}"
+              tolerancia_pct: "{{job.parameters.tolerancia_pct}}"
+              seed: "{{job.parameters.seed}}"
+
+        - task_key: reconciliacao_cosif
+          depends_on:
+            - task_key: motor_de_saldos_cosif
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../notebooks/doc4010_generator/03_Reconciliacao_COSIF.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              gold_schema: "{{job.parameters.gold_schema}}"
+              tolerancia_pct: "{{job.parameters.tolerancia_pct}}"
+              seed: "{{job.parameters.seed}}"

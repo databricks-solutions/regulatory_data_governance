@@ -18,9 +18,11 @@ Este bundle existe só para mostrar:
 | `bronze`, `reference` | Schemas | Homes para tabelas escritas pelos jobs (3040/3050 staging vai em `reference`; loader sintético vai em `bronze`) |
 | `scr3040_generator` | Job (5 tasks) | Gera XML sintético do Doc 3040 + valida com o `Validador3040` oficial do BCB |
 | `scr3050_generator` | Job (5 tasks) | Gera XML sintético do Doc 3050 (TXB V11) a partir do 3040 via equivalência + valida com o `ValidadorMDR` |
+| `doc4010_generator` | Job (4 tasks) | Gera saldos COSIF sintéticos (Doc 4010) a partir do 3040 e materializa o **batimento inter-CADOC** (`gold.reconciliacao_cosif`). Sem validador BACEN (não há binário oficial do 4010) |
 | `synthetic_data_loader` | Job | Popula `${var.catalog}.bronze` com SCR sintético (operacoes_raw, clientes_raw, raw_3050_diario) |
 | `notebooks/scr3040_generator/` | Notebooks | Lógica de geração do Doc 3040 (setup, dados, regras, XML, validação) |
 | `notebooks/scr3050_generator/` | Notebooks | Lógica de agregação 3040→3050 + validação automatizada |
+| `notebooks/doc4010_generator/` | Notebooks | Saldos COSIF derivados do 3040 (setup/plano de contas, ingestão, motor de saldos, reconciliação) |
 | `prompts/` | Markdown | Meta-prompts que orientaram a construção dos geradores (docs, não runtime) |
 
 ## Como rodar
@@ -52,6 +54,7 @@ databricks bundle deploy   -t dev-azure --profile <your-databricks-profile>
 # 2. Executa os geradores e o loader sintético (use o mesmo target do deploy)
 databricks bundle run scr3040_generator     -t dev-azure --profile <your-databricks-profile>
 databricks bundle run scr3050_generator     -t dev-azure --profile <your-databricks-profile>
+databricks bundle run doc4010_generator     -t dev-azure --profile <your-databricks-profile>  # requer o 3040 já gerado
 databricks bundle run synthetic_data_loader -t dev-azure --profile <your-databricks-profile>
 ```
 
@@ -73,6 +76,7 @@ demo/
 ├── notebooks/
 │   ├── scr3040_generator/             # 5 etapas: setup, dados, regras, XML, validação BACEN
 │   ├── scr3050_generator/             # 5 etapas: setup, ingestão, agregação, XML, validação
+│   ├── doc4010_generator/             # 4 etapas: plano de contas, ingestão, motor de saldos, reconciliação
 │   └── synthetic_data_loader.py       # carrega dados fictícios em ${var.catalog}.bronze
 ├── prompts/                           # meta-prompts dos geradores (docs)
 │   ├── syntetic-dataset-generator-3040.md
@@ -83,7 +87,8 @@ demo/
     ├── uc_assets.yml                  # schemas bronze + reference
     ├── synthetic_data.yml             # job r18-synthetic-data-loader
     ├── scr3040_generator.yml          # job rc18-scr3040-generator
-    └── scr3050_generator.yml          # job rc18-scr3050-generator
+    ├── scr3050_generator.yml          # job rc18-scr3050-generator
+    └── doc4010_generator.yml          # job rc18-doc4010-generator
 ```
 
 ## Parâmetros principais (jobs)

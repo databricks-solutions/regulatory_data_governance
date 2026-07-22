@@ -28,3 +28,11 @@ resources:
               bronze_schema: ${resources.schemas.bronze_schema.name}
               silver_schema: ${resources.schemas.silver_schema.name}
               reference_schema: ${resources.schemas.reference.name}
+
+        - task_key: "scr4010"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}

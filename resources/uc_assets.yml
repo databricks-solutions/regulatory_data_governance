@@ -33,17 +33,17 @@ resources:
     bronze_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_bronze}
-      comment: "Bronze — raw XML parsed into typed structs, one row per file (raw_3040_doc, raw_3050_doc)."
+      comment: "Bronze — raw XML parsed into typed structs, one row per file (raw_3040_doc, raw_3050_doc); COSIF Doc 4010 balances (raw_cosif_saldos)."
 
     silver_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_silver}
-      comment: "Silver — normalized SCR tables (scr3040_operacoes, scr3040_clientes, scr3040_garantias, scr3040_vencimentos, scr3040_cont_4966; scr3050 unified). Pure ELT — quality runs externally in DQX Studio."
+      comment: "Silver — normalized SCR tables (scr3040_operacoes, scr3040_clientes, scr3040_garantias, scr3040_vencimentos, scr3040_cont_4966; scr3050 unified; scr4010_saldos COSIF). Pure ELT — quality runs externally in DQX Studio."
 
     gold_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_gold}
-      comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050)."
+      comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050, posicao_4010, reconciliacao_cosif)."
 
     quality:
       catalog_name: ${var.catalog}
@@ -61,7 +61,7 @@ resources:
       schema_name: landing
       name: scr_xml
       volume_type: MANAGED
-      comment: "Inbox for SCR XML submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/. The bronze pipeline auto-loads from here."
+      comment: "Inbox for SCR submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.txt (COSIF Balancete, posicional) under scr_xml/4010/. The bronze pipeline auto-loads from here."
 
     checkpoints:
       catalog_name: ${var.catalog}
