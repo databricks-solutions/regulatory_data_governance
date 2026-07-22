@@ -174,8 +174,8 @@ def reconciliacao_cosif():
         .select(
             "cnpj_if",
             F.col("dt_base_mes").alias("dt_base"),
-            "cosif_conta",
-            F.abs(F.col("saldo_liquido")).cast("decimal(17,2)").alias("vlr_cosif"),
+            F.col("codigo_conta").alias("cosif_conta"),
+            F.abs(F.col("saldo")).cast("decimal(17,2)").alias("vlr_cosif"),
         )
     )
     return (

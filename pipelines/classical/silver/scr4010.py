@@ -2,13 +2,11 @@
 # MAGIC %md
 # MAGIC # Silver CLÁSSICO — CADOC 4010 (Balancete COSIF)
 # MAGIC
-# MAGIC Normaliza `bronze.raw_cosif_saldos` → `silver.scr4010_saldos` (tipagem
-# MAGIC final, `dt_base` como DATE do 1º dia do mês, dedupe por conta). Produz a
-# MAGIC MESMA tabela/contrato que o pipeline DLT
-# MAGIC `pipelines/silver/transformations/scr4010.py` — só muda o I/O
-# MAGIC (`saveAsTable(overwrite)` vs `@dlt.table`).
-# MAGIC
-# MAGIC ELT puro — sem qualidade inline (delegada à DQX Studio / gold batimento).
+# MAGIC Normaliza `bronze.raw_cosif_saldos` → `silver.scr4010_saldos`. Alinhado ao
+# MAGIC leiaute oficial: `codigo_conta` (10 dígitos do plano COSIF) + `saldo`
+# MAGIC assinado (valor absoluto × sinal do leiaute). `dt_base` vira DATE (1º dia
+# MAGIC do mês). Dedupe por (cnpj_if, dt_base, codigo_conta). MESMA tabela/contrato
+# MAGIC que o pipeline DLT `pipelines/silver/transformations/scr4010.py`.
 
 # COMMAND ----------
 
@@ -31,23 +29,18 @@ _PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
 
 bronze = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.raw_cosif_saldos")
 
-# dedupe por (cnpj_if, dt_base, cosif_conta) — mantém a ingestão mais recente.
-_dedupe_w = Window.partitionBy("cnpj_if", "dt_base", "cosif_conta").orderBy(F.col("_ingestion_timestamp").desc())
+_dedupe_w = Window.partitionBy("cnpj_if", "dt_base", "codigo_conta").orderBy(F.col("_ingestion_timestamp").desc())
 scr4010 = (
     bronze
     .withColumn("_rn", F.row_number().over(_dedupe_w))
     .filter(F.col("_rn") == 1)
     .select(
         "cnpj_if",
-        # dt_base vira DATE (1º dia do mês) para casar com o particionamento das
-        # demais silver e permitir joins temporais.
         F.to_date(F.concat_ws("-", F.col("dt_base"), F.lit("01"))).alias("dt_base"),
-        F.col("dt_base").alias("dt_base_mes"),   # preserva o AAAA-MM textual
-        "cosif_conta", "cosif_descricao",
-        F.coalesce(F.col("saldo_credor"), F.lit(0)).cast("decimal(17,2)").alias("saldo_credor"),
-        F.coalesce(F.col("saldo_devedor"), F.lit(0)).cast("decimal(17,2)").alias("saldo_devedor"),
-        F.coalesce(F.col("saldo_liquido"), F.lit(0)).cast("decimal(17,2)").alias("saldo_liquido"),
-        "tp_conta",
+        F.col("dt_base").alias("dt_base_mes"),          # preserva AAAA-MM textual
+        "codigo_conta",                                  # conta COSIF 10 dígitos (oficial)
+        F.col("saldo").cast("decimal(17,2)").alias("saldo"),   # já assinado no bronze
+        "sinal",
         F.lit(_PIPELINE_RUN_ID).alias("pipeline_run_id"),
         F.current_timestamp().alias("_silver_timestamp"),
     )

@@ -17,6 +17,8 @@
 
 # COMMAND ----------
 
+import uuid
+
 from pyspark.sql import functions as F
 
 # COMMAND ----------
@@ -30,6 +32,9 @@ SOURCE_CATALOG = dbutils.widgets.get("catalog")
 SILVER_SCHEMA = dbutils.widgets.get("silver_schema")
 GOLD_SCHEMA = dbutils.widgets.get("gold_schema")
 REFERENCE_SCHEMA = dbutils.widgets.get("reference_schema")
+
+# UUID lógico do run — carimbado em reconciliacao_cosif.pipeline_run_id (auditoria).
+_PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
 
 
 def _gold_fqn(table_name):
@@ -205,14 +210,15 @@ scr_por_regra = _scr_rows[0]
 for extra in _scr_rows[1:]:
     scr_por_regra = scr_por_regra.unionByName(extra)
 
-# Perna COSIF: saldo_liquido absoluto por conta (do 4010).
+# Perna COSIF: saldo (absoluto) por conta do 4010. Junta por codigo_conta
+# (10 dígitos, formato oficial) = reference.cosif_contas.cosif_conta.
 cosif = (
     spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr4010_saldos")
     .select(
         "cnpj_if",
         F.col("dt_base_mes").alias("dt_base"),
-        "cosif_conta",
-        F.abs(F.col("saldo_liquido")).cast("decimal(17,2)").alias("vlr_cosif"),
+        F.col("codigo_conta").alias("cosif_conta"),
+        F.abs(F.col("saldo")).cast("decimal(17,2)").alias("vlr_cosif"),
     )
 )
 

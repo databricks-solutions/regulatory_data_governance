@@ -1,8 +1,0 @@
-cnpj_if,dt_base,cosif_conta,cosif_descricao,saldo_credor,saldo_devedor,saldo_liquido,tp_conta
-99999999,2026-04,3.1.0.00.00-0,Total de créditos - carteira ativa,2374197.88,0.00,2374197.88,30
-99999999,2026-04,3.0.9.80.00-4,Créditos a liberar e limites,0.00,0.00,0.00,30
-99999999,2026-04,1.6.1.10.00-1,Adiantamentos a depositantes,0.00,2326817.09,-2326817.09,10
-99999999,2026-04,1.6.1.20.00-8,Empréstimos (capital de giro),0.00,0.00,0.00,10
-99999999,2026-04,1.6.1.30.00-5,Títulos descontados,0.00,0.00,0.00,10
-99999999,2026-04,1.6.2.10.00-4,Financiamentos,0.00,0.00,0.00,10
-99999999,2026-04,1.8.1.00.00-2,Crédito pessoal / outros créditos,0.00,34100.00,-34100.00,10

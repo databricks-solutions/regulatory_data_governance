@@ -83,8 +83,8 @@ copy_pattern("Doc3040_*.xml", DEST_3040, "3040")
 print("Copying Doc 3050 samples (Doc3050_*.xml)…")
 copy_pattern("Doc3050_*.xml", DEST_3050, "3050")
 
-print("Copying Doc 4010 samples (Doc4010_*.csv)…")
-copy_pattern("Doc4010_*.csv", DEST_4010, "4010")
+print("Copying Doc 4010 samples (Doc4010_*.txt)…")
+copy_pattern("Doc4010_*.txt", DEST_4010, "4010")
 
 # COMMAND ----------
 

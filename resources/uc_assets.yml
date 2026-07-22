@@ -61,7 +61,7 @@ resources:
       schema_name: landing
       name: scr_xml
       volume_type: MANAGED
-      comment: "Inbox for SCR submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.csv (COSIF Balancete) under scr_xml/4010/. The bronze pipeline auto-loads from here."
+      comment: "Inbox for SCR submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.txt (COSIF Balancete, posicional) under scr_xml/4010/. The bronze pipeline auto-loads from here."
 
     checkpoints:
       catalog_name: ${var.catalog}

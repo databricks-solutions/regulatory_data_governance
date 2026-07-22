@@ -565,13 +565,16 @@ spark.sql(f"""
 INSERT INTO {CATALOG}.{SCHEMA}.cosif_contas
   (cosif_conta, descricao, grupo_reconciliacao, tipo_regra, predicado_3040, coluna_saldo_3040, modalidade_3040, sinal_soma, nivel_conta, is_ativo)
 SELECT * FROM (
-  SELECT '3.1.0.00.00-0' AS cosif_conta, 'Total de créditos - carteira ativa' AS descricao, 'T01' AS grupo_reconciliacao, 'T' AS tipo_regra, 'total_saldo > 0' AS predicado_3040, 'total_saldo' AS coluna_saldo_3040, CAST(NULL AS STRING) AS modalidade_3040, 1 AS sinal_soma, 3 AS nivel_conta, true AS is_ativo
-  UNION ALL SELECT '3.0.9.80.00-4','Créditos a liberar e limites','T06','T','total_limites > 0','total_limites',NULL,1,4,true
-  UNION ALL SELECT '1.6.1.10.00-1','Adiantamentos a depositantes','M01','M',"mod = '0101'",'total_saldo','0101',1,5,true
-  UNION ALL SELECT '1.6.1.20.00-8','Empréstimos (capital de giro)','M02','M',"mod IN ('0201','0202')",'total_saldo','0201',1,5,true
-  UNION ALL SELECT '1.6.1.30.00-5','Títulos descontados','M03','M',"mod = '0301'",'total_saldo','0301',1,5,true
-  UNION ALL SELECT '1.6.2.10.00-4','Financiamentos','M04','M',"mod IN ('0401','0402')",'total_saldo','0401',1,5,true
-  UNION ALL SELECT '1.8.1.00.00-2','Crédito pessoal / outros créditos','M13','M',"mod = '0204'",'total_saldo','0204',1,5,true
+  -- cosif_conta no formato POSICIONAL oficial: 10 dígitos, só numéricos (leiaute
+  -- Doc 4010 registro de dados, campo "Código de conta" N(010)). Casa com
+  -- silver.scr4010_saldos.codigo_conta produzido pelo parser posicional.
+  SELECT '0031000000' AS cosif_conta, 'Total de créditos - carteira ativa' AS descricao, 'T01' AS grupo_reconciliacao, 'T' AS tipo_regra, 'total_saldo > 0' AS predicado_3040, 'total_saldo' AS coluna_saldo_3040, CAST(NULL AS STRING) AS modalidade_3040, 1 AS sinal_soma, 3 AS nivel_conta, true AS is_ativo
+  UNION ALL SELECT '0030980004','Créditos a liberar e limites','T06','T','total_limites > 0','total_limites',NULL,1,4,true
+  UNION ALL SELECT '0016110001','Adiantamentos a depositantes','M01','M',"mod = '0101'",'total_saldo','0101',1,5,true
+  UNION ALL SELECT '0016120008','Empréstimos (capital de giro)','M02','M',"mod IN ('0201','0202')",'total_saldo','0201',1,5,true
+  UNION ALL SELECT '0016130005','Títulos descontados','M03','M',"mod = '0301'",'total_saldo','0301',1,5,true
+  UNION ALL SELECT '0016210004','Financiamentos','M04','M',"mod IN ('0401','0402')",'total_saldo','0401',1,5,true
+  UNION ALL SELECT '0018100002','Crédito pessoal / outros créditos','M13','M',"mod = '0204'",'total_saldo','0204',1,5,true
 ) src
 WHERE NOT EXISTS (
   SELECT 1 FROM {CATALOG}.{SCHEMA}.cosif_contas c
