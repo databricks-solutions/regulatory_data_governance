@@ -9,9 +9,36 @@ Covers the two behaviors that matter most:
 
 import os
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from app.backend import rc18_rule_meta as m
+
+
+class RunCompletedAtTypeTest(unittest.TestCase):
+    """Regression: `_fetch_studio_results` must return `run_completed_at` as a
+    string. The databricks-sql connector returns `created_at` as a datetime in
+    prod, and `ValidationResultsResponse.run_completed_at` is typed `str` — a
+    raw datetime raised a 500 only on the 3040 path (which has a run)."""
+
+    def test_response_accepts_string_not_datetime(self):
+        from app.backend.models import ValidationResultsResponse, ValidationSummary, Pagination
+        # A raw datetime must be rejected (documents the contract we rely on).
+        with self.assertRaises(Exception):
+            ValidationResultsResponse(
+                data_base="2026-03", run_id="r", run_status="completed",
+                run_completed_at=datetime(2026, 7, 22, tzinfo=timezone.utc),  # wrong type
+                summary=ValidationSummary(total_rules=0, passed=0, failed=0, warnings=0, pass_rate_pct=0.0),
+                results=[], pagination=Pagination(),
+            )
+        # An ISO string is accepted.
+        ok = ValidationResultsResponse(
+            data_base="2026-03", run_id="r", run_status="completed",
+            run_completed_at=datetime(2026, 7, 22, tzinfo=timezone.utc).isoformat(),
+            summary=ValidationSummary(total_rules=0, passed=0, failed=0, warnings=0, pass_rate_pct=0.0),
+            results=[], pagination=Pagination(),
+        )
+        self.assertIsInstance(ok.run_completed_at, str)
 
 
 class ResolveMetaTest(unittest.TestCase):

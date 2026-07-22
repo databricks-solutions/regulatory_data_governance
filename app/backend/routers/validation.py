@@ -466,9 +466,14 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
             continue
         if not isinstance(check_metrics, list):
             continue
-        if latest_run_id is None or (r.get("created_at") or "") > (latest_run_time or ""):
+        # Coerce created_at to a string: the databricks-sql connector may return
+        # it as a datetime (prod) or a string (some local setups). ValidationResults
+        # Response.run_completed_at is typed str, and comparing datetime > "" raises.
+        created_at = r.get("created_at")
+        created_at_str = created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at is not None else "")
+        if latest_run_id is None or created_at_str > (latest_run_time or ""):
             latest_run_id = run_id
-            latest_run_time = r.get("created_at")
+            latest_run_time = created_at_str
         for cmrow in check_metrics:
             check_name = cmrow.get("check_name")
             if not check_name:
