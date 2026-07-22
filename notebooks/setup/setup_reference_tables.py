@@ -382,3 +382,144 @@ TBLPROPERTIES (
 """)
 
 print(f"Governance incidents table ready at {CATALOG}.governance.incidents")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. Vínculo de Regras DQX ↔ CADOC + Dimensão R.18
+# MAGIC
+# MAGIC Três tabelas MUTÁVEIS escritas pelo app (schema `governance`, como
+# MAGIC `incidents`) que substituem o vínculo hard-coded regra→documento→dimensão:
+# MAGIC
+# MAGIC - `cadoc_documentos` — registro de CADOCs (3040/3050 semeados; novos via UI).
+# MAGIC - `cadoc_tabelas`    — CADOC → tabelas silver (1:N). Substitui o prefixo
+# MAGIC   `silver.scr3040_` hard-coded em `validation.py`/`reference.py`.
+# MAGIC - `regra_vinculos`   — regra DQX → CADOC + dimensão R.18. Guarda **tanto**
+# MAGIC   `rule_id` (estável) quanto `check_name` (chave de junção com as métricas de
+# MAGIC   execução da DQX), corrigindo o drop silencioso de regras criadas sem `name`.
+# MAGIC
+# MAGIC Populadas pela tela `/linking` do app (CRUD via `routers/linking.py`). Toda
+# MAGIC leitura filtra `is_ativo = true` (soft delete). `regra_vinculos` NÃO é semeada
+# MAGIC — as 4 regras iniciais continuam resolvendo por `rc18_rule_meta.RC18_RULE_META`.
+
+# COMMAND ----------
+
+# 8.1 — CADOC registry. `documento` é a chave natural (unicidade garantida no app
+# via pré-check + 409; Delta não impõe PK). DEFAULT em is_ativo exige allowColumnDefaults.
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.governance.cadoc_documentos (
+    documento        STRING NOT NULL,
+    nome             STRING NOT NULL,
+    descricao        STRING,
+    leiaute_versao   STRING,
+    is_ativo         BOOLEAN NOT NULL DEFAULT true,
+    created_at       TIMESTAMP,
+    created_by       STRING,
+    updated_at       TIMESTAMP,
+    updated_by       STRING
+)
+USING DELTA
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported',
+    'delta.logRetentionDuration'        = 'interval 1825 days'
+)
+""")
+
+# Seed 3040/3050 (idempotente: só insere se ainda não existir a linha).
+spark.sql(f"""
+INSERT INTO {CATALOG}.governance.cadoc_documentos
+  (documento, nome, descricao, leiaute_versao, is_ativo, created_at, created_by, updated_at, updated_by)
+SELECT * FROM (
+  SELECT '3040' AS documento, 'SCR 3040 - Operações de crédito individualizadas' AS nome,
+         'Documento SCR 3040 — operações de crédito detalhadas (130+ campos, IPOC).' AS descricao,
+         'V1' AS leiaute_versao, true AS is_ativo,
+         current_timestamp() AS created_at, 'setup:seed' AS created_by,
+         current_timestamp() AS updated_at, 'setup:seed' AS updated_by
+  UNION ALL
+  SELECT '3050', 'SCR 3050 - Estoque mensal agregado',
+         'Documento SCR 3050 — dados agregados de crédito (TXB/XML, leiaute versionado).',
+         'V11', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+) src
+WHERE NOT EXISTS (
+  SELECT 1 FROM {CATALOG}.governance.cadoc_documentos d WHERE d.documento = src.documento
+)
+""")
+
+# COMMAND ----------
+
+# 8.2 — CADOC → tabelas silver (1:N). Chave natural (documento, table_fqn).
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.governance.cadoc_tabelas (
+    documento    STRING NOT NULL,
+    table_fqn    STRING NOT NULL,
+    is_ativo     BOOLEAN NOT NULL DEFAULT true,
+    created_at   TIMESTAMP,
+    created_by   STRING,
+    updated_at   TIMESTAMP,
+    updated_by   STRING
+)
+USING DELTA
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported',
+    'delta.logRetentionDuration'        = 'interval 1825 days'
+)
+""")
+
+# Seed com as tabelas silver canônicas (ver resources/uc_assets.yml). FQN completo
+# ({CATALOG}.silver.<t>) porque é a forma que aparece em dq_validation_runs.source_table_fqn.
+_SILVER_SEED = [
+    ("3040", "scr3040_operacoes"),
+    ("3040", "scr3040_clientes"),
+    ("3040", "scr3040_garantias"),
+    ("3040", "scr3040_vencimentos"),
+    ("3040", "scr3040_cont_4966"),
+    ("3050", "scr3050"),
+]
+_values = ",\n  ".join(
+    f"('{doc}', '{CATALOG}.silver.{t}')" for doc, t in _SILVER_SEED
+)
+spark.sql(f"""
+INSERT INTO {CATALOG}.governance.cadoc_tabelas
+  (documento, table_fqn, is_ativo, created_at, created_by, updated_at, updated_by)
+SELECT src.documento, src.table_fqn, true,
+       current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+FROM (VALUES
+  {_values}
+) AS src(documento, table_fqn)
+WHERE NOT EXISTS (
+  SELECT 1 FROM {CATALOG}.governance.cadoc_tabelas t
+  WHERE t.documento = src.documento AND t.table_fqn = src.table_fqn
+)
+""")
+
+# COMMAND ----------
+
+# 8.3 — Vínculo regra DQX → CADOC + dimensão. `vinculo_id` = uuid gerado pelo app.
+# Chave única lógica: (table_fqn, check_name). `rule_id` guardado para proveniência
+# e para reconciliar quando o check_name derivar (regra sem `name` explícito).
+# NÃO semeado — populado exclusivamente pela tela /linking.
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.governance.regra_vinculos (
+    vinculo_id         STRING NOT NULL,
+    check_name         STRING NOT NULL,
+    rule_id            STRING,
+    table_fqn          STRING NOT NULL,
+    documento          STRING,
+    dimensao_r18       INT,
+    critica_id         STRING,
+    nivel_verificacao  INT,
+    descricao          STRING,
+    is_ativo           BOOLEAN NOT NULL DEFAULT true,
+    created_at         TIMESTAMP,
+    created_by         STRING,
+    updated_at         TIMESTAMP,
+    updated_by         STRING
+)
+USING DELTA
+TBLPROPERTIES (
+    'delta.feature.allowColumnDefaults' = 'supported',
+    'delta.logRetentionDuration'        = 'interval 1825 days'
+)
+""")
+
+print(f"CADOC linking tables ready at {CATALOG}.governance.(cadoc_documentos, cadoc_tabelas, regra_vinculos)")

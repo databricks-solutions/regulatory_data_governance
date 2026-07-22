@@ -28,7 +28,8 @@ from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
 from db import execute_query_or_empty as execute_query
-from rc18_rule_meta import meta_for
+from rc18_rule_meta import meta_for, resolve_meta
+from rc18_links import load_cadoc_tables, load_vinculos
 from models import (
     Pagination,
     RunProgress,
@@ -397,20 +398,38 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
 
     For each source_table_fqn that matches `document`'s silver tables, pick the
     LATEST SUCCESS run. Parse its `check_metrics` and emit one ValidationResult
-    per check that maps to an active RC18 rule (check_name → dq_quality_rules).
-    """
-    prefix = _DOC_TO_TABLE_PREFIX.get(document)
-    if not prefix:
-        return [], None, None
+    per check that maps to an active RC18 rule (via the link table, then
+    check_name → dq_quality_rules).
 
-    # Step 1: latest SUCCESS run per source_table_fqn.
+    Table selection is driven by `governance.cadoc_tabelas` (the CADOC↔table
+    map maintained on the /linking screen); when that table is empty (fresh
+    workspace, pre-seed) it falls back to the legacy hard-coded prefix so
+    nothing regresses.
+    """
+    # Link maps (source of truth for CADOC↔table and rule↔dimension).
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    vinc_by_pair, vinc_by_rule = await load_vinculos()
+
+    doc_tables = tables_by_doc.get(document, [])
+
+    # Step 1: latest SUCCESS run per source_table_fqn — scoped to the CADOC's
+    # tables (IN list) when linked, else the legacy prefix LIKE.
+    if doc_tables:
+        quoted_tables = ",".join(f"'{t}'" for t in doc_tables)
+        scope_clause = f"source_table_fqn IN ({quoted_tables})"
+    else:
+        prefix = _DOC_TO_TABLE_PREFIX.get(document)
+        if not prefix:
+            return [], None, None
+        scope_clause = f"source_table_fqn LIKE '{prefix}%'"
+
     runs_sql = (
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at, "
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn "
         f"  FROM {DQX_VALIDATION_RUNS_TABLE} "
         "  WHERE status = 'SUCCESS' "
-        f"    AND source_table_fqn LIKE '{prefix}%'"
+        f"    AND {scope_clause}"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1"
     )
@@ -436,6 +455,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
     latest_run_time: str | None = None
     for r in runs:
         run_id = r["run_id"]
+        source_table = r.get("source_table_fqn") or ""
         total = int(r.get("total_rows") or 0)
         cm = metrics_by_run.get(run_id)
         if not cm:
@@ -454,27 +474,38 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
             if not check_name:
                 continue
             rule = rules_by_name.get(check_name)
-            if not rule:
-                # Stale rule (deleted definition); drop to keep catalog tight.
+            # Link-aware recovery: a rule authored without an explicit `name`
+            # produces a runtime check_name (e.g. `parte_not_in_range`) that has
+            # no matching definition in `rules_by_name`. If the /linking screen
+            # linked (source_table, check_name), surface it anyway using the
+            # link's metadata instead of dropping it silently.
+            link = vinc_by_pair.get((source_table, check_name))
+            if not rule and not link:
+                # Truly stale (deleted definition, never linked); drop.
                 continue
             err = int(cmrow.get("error_count") or 0)
             warn = int(cmrow.get("warning_count") or 0)
             affected = err + warn
-            um = rule.get("user_metadata") or {}
-            criticality = rule.get("criticality") or "error"
+            um = (rule or {}).get("user_metadata") or {}
+            criticality = (rule or {}).get("criticality") or "error"
             sev = "error" if criticality == "error" else "warning"
             status = "pass" if affected == 0 else ("fail" if sev == "error" else "warning")
-            run_cfg = rule.get("run_config_name") or ""
-            check_fn = (rule.get("check") or {}).get("function", "")
-            # Structural metadata: hard-coded in rc18_rule_meta.py (keeps YAML
-            # tags clean — only `projeto` + `descricao`). user_metadata supplies
-            # the human-facing description.
-            meta = meta_for(
+            run_cfg = (rule or {}).get("run_config_name") or ""
+            check_fn = ((rule or {}).get("check") or {}).get("function", "")
+            rule_id = (rule or {}).get("rule_id") or (link or {}).get("rule_id")
+            # Structural metadata: link table wins, else tag/hard-coded fallback.
+            meta = resolve_meta(
                 check_name,
-                table_fqn=rule.get("_row_table_fqn", ""),
+                table_fqn=(rule or {}).get("_row_table_fqn", "") or source_table,
                 user_metadata=um,
+                vinculos_by_pair=vinc_by_pair,
+                vinculos_by_rule_id=vinc_by_rule,
+                rule_id=rule_id,
             )
-            description = um.get("descricao") or um.get("mensagem_erro") or check_name
+            description = (
+                um.get("descricao") or um.get("mensagem_erro")
+                or (link or {}).get("descricao") or check_name
+            )
             rule_name = description if len(description) < 80 else check_name
             results.append(ValidationResult(
                 rule_id=meta["critica_id"] or check_name,

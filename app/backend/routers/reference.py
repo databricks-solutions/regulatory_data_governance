@@ -11,7 +11,8 @@ from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when reference tables haven't been seeded yet (setup_job not run).
 from db import execute_query_or_empty as execute_query
-from rc18_rule_meta import meta_for
+from rc18_rule_meta import meta_for, resolve_meta
+from rc18_links import load_vinculos
 from models import (
     CalendarioDay,
     CalendarioResponse,
@@ -236,7 +237,8 @@ async def get_criticas(
         "ORDER BY table_fqn, rule_id",
         {},
     )
-    rules = _parse_dq_quality_rules_rows(rows)
+    vinc_by_pair, vinc_by_rule = await load_vinculos()
+    rules = _parse_dq_quality_rules_rows(rows, vinc_by_pair, vinc_by_rule)
     # Apply filters in Python — set is small (10s of rules) so this is fine.
     if document:
         rules = [r for r in rules if r.document == document]
@@ -286,7 +288,11 @@ def _doc_from_table_fqn(table_fqn: str) -> str:
     return ""
 
 
-def _parse_dq_quality_rules_rows(rows: list[dict]) -> list[CriticaRule]:
+def _parse_dq_quality_rules_rows(
+    rows: list[dict],
+    vinc_by_pair: dict | None = None,
+    vinc_by_rule_id: dict | None = None,
+) -> list[CriticaRule]:
     """Translate dq_quality_rules rows (Studio's `check` VARIANT) → CriticaRule.
 
     Studio stores each rule's definition in the `check` VARIANT column as a
@@ -318,6 +324,7 @@ def _parse_dq_quality_rules_rows(rows: list[dict]) -> list[CriticaRule]:
         # table_fqn (works for UI rules that lack a run_config).
         doc_from_table = _doc_from_table_fqn(table_fqn)
 
+        row_rule_id = r.get("rule_id")
         for chk in checks_list:
             if not isinstance(chk, dict):
                 continue
@@ -328,13 +335,27 @@ def _parse_dq_quality_rules_rows(rows: list[dict]) -> list[CriticaRule]:
             expr = ""
             if isinstance(args, dict):
                 expr = str(args.get("expression") or args.get("query") or "")[:300]
-            # Structural metadata sourced from rc18_rule_meta (RC18 hard-codes
-            # the 4 initial rules). User-authored Studio rules get safe defaults.
-            meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
+            # Structural metadata: link table (source of truth) wins; else
+            # rc18_rule_meta (RC18 hard-codes the 4 initial rules); else defaults.
+            # Definitions without an explicit `name` give check_name="" — the
+            # rule_id fallback in resolve_meta recovers the link in that case.
+            meta = resolve_meta(
+                check_name, table_fqn=table_fqn, user_metadata=um,
+                vinculos_by_pair=vinc_by_pair, vinculos_by_rule_id=vinc_by_rule_id,
+                rule_id=row_rule_id,
+            )
+            link = None
+            if vinc_by_pair and check_name:
+                link = vinc_by_pair.get((table_fqn, check_name))
+            if not link and vinc_by_rule_id and row_rule_id:
+                link = vinc_by_rule_id.get(row_rule_id)
             doc = meta["document"] or doc_from_table
-            description = um.get("descricao") or um.get("mensagem_erro") or args.get("msg") or check_name or ""
+            description = (
+                um.get("descricao") or um.get("mensagem_erro") or args.get("msg")
+                or (link or {}).get("descricao") or check_name or ""
+            )
             out.append(CriticaRule(
-                rule_id=meta["critica_id"] or check_name or r.get("rule_id") or "",
+                rule_id=meta["critica_id"] or check_name or row_rule_id or "",
                 document=doc,
                 rule_type=meta["rule_type"],
                 severity=sev,

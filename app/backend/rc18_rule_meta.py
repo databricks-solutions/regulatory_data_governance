@@ -140,3 +140,58 @@ def meta_for(
             out["dimension_name"] = _DIM_NAMES[dim_int]
 
     return out
+
+
+def _meta_from_vinculo(vinculo: dict, *, fallback: RuleMeta) -> RuleMeta:
+    """Build a RuleMeta from a `regra_vinculos` row, using `fallback` for any
+    field the link doesn't override."""
+    out: RuleMeta = {**fallback}
+    dim = vinculo.get("dimensao_r18")
+    dim_int = _parse_dim_r18(dim)
+    if dim_int:
+        out["dimension_r18"] = dim_int
+        out["dimension_name"] = _DIM_NAMES[dim_int]
+    if vinculo.get("critica_id"):
+        out["critica_id"] = vinculo["critica_id"]
+    if vinculo.get("documento"):
+        out["document"] = vinculo["documento"]
+    niv = vinculo.get("nivel_verificacao")
+    if niv is not None:
+        try:
+            out["nivel_verificacao"] = int(niv)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def resolve_meta(
+    check_name: str | None,
+    *,
+    table_fqn: str = "",
+    user_metadata: dict | None = None,
+    vinculos_by_pair: dict | None = None,
+    vinculos_by_rule_id: dict | None = None,
+    rule_id: str | None = None,
+) -> RuleMeta:
+    """Resolve rule metadata with the RC18 link table as the source of truth.
+
+    Order:
+      1. `regra_vinculos` matched by (table_fqn, check_name) — link wins.
+      2. `regra_vinculos` matched by rule_id — covers rules whose definition has
+         no `name` (parsed check_name empty) but whose stable rule_id is linked.
+      3. Fall back to `meta_for(...)` (tag → RC18_RULE_META → default) unchanged.
+
+    The link only OVERRIDES the fields it carries; everything else keeps the
+    `meta_for` baseline, so the 4 hard-coded rules (never linked) are byte-for-
+    byte identical to before.
+    """
+    baseline = meta_for(check_name, table_fqn=table_fqn, user_metadata=user_metadata)
+
+    vinculo = None
+    if vinculos_by_pair and check_name:
+        vinculo = vinculos_by_pair.get((table_fqn, check_name))
+    if not vinculo and vinculos_by_rule_id and rule_id:
+        vinculo = vinculos_by_rule_id.get(rule_id)
+    if vinculo:
+        return _meta_from_vinculo(vinculo, fallback=baseline)
+    return baseline
