@@ -5,9 +5,9 @@
   import FilterBar from '$lib/components/data/FilterBar.svelte';
   import {
     getCadocs, createCadoc, updateCadoc, deleteCadoc,
-    getCadocTables, getSchemaTables, associateCadocTable, removeCadocTable,
     getLinkableRules, createLink, updateLink, deleteLink, ApiError
   } from '$lib/api.js';
+  import { dimensionNames } from '$lib/theme.js';
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
 
@@ -33,20 +33,26 @@
     return $_(fallbackKey || 'linking.errorGeneric');
   }
 
+  // Opções de dimensão para FILTROS (só número, compacto).
   const DIM_OPTIONS = $derived.by(() =>
     Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` }))
   );
+  // Opções para o MODAL de vínculo: número + nome (ex.: "1 · Acessibilidade").
+  const DIM_OPTIONS_NAMED = Array.from({ length: 12 }, (_, i) => ({
+    value: String(i + 1), label: `${i + 1} · ${dimensionNames[i]}`
+  }));
+  // Níveis de verificação — nomenclatura alinhada à tela de Críticas SCR.
+  const NIVEL_OPTIONS = $derived.by(() => [
+    { value: '1', label: `1 · ${$_('validations.levelOneSubtitle')}` },
+    { value: '2', label: `2 · ${$_('validations.levelTwoSubtitle')}` },
+    { value: '3', label: `3 · ${$_('validations.levelThreeSubtitle')}` },
+  ]);
 
   // ── CADOC management ────────────────────────────────────────────────────
   let cadocs = $state([]);
   let cadocsLoading = $state(false);
-  let expandedCadoc = $state(null);       // documento string
-  let cadocTables = $state({});            // { documento: [ {table_fqn} ] }
-  let schemaResults = $state([]);          // browse results for the expanded cadoc
-  let schemaFilter = $state({ schema: 'silver', search: '' });
-  let tablePending = $state({});           // { table_fqn: true }
-
   let cadocModalOpen = $state(false);
+  let cadocEditing = $state(false);        // false = criar, true = editar
   let cadocForm = $state({ documento: '', nome: '', descricao: '', leiaute_versao: '' });
   let cadocSaving = $state(false);
 
@@ -62,60 +68,20 @@
     }
   }
 
-  async function toggleCadoc(documento) {
-    if (expandedCadoc === documento) { expandedCadoc = null; return; }
-    expandedCadoc = documento;
-    await Promise.all([loadCadocTables(documento), loadSchemaTables()]);
-  }
-
-  async function loadCadocTables(documento) {
-    try {
-      const data = await getCadocTables(documento);
-      cadocTables = { ...cadocTables, [documento]: data?.tables || [] };
-    } catch (e) { showToast('error', errMessage(e)); }
-  }
-
-  async function loadSchemaTables() {
-    try {
-      const data = await getSchemaTables(schemaFilter.schema, schemaFilter.search);
-      schemaResults = data?.tables || [];
-    } catch (e) { showToast('error', errMessage(e)); }
-  }
-
-  function isAssociated(documento, fqn) {
-    return (cadocTables[documento] || []).some(t => t.table_fqn === fqn);
-  }
-
-  async function associate(documento, fqn) {
-    tablePending = { ...tablePending, [fqn]: true };
-    try {
-      await associateCadocTable(documento, { table_fqn: fqn });
-      await loadCadocTables(documento);
-      await loadCadocs();
-      showToast('success', $_('linking.associatedTable'));
-    } catch (e) {
-      showToast('error', errMessage(e));
-    } finally {
-      const { [fqn]: _drop, ...rest } = tablePending; tablePending = rest;
-    }
-  }
-
-  async function disassociate(documento, fqn) {
-    tablePending = { ...tablePending, [fqn]: true };
-    try {
-      await removeCadocTable(documento, fqn);
-      await loadCadocTables(documento);
-      await loadCadocs();
-      showToast('success', $_('linking.removedTable'));
-    } catch (e) {
-      showToast('error', errMessage(e));
-    } finally {
-      const { [fqn]: _drop, ...rest } = tablePending; tablePending = rest;
-    }
-  }
-
   function openNewCadoc() {
+    cadocEditing = false;
     cadocForm = { documento: '', nome: '', descricao: '', leiaute_versao: '' };
+    cadocModalOpen = true;
+  }
+
+  function openEditCadoc(c) {
+    cadocEditing = true;
+    cadocForm = {
+      documento: c.documento,
+      nome: c.nome || '',
+      descricao: c.descricao || '',
+      leiaute_versao: c.leiaute_versao || ''
+    };
     cadocModalOpen = true;
   }
 
@@ -123,7 +89,15 @@
     if (!cadocForm.documento || !cadocForm.nome) return;
     cadocSaving = true;
     try {
-      await createCadoc({ ...cadocForm });
+      if (cadocEditing) {
+        await updateCadoc(cadocForm.documento, {
+          nome: cadocForm.nome,
+          descricao: cadocForm.descricao || null,
+          leiaute_versao: cadocForm.leiaute_versao || null
+        });
+      } else {
+        await createCadoc({ ...cadocForm });
+      }
       cadocModalOpen = false;
       await loadCadocs();
       showToast('success', $_('linking.savedCadoc'));
@@ -138,7 +112,6 @@
     if (!confirm($_('linking.confirmDeleteCadoc'))) return;
     try {
       await deleteCadoc(documento);
-      if (expandedCadoc === documento) expandedCadoc = null;
       await loadCadocs();
       showToast('success', $_('linking.removedCadoc'));
     } catch (e) {
@@ -154,7 +127,7 @@
   let linkModalOpen = $state(false);
   let linkSaving = $state(false);
   let editing = $state(null); // the LinkableRule being linked/edited
-  let linkForm = $state({ check_name: '', documento: '', dimensao_r18: '', critica_id: '', nivel_verificacao: '', descricao: '', manualCheck: false });
+  let linkForm = $state({ check_name: '', documento: '', dimensao_r18: '', nivel_verificacao: '', descricao: '', manualCheck: false });
   // CADOC derivado da tabela da regra (via cadoc_tabelas) — default do seletor.
   let derivedDocumento = $state('');
 
@@ -191,7 +164,6 @@
       check_name: cur?.check_name || rule.definition_name || candidates[0] || '',
       documento: cur?.documento || rule.documento || '',
       dimensao_r18: cur?.dimensao_r18 ? String(cur.dimensao_r18) : '',
-      critica_id: cur?.critica_id || '',
       nivel_verificacao: cur?.nivel_verificacao ? String(cur.nivel_verificacao) : '',
       descricao: cur?.descricao || '',
       manualCheck: candidates.length === 0 && !cur
@@ -209,7 +181,6 @@
           check_name: linkForm.check_name,
           documento: linkForm.documento || null,
           dimensao_r18: Number(linkForm.dimensao_r18),
-          critica_id: linkForm.critica_id || null,
           nivel_verificacao: linkForm.nivel_verificacao ? Number(linkForm.nivel_verificacao) : null,
           descricao: linkForm.descricao || null
         });
@@ -220,7 +191,6 @@
           rule_id: editing.rule_id || null,
           documento: linkForm.documento || editing.documento || null,
           dimensao_r18: Number(linkForm.dimensao_r18),
-          critica_id: linkForm.critica_id || null,
           nivel_verificacao: linkForm.nivel_verificacao ? Number(linkForm.nivel_verificacao) : null,
           descricao: linkForm.descricao || null
         });
@@ -279,65 +249,17 @@
           </thead>
           <tbody>
             {#each cadocs as c (c.documento)}
-              <tr class="cadoc-row" class:expanded={expandedCadoc === c.documento} onclick={() => toggleCadoc(c.documento)}>
+              <tr>
                 <td class="mono">{c.documento}</td>
                 <td>{c.nome}</td>
                 <td class="num">{c.table_count}</td>
                 <td class="num">{c.rule_count}</td>
                 <td><Badge label={c.is_ativo ? $_('linking.cadocActive') : $_('linking.cadocInactive')} variant={c.is_ativo ? 'success' : 'neutral'} /></td>
                 <td class="actions">
-                  <button class="btn-link-danger" onclick={(e) => { e.stopPropagation(); onDeleteCadoc(c.documento); }}>{$_('linking.remove')}</button>
+                  <button class="btn-secondary sm" onclick={() => openEditCadoc(c)}>{$_('linking.edit')}</button>
+                  <button class="btn-link-danger" onclick={() => onDeleteCadoc(c.documento)}>{$_('linking.remove')}</button>
                 </td>
               </tr>
-              {#if expandedCadoc === c.documento}
-                <tr class="expand-row">
-                  <td colspan="6">
-                    <div class="assoc-panel">
-                      <div class="assoc-current">
-                        <h4>{$_('linking.tablesTitle')}</h4>
-                        {#if (cadocTables[c.documento] || []).length === 0}
-                          <p class="muted">{$_('linking.tablesEmpty')}</p>
-                        {:else}
-                          <ul class="assoc-list">
-                            {#each cadocTables[c.documento] as t (t.table_fqn)}
-                              <li>
-                                <span class="mono">{t.table_fqn}</span>
-                                <button class="btn-link-danger" disabled={tablePending[t.table_fqn]} onclick={() => disassociate(c.documento, t.table_fqn)}>{$_('linking.remove')}</button>
-                              </li>
-                            {/each}
-                          </ul>
-                        {/if}
-                      </div>
-                      <div class="assoc-browse">
-                        <h4>{$_('linking.browseSchema')}</h4>
-                        <div class="browse-filter">
-                          <select bind:value={schemaFilter.schema} onchange={loadSchemaTables}>
-                            <option value="silver">silver</option>
-                            <option value="bronze">bronze</option>
-                            <option value="gold">gold</option>
-                            <option value="reference">reference</option>
-                          </select>
-                          <input type="text" placeholder={$_('linking.searchTable')} bind:value={schemaFilter.search} oninput={loadSchemaTables} />
-                        </div>
-                        <ul class="browse-list">
-                          {#each schemaResults as st (st.table_fqn)}
-                            <li>
-                              <span class="mono">{st.table_name}</span>
-                              {#if isAssociated(c.documento, st.table_fqn)}
-                                <span class="tag-ok">{$_('linking.associated')}</span>
-                              {:else if st.already_linked_documento && st.already_linked_documento !== c.documento}
-                                <span class="tag-warn">{$_('linking.linkedTo', { values: { documento: st.already_linked_documento } })}</span>
-                              {:else}
-                                <button class="btn-link" disabled={tablePending[st.table_fqn]} onclick={() => associate(c.documento, st.table_fqn)}>{$_('linking.associate')}</button>
-                              {/if}
-                            </li>
-                          {/each}
-                        </ul>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              {/if}
             {/each}
           </tbody>
         </table>
@@ -396,11 +318,11 @@
   {/if}
 </div>
 
-<!-- New CADOC modal -->
-<Modal open={cadocModalOpen} title={$_('linking.newCadocTitle')} onclose={() => cadocModalOpen = false}>
+<!-- CADOC modal (criar/editar) -->
+<Modal open={cadocModalOpen} title={cadocEditing ? $_('linking.editCadocTitle') : $_('linking.newCadocTitle')} onclose={() => cadocModalOpen = false}>
   <div class="form">
     <label>{$_('linking.fieldDocument')}
-      <input type="text" bind:value={cadocForm.documento} placeholder={$_('linking.fieldDocumentHint')} />
+      <input type="text" bind:value={cadocForm.documento} placeholder={$_('linking.fieldDocumentHint')} disabled={cadocEditing} />
     </label>
     <label>{$_('linking.fieldName')}
       <input type="text" bind:value={cadocForm.nome} />
@@ -458,21 +380,18 @@
       <label>{$_('linking.fieldDimension')}
         <select bind:value={linkForm.dimensao_r18}>
           <option value="" disabled>—</option>
-          {#each DIM_OPTIONS as d}
-            <option value={d.value}>{d.value}</option>
+          {#each DIM_OPTIONS_NAMED as d}
+            <option value={d.value}>{d.label}</option>
           {/each}
         </select>
       </label>
       <label>{$_('linking.fieldNivel')}
         <select bind:value={linkForm.nivel_verificacao}>
           <option value="">—</option>
-          <option value="1">{$_('linking.nivel1')}</option>
-          <option value="2">{$_('linking.nivel2')}</option>
-          <option value="3">{$_('linking.nivel3')}</option>
+          {#each NIVEL_OPTIONS as n}
+            <option value={n.value}>{n.label}</option>
+          {/each}
         </select>
-      </label>
-      <label>{$_('linking.fieldCriticaId')}
-        <input type="text" bind:value={linkForm.critica_id} />
       </label>
       <label>{$_('linking.fieldDescription')}
         <textarea rows="2" bind:value={linkForm.descricao}></textarea>
@@ -499,24 +418,10 @@
   .cadoc-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
   .cadoc-table th { text-align: left; padding: var(--space-2) var(--space-3); color: var(--gray-500); font-weight: 600; border-bottom: 1px solid var(--border-color); }
   .cadoc-table th.num, .cadoc-table td.num { text-align: right; }
-  .cadoc-row { cursor: pointer; }
-  .cadoc-row td { padding: var(--space-3); border-bottom: 1px solid var(--gray-100); }
-  .cadoc-row:hover { background: var(--blue-50); }
-  .cadoc-row.expanded { background: var(--blue-50); }
-  .actions { text-align: right; }
-
-  .expand-row td { background: var(--gray-50); padding: var(--space-4); }
-  .assoc-panel { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
-  .assoc-panel h4 { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); color: var(--gray-700); }
-  .assoc-list, .browse-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); max-height: 240px; overflow-y: auto; }
-  .assoc-list li, .browse-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
-  .assoc-list li:hover, .browse-list li:hover { background: var(--white); }
-  .browse-filter { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
-  .browse-filter select, .browse-filter input { padding: var(--space-1) var(--space-2); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
-  .browse-filter input { flex: 1; }
-
-  .tag-ok { font-size: var(--font-size-xs); color: var(--success); font-weight: 600; }
-  .tag-warn { font-size: var(--font-size-xs); color: var(--warning); }
+  .cadoc-table td { padding: var(--space-3); border-bottom: 1px solid var(--gray-100); }
+  .cadoc-table tbody tr:hover { background: var(--blue-50); }
+  .actions { text-align: right; white-space: nowrap; }
+  .cadoc-table td.actions { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; }
 
   .rules-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
   .rules-table th { text-align: left; padding: var(--space-2) var(--space-3); color: var(--gray-500); font-weight: 600; border-bottom: 1px solid var(--border-color); }
@@ -550,5 +455,4 @@
   .toast-error { background: var(--error); }
   .toast-info { background: var(--info); }
 
-  @media (max-width: 900px) { .assoc-panel { grid-template-columns: 1fr; } }
 </style>

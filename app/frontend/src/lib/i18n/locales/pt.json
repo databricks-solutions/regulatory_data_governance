@@ -245,6 +245,7 @@
     "ruleColStatus": "Vínculo",
     "ruleColActions": "Ações",
     "link": "Vincular",
+    "edit": "Editar",
     "editLink": "Editar vínculo",
     "linkRuleTitle": "Vincular regra a CADOC + dimensão",
     "fieldCheckName": "Check (nome efetivo)",

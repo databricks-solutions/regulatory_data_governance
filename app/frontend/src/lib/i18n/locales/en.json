@@ -245,6 +245,7 @@
     "ruleColStatus": "Link",
     "ruleColActions": "Actions",
     "link": "Link",
+    "edit": "Edit",
     "editLink": "Edit link",
     "linkRuleTitle": "Link rule to CADOC + dimension",
     "fieldCheckName": "Check (effective name)",

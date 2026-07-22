@@ -245,6 +245,7 @@
     "ruleColStatus": "Collegamento",
     "ruleColActions": "Azioni",
     "link": "Collega",
+    "edit": "Modifica",
     "editLink": "Modifica collegamento",
     "linkRuleTitle": "Collega regola a CADOC + dimensione",
     "fieldCheckName": "Check (nome effettivo)",
