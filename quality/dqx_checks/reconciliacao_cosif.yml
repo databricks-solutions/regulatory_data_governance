@@ -33,9 +33,7 @@
   check:
     function: sql_expression
     arguments:
-      expression: >
-        vlr_cosif IS NULL OR vlr_cosif = 0
-        OR abs(pct_diferenca) <= tolerancia_pct
+      expression: "vlr_cosif IS NULL OR vlr_cosif = 0 OR abs(pct_diferenca) <= tolerancia_pct"
       msg: "Divergência de batimento SCR 3040 × COSIF (Doc 4010) acima da tolerância (N01)."
   user_metadata:
     dimensao_r18: "8"
