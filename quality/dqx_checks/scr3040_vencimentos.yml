@@ -1,0 +1,26 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr3040_vencimentos
+#
+# Checks de CONSISTÊNCIA intra-documento da entidade Vencimentos do 3040.
+# Dimensão R.18: 6 (Completude). Cada bloco mantém seu critica_id oficial.
+#
+# Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
+# reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC) — não há
+#    subquery neste arquivo, mas mantido por convenção do cabeçalho.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A04 — cada operação/agregação deve conter pelo menos um vencimento (> 0).
+- name: possui_ao_menos_um_vencimento
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "vertice_count >= 1 AND total_saldo > 0"
+      msg: "Operação/agregação sem nenhum vencimento informado (não admitida)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "A04"
+    descricao: "Cada agregação/operação deve conter pelo menos um vencimento com saldo positivo."
+    nivel_verificacao: "2"

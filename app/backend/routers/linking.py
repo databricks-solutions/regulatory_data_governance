@@ -42,7 +42,7 @@ from db import execute_query as execute_query_strict
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
 from db import execute_query_or_empty as execute_query
 from i18n import get_locale
-from rc18_rule_meta import _DIM_NAMES
+from rc18_rule_meta import _DIM_NAMES, meta_for
 from models import (
     CadocCreateRequest,
     CadocDocument,
@@ -547,11 +547,23 @@ async def list_linkable_rules(
                     if (tfqn, c) in links_by_pair:
                         cur = links_by_pair[(tfqn, c)]
                         break
+            # Sem vínculo explícito: derive a dimensão que a tela de Críticas/
+            # scorecard já usa (tag `user_metadata.dimensao_r18` do check → RC18
+            # hard-code → default). Isso sinaliza na UI "via tag" em vez de
+            # "Não vinculada", eliminando a impressão contraditória entre telas.
+            tag_dim = tag_dim_name = None
+            if not cur:
+                um = chk.get("user_metadata") if isinstance(chk, dict) else None
+                tag_meta = meta_for(def_name or None, table_fqn=tfqn, user_metadata=um)
+                if tag_meta["dimension_r18"]:
+                    tag_dim = tag_meta["dimension_r18"]
+                    tag_dim_name = tag_meta["dimension_name"]
             out.append(LinkableRule(
                 rule_id=rr.get("rule_id") or "", definition_name=def_name, function=func,
                 arguments_summary=arg_summary[:200], table_fqn=tfqn,
                 documento=doc_by_table.get(tfqn), effective_check_names=candidates,
                 current_link=_vinculo_from_row(cur) if cur else None,
+                tag_dimension_r18=tag_dim, tag_dimension_name=tag_dim_name,
             ))
     if linked is not None:
         out = [r for r in out if (r.current_link is not None) == linked]

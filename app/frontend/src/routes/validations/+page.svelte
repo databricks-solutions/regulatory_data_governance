@@ -54,7 +54,10 @@
   //     `criticality: error`, não há estado intermediário "atenção"; qualquer
   //     violação é Reprovado.
   const columns = $derived.by(() => [
-    { key: 'rule_id', label: $_('validations.rule'), sortable: true, width: '100px' },
+    { key: 'table_fqn', label: $_('validations.targetTable'), sortable: true, width: '160px',
+      // Tabela-alvo do check (só o nome, sem catálogo.schema). O rule_id/critica_id
+      // continua visível no painel expandido da linha.
+      render: (v) => v ? String(v).split('.').pop() : '—' },
     { key: 'rule_name', label: $_('validations.description'), sortable: true },
     { key: 'nivel_verificacao', label: $_('validations.level'), sortable: true, width: '80px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
     { key: 'dimension_name', label: $_('validations.dimensionR18'), sortable: true, width: '120px' },

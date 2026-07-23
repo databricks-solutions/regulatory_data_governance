@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr3040_operacoes
+#
+# Todos os checks deste arquivo rodam sobre a MESMA tabela target, para importar
+# de uma só vez no DQX Studio (um run_config por tabela). Reúne duas categorias:
+#   • DOMÍNIO       (valores válidos por campo)      — dim. R.18: 9 Integridade
+#   • CONSISTÊNCIA  (coerência intra-documento)      — dim. R.18: 2 / 8
+# Cada bloco mantém seu critica_id oficial em user_metadata.
+#
+# Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
+# reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver para
+# alimentar o scorecard R.18. Só regras VIGENTES (as "Vigente até 12/2024",
+# ligadas a ClassOp/Anexo 17, foram excluídas — Res. CMN 4.966, jan/2025).
+#
+# ⚠️ Placeholders: substitua `rc18_catalog` pelo seu catálogo (BYOC) antes de
+#    aplicar. O check `natu_op_in_dominio`/`mod_in_dominio` consultam
+#    `rc18_catalog.reference.dominios` (semeada por
+#    notebooks/setup/setup_reference_tables.py); `operacao_referencia_cliente_existente`
+#    consulta `rc18_catalog.silver.scr3040_clientes`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══ DOMÍNIO ══════════════════════════════════════════════════════════════════
+# Domínios data-driven (EXISTS em reference.dominios). Campos semeados na
+# dominios: NatuOp, Mod (documento='3040').
+
+- name: natu_op_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      # SEM literais string: o DQX Studio grava via parse_json inline e corrompe
+      # qualquer aspa (simples some no round-trip; dupla quebra o parse). O filtro
+      # documento/campo mora na view reference.v_dom_3040_natuop (setup_reference_tables).
+      expression: "natu_op IS NULL OR natu_op IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_natuop)"
+      msg: "NatuOp fora do domínio vigente do leiaute 3040."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "S-DOM-NatuOp"
+    descricao: "Natureza da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
+    nivel_verificacao: "1"
+
+- name: mod_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "mod IS NULL OR mod IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_mod)"
+      msg: "Modalidade (Mod) fora do domínio vigente do leiaute 3040."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "S-DOM-Mod"
+    descricao: "Modalidade da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
+    nivel_verificacao: "1"
+
+# ══ CONSISTÊNCIA ═════════════════════════════════════════════════════════════
+# Coerência DENTRO do próprio 3040 (entre campos e entre blocos), sem depender
+# de fonte externa. Dimensões R.18: 2 (Acurácia) e 8 (Consistência).
+
+# S10/S45 — dia de atraso não pode ser negativo (valor inválido).
+- name: dia_atraso_nao_negativo
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "dia_atraso IS NULL OR dia_atraso >= 0"
+      msg: "DiaAtraso negativo — valor inválido (esperado inteiro não-negativo)."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "S10_004"
+    descricao: "Dias de atraso da operação não podem ser negativos."
+    nivel_verificacao: "1"
+
+# S14 — compatibilidade entre data de contratação e data de vencimento.
+- name: dt_contr_le_dt_venc_op
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "dt_contr IS NULL OR dt_venc_op IS NULL OR dt_contr <= dt_venc_op"
+      msg: "Data de contratação posterior à data de vencimento da operação."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "S14"
+    descricao: "A data de contratação deve ser anterior ou igual à data de vencimento."
+    nivel_verificacao: "2"
+
+# S15/S70 — data de contratação não pode ser posterior à data-base.
+- name: dt_contr_le_dt_base
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "dt_contr IS NULL OR dt_contr <= dt_base"
+      msg: "Data de contratação posterior à data-base da remessa."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "S15"
+    descricao: "A data de contratação não pode ser posterior à data-base."
+    nivel_verificacao: "2"
+
+# S87/S88 — IPOC bem-formado e consistente com os campos que o compõem
+# (a silver já deriva `ipoc_is_consistent` a partir da decomposição do IPOC).
+- name: ipoc_consistente
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "ipoc IS NOT NULL AND length(ipoc) = 30 AND ipoc_is_consistent"
+      msg: "IPOC ausente, com tamanho != 30 ou inconsistente com CNPJ/Mod/TpCli/Cli/Contrato."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "S87"
+    descricao: "IPOC deve ter 30 caracteres e ser consistente com os campos que o compõem."
+    nivel_verificacao: "2"
+
+# Integridade referencial: toda operação referencia um cliente existente no
+# bloco de clientes (mesmo cnpj_if/dt_base/cli_cd). Roda sobre scr3040_operacoes,
+# consultando scr3040_clientes.
+- name: operacao_referencia_cliente_existente
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "cli_cd IS NULL OR EXISTS (SELECT 1 FROM rc18_catalog.silver.scr3040_clientes c WHERE c.cnpj_if = cnpj_if AND c.dt_base = dt_base AND c.cli_cd = cli_cd)"
+      msg: "Operação referencia cliente inexistente no bloco de clientes."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "REF-OP-CLI"
+    descricao: "Toda operação deve referenciar um cliente presente no documento (integridade referencial)."
+    nivel_verificacao: "2"

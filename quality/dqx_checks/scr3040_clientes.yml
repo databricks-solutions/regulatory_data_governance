@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr3040_clientes
+#
+# Checks de DOMÍNIO (valores válidos por campo) da entidade Cliente do 3040.
+# Dimensões R.18: 9 (Integridade) e 3 (Adaptabilidade). Cada bloco mantém seu
+# critica_id oficial em user_metadata.
+#
+# Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls (abas
+# Semântica/Campos Obrigatórios). NÃO reproduzem o Validador BACEN — rodam CEDO
+# (shift-left) sobre a silver para alimentar o scorecard R.18.
+#
+# ⚠️ Placeholders: substitua `rc18_catalog` pelo seu catálogo (BYOC) antes de
+#    aplicar. O check `cli_tp_in_dominio` consulta
+#    `rc18_catalog.reference.dominios` (semeada por
+#    notebooks/setup/setup_reference_tables.py).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Domínios data-driven (EXISTS em reference.dominios) ──────────────────────
+# Campo semeado na dominios: TpCli (documento='3040').
+
+- name: cli_tp_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      # SEM literais string: o DQX Studio grava via parse_json inline e corrompe
+      # qualquer aspa (simples some no round-trip; dupla quebra o parse). O filtro
+      # documento/campo mora na view reference.v_dom_3040_tpcli (setup_reference_tables).
+      expression: "cli_tp IS NULL OR cli_tp IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_tpcli)"
+      msg: "Tipo de cliente (TpCli) fora do domínio vigente do leiaute 3040."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "S17-DOM-TpCli"
+    descricao: "Tipo de cliente deve pertencer ao domínio oficial vigente (reference.dominios)."
+    nivel_verificacao: "1"
+
+# ── Domínios fechados pequenos (IN inline) ───────────────────────────────────
+# reference.dominios NÃO semeia Autorzc/PorteCli/TpCtrl; usamos lista inline.
+# Nomes IDÊNTICOS às 4 regras-semente do acelerador (rc18_rule_meta.py) para
+# não divergir do mapeamento crítica→dimensão já existente.
+
+- name: autorzc_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "autorzc IS NULL OR autorzc IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_autorzc)"
+      msg: "Autorzc fora do domínio {S,N} do leiaute SCR 3040."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "S20_001"
+    descricao: "Indicador de autorização de consulta deve ser 'S' ou 'N'."
+    nivel_verificacao: "1"
+
+- name: tp_ctrl_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tp_ctrl IS NULL OR tp_ctrl IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_tpctrl)"
+      msg: "TpCtrl fora do domínio oficial {'01','02','03','04'} do leiaute SCR 3040."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "S20_003"
+    descricao: "Tipo de controle societário deve pertencer ao domínio oficial."
+    nivel_verificacao: "1"
+
+- name: porte_cli_in_dominio_por_tipo
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      # Porte condicional ao tipo de pessoa: PF (is_pf) 0-8; PJ (is_pj) 0-4.
+      # SEM literais string (o DQX corrompe aspas no parse_json inline): cada faixa
+      # vem de uma view de domínio (v_dom_3040_portecli_pf / _pj).
+      expression: "porte_cli IS NULL OR (is_pf AND porte_cli IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_portecli_pf)) OR (is_pj AND porte_cli IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_portecli_pj))"
+      msg: "PorteCli fora do domínio condicional ao tipo (PF: 0-8; PJ: 0-4)."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "S20_002"
+    descricao: "Porte do cliente deve respeitar o domínio condicional ao tipo de pessoa."
+    nivel_verificacao: "1"

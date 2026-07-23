@@ -297,6 +297,10 @@
                 <td>
                   {#if r.current_link}
                     <Badge label={`${r.current_link.dimensao_r18} · ${r.current_link.dimension_name}`} variant="success" />
+                  {:else if r.tag_dimension_r18}
+                    <span title={$_('linking.statusViaTagTitle')}>
+                      <Badge label={`${r.tag_dimension_r18} · ${r.tag_dimension_name} (${$_('linking.statusViaTag')})`} variant="info" />
+                    </span>
                   {:else}
                     <Badge label={$_('linking.statusUnlinked')} variant="neutral" />
                   {/if}

@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr3040_garantias
+#
+# Checks de CONSISTÊNCIA intra-documento da entidade Garantias do 3040.
+# Dimensão R.18: 8 (Consistência). Cada bloco mantém seu critica_id oficial.
+#
+# Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
+# reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC) — não há
+#    subquery neste arquivo, mas mantido por convenção do cabeçalho.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# S13 — garantidor fidejussório não pode ser o próprio cliente principal
+# (o identificador da garantia difere do código do cliente).
+- name: garantidor_fidejussorio_nao_e_cliente
+  criticality: warn
+  check:
+    function: sql_expression
+    arguments:
+      expression: "NOT is_fidejussoria OR ident IS NULL OR ident <> cli_cd"
+      msg: "Garantidor fidejussório coincide com o cliente principal da operação."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "S13"
+    descricao: "O garantidor fidejussório não pode ser o próprio cliente principal."
+    nivel_verificacao: "2"

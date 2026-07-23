@@ -172,6 +172,7 @@ class ValidationResult(BaseModel):
     run_config_name: str | None = None   # silver_3040_operacoes | silver_3050 — dedup key for incidents
     dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
     critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
+    table_fqn: str | None = None         # tabela-alvo do check (source_table_fqn do run DQX)
 
 
 class ValidationResultsResponse(BaseModel):
@@ -880,6 +881,12 @@ class LinkableRule(BaseModel):
     # o usuário confirma no modal (resolve o nome efetivo de regras sem `name`).
     effective_check_names: list[str] = []
     current_link: RegraVinculo | None = None
+    # Dimensão R.18 DERIVADA da tag `user_metadata.dimensao_r18` do check (ou do
+    # hard-code RC18) quando NÃO há vínculo explícito. Serve só para a UI sinalizar
+    # "via tag" em vez de "Não vinculada" — não é um vínculo real em regra_vinculos.
+    # Nulo quando não há tag/fallback OU quando já existe current_link.
+    tag_dimension_r18: int | None = None
+    tag_dimension_name: str | None = None
 
 
 class LinkableRulesResponse(BaseModel):
