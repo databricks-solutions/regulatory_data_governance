@@ -27,11 +27,19 @@ Regras puramente sintáticas/XSD ficam de fora (território do Validador).
 
 ## Arquivos
 
-| Arquivo | Categoria | Tabela-alvo (silver/gold) | Dimensão R.18 |
-|---------|-----------|---------------------------|:-------------:|
-| [`dqx_checks/scr3040_dominio.yml`](dqx_checks/scr3040_dominio.yml) | Valores válidos por campo | `silver.scr3040_operacoes`, `silver.scr3040_clientes` | 9 Integridade · 3 Adaptabilidade |
-| [`dqx_checks/scr3040_consistencia.yml`](dqx_checks/scr3040_consistencia.yml) | Consistência intra-documento | `silver.scr3040_operacoes/clientes/vencimentos/garantias` | 8 Consistência · 6 Completude |
-| [`dqx_checks/scr3040_batimento_cosif.yml`](dqx_checks/scr3040_batimento_cosif.yml) | Batimento inter-CADOC (3040 × 4010) | `gold.reconciliacao_cosif` | 8 Consistência |
+**Um arquivo por tabela-alvo** — o DQX Studio importa cada conjunto de checks
+vinculado a um `run_config`/tabela, então o `.yml` é organizado pela tabela em
+que os checks rodam (não por categoria). Cada arquivo agrupa domínio +
+consistência da mesma tabela; o `critica_id`/dimensão de cada regra fica em
+`user_metadata`.
+
+| Arquivo (tabela-alvo) | Tabela-alvo (silver/gold) | Categorias de check | Dimensão R.18 |
+|---------|---------------------------|---------------------|:-------------:|
+| [`dqx_checks/scr3040_operacoes.yml`](dqx_checks/scr3040_operacoes.yml) | `silver.scr3040_operacoes` | Domínio (NatuOp, Mod) + consistência (datas, IPOC, integridade ref.) | 9 · 2 · 8 |
+| [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 9 · 3 |
+| [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 Completude |
+| [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 Consistência |
+| [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 Consistência |
 
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`
 (código oficial ancorado no catálogo), `descricao` e `nivel_verificacao`
@@ -54,8 +62,9 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
 ## Como aplicar no DQX Studio
 
 1. **Substitua `rc18_catalog`** pelo seu catálogo em todos os `.yml` (caso BYOC).
-2. No DQX Studio, crie/importe os checks a partir de cada arquivo, associando ao
-   **run_config / tabela-alvo** indicado no cabeçalho de cada `.yml`.
+2. No DQX Studio, importe **um arquivo por vez**: como cada `.yml` já contém só
+   os checks de uma única tabela-alvo, basta associar o import ao
+   **run_config / tabela** de mesmo nome do arquivo (indicado no cabeçalho).
 3. Garanta os pré-requisitos de cada categoria:
    - **Domínio**: a tabela `reference.dominios` deve estar semeada
      (`notebooks/setup/setup_reference_tables.py`).

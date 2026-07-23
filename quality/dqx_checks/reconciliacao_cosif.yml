@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Regras de QUALIDADE DQX — SCR 3040 · BATIMENTO INTER-CADOC (3040 × COSIF 4010)
+# Regras de QUALIDADE DQX — TABELA-ALVO: gold.reconciliacao_cosif
 #
+# BATIMENTO INTER-CADOC (SCR 3040 × COSIF Documento 4010).
 # Dimensão R.18: 8 (Consistência) — "informações livres de contradições, mesmo
 # de fontes diferentes". Aqui as fontes são dois CADOCs: SCR 3040 (individual)
 # × Balancete COSIF Documento 4010 (contábil). Ancorado na crítica de rejeição
@@ -12,10 +13,9 @@
 # calculados. O simulador do CADOC 4010 (demo/notebooks/doc4010_generator/)
 # produz essa tabela. A regra apenas verifica se a diferença está na tolerância.
 #
-# Alvo (run_config_name / tabela no DQX Studio):
-#   rc18_catalog.gold.reconciliacao_cosif   (colunas: tipo_regra, codigo_regra,
-#     cosif_conta, vlr_scr, vlr_cosif, vlr_diferenca, pct_diferenca,
-#     tolerancia_pct, status — ver docs/spec/03_data_model.md §4.3)
+# Colunas esperadas: tipo_regra, codigo_regra, cosif_conta, vlr_scr, vlr_cosif,
+#   vlr_diferenca, pct_diferenca, tolerancia_pct, status
+#   (ver docs/spec/03_data_model.md §4.3).
 #
 # ⚠️ ESCOPO / SIMULAÇÃO: o mapeamento rubrica-COSIF ↔ filtros de
 #    natureza/modalidade/vencimento do 3040 é REPRESENTATIVO e simplificado

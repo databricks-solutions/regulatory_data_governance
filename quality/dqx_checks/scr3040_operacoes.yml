@@ -1,21 +1,67 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Regras de QUALIDADE DQX — SCR 3040 · CONSISTÊNCIA INTRA-DOCUMENTO
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr3040_operacoes
 #
-# Verificam coerência DENTRO do próprio 3040 (entre campos e entre blocos),
-# sem depender de fonte externa. Rodam CEDO sobre a silver.
+# Todos os checks deste arquivo rodam sobre a MESMA tabela target, para importar
+# de uma só vez no DQX Studio (um run_config por tabela). Reúne duas categorias:
+#   • DOMÍNIO       (valores válidos por campo)      — dim. R.18: 9 Integridade
+#   • CONSISTÊNCIA  (coerência intra-documento)      — dim. R.18: 2 / 8
+# Cada bloco mantém seu critica_id oficial em user_metadata.
 #
-# Dimensões R.18: 8 (Consistência) e 6 (Completude), conforme cada regra.
-# Códigos ancorados no catálogo oficial docs/scr3040/SCR3040_Criticas.xls
-# (abas Semântica/Individualizadas/Agregadas). Só regras VIGENTES (as marcadas
-# "Vigente até 12/2024", p.ex. ligadas a ClassOp/Anexo 17, foram excluídas —
-# descontinuadas desde jan/2025, Res. CMN 4.966).
+# Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
+# reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver para
+# alimentar o scorecard R.18. Só regras VIGENTES (as "Vigente até 12/2024",
+# ligadas a ClassOp/Anexo 17, foram excluídas — Res. CMN 4.966, jan/2025).
 #
-# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
-#
-# Alvo por check (run_config_name / tabela no DQX Studio) indicado em cada bloco.
+# ⚠️ Placeholders: substitua `rc18_catalog` pelo seu catálogo (BYOC) antes de
+#    aplicar. O check `natu_op_in_dominio`/`mod_in_dominio` consultam
+#    `rc18_catalog.reference.dominios` (semeada por
+#    notebooks/setup/setup_reference_tables.py); `operacao_referencia_cliente_existente`
+#    consulta `rc18_catalog.silver.scr3040_clientes`.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── scr3040_operacoes ────────────────────────────────────────────────────────
+# ══ DOMÍNIO ══════════════════════════════════════════════════════════════════
+# Domínios data-driven (EXISTS em reference.dominios). Campos semeados na
+# dominios: NatuOp, Mod (documento='3040').
+
+- name: natu_op_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: >
+        natu_op IS NULL OR EXISTS (
+          SELECT 1 FROM rc18_catalog.reference.dominios d
+          WHERE d.documento = '3040' AND d.campo = 'NatuOp'
+            AND d.valor_codigo = natu_op AND d.is_current
+        )
+      msg: "NatuOp fora do domínio vigente do leiaute 3040."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "S-DOM-NatuOp"
+    descricao: "Natureza da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
+    nivel_verificacao: "1"
+
+- name: mod_in_dominio
+  criticality: error
+  check:
+    function: sql_expression
+    arguments:
+      expression: >
+        mod IS NULL OR EXISTS (
+          SELECT 1 FROM rc18_catalog.reference.dominios d
+          WHERE d.documento = '3040' AND d.campo = 'Mod'
+            AND d.valor_codigo = mod AND d.is_current
+        )
+      msg: "Modalidade (Mod) fora do domínio vigente do leiaute 3040."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "S-DOM-Mod"
+    descricao: "Modalidade da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
+    nivel_verificacao: "1"
+
+# ══ CONSISTÊNCIA ═════════════════════════════════════════════════════════════
+# Coerência DENTRO do próprio 3040 (entre campos e entre blocos), sem depender
+# de fonte externa. Dimensões R.18: 2 (Acurácia) e 8 (Consistência).
 
 # S10/S45 — dia de atraso não pode ser negativo (valor inválido).
 - name: dia_atraso_nao_negativo
@@ -74,10 +120,9 @@
     descricao: "IPOC deve ter 30 caracteres e ser consistente com os campos que o compõem."
     nivel_verificacao: "2"
 
-# ── scr3040_operacoes × scr3040_clientes (integridade referencial) ───────────
-
 # Integridade referencial: toda operação referencia um cliente existente no
-# bloco de clientes (mesmo cnpj_if/dt_base/cli_cd).
+# bloco de clientes (mesmo cnpj_if/dt_base/cli_cd). Roda sobre scr3040_operacoes,
+# consultando scr3040_clientes.
 - name: operacao_referencia_cliente_existente
   criticality: error
   check:
@@ -93,37 +138,4 @@
     dimensao_r18: "8"
     critica_id: "REF-OP-CLI"
     descricao: "Toda operação deve referenciar um cliente presente no documento (integridade referencial)."
-    nivel_verificacao: "2"
-
-# ── scr3040_vencimentos ──────────────────────────────────────────────────────
-
-# A04 — cada operação/agregação deve conter pelo menos um vencimento (> 0).
-- name: possui_ao_menos_um_vencimento
-  criticality: error
-  check:
-    function: sql_expression
-    arguments:
-      expression: "vertice_count >= 1 AND total_saldo > 0"
-      msg: "Operação/agregação sem nenhum vencimento informado (não admitida)."
-  user_metadata:
-    dimensao_r18: "6"
-    critica_id: "A04"
-    descricao: "Cada agregação/operação deve conter pelo menos um vencimento com saldo positivo."
-    nivel_verificacao: "2"
-
-# ── scr3040_garantias ────────────────────────────────────────────────────────
-
-# S13 — garantidor fidejussório não pode ser o próprio cliente principal
-# (o identificador da garantia difere do código do cliente).
-- name: garantidor_fidejussorio_nao_e_cliente
-  criticality: warn
-  check:
-    function: sql_expression
-    arguments:
-      expression: "NOT is_fidejussoria OR ident IS NULL OR ident <> cli_cd"
-      msg: "Garantidor fidejussório coincide com o cliente principal da operação."
-  user_metadata:
-    dimensao_r18: "8"
-    critica_id: "S13"
-    descricao: "O garantidor fidejussório não pode ser o próprio cliente principal."
     nivel_verificacao: "2"
