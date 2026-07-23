@@ -48,7 +48,9 @@
   check:
     function: sql_expression
     arguments:
-      expression: "status <> 'BLOQUEADO'"
+      # Aspas DUPLAS no literal: o DQX Studio engole aspas simples ao gravar via
+      # parse_json (viram identificador). No Spark SQL "x" é string literal.
+      expression: 'status <> "BLOQUEADO"'
       msg: "Batimento COSIF com status BLOQUEADO — divergência impede a remessa."
   user_metadata:
     dimensao_r18: "8"
