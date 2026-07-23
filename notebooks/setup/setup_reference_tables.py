@@ -72,6 +72,30 @@ VALUES
   ('3040', 'ClassOp', 'F', 'Risco alto', 'Anexo 5', 'V1', '2000-01-01', true),
   ('3040', 'ClassOp', 'G', 'Risco muito alto', 'Anexo 5', 'V1', '2000-01-01', true),
   ('3040', 'ClassOp', 'H', 'Risco máximo (perda)', 'Anexo 5', 'V1', '2000-01-01', true),
+  -- Domínios adicionais consumidos pelos checks DQX (via views v_dom_3040_*).
+  -- Ficam em dominios (fonte única) porque o DQX Studio NÃO aceita literais string
+  -- na expression do check (o parse_json inline os corrompe) — o filtro documento/
+  -- campo vive DENTRO da view, e o check faz `col IN (SELECT valor_codigo FROM view)`.
+  ('3040', 'Autorzc', 'S', 'Autoriza consulta ao SCR', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'Autorzc', 'N', 'Não autoriza consulta ao SCR', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'TpCtrl', '01', 'Controle da União', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'TpCtrl', '02', 'Controle de estados/municípios', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'TpCtrl', '03', 'Controle privado nacional', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'TpCtrl', '04', 'Controle privado estrangeiro', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '0', 'Porte PF - faixa 0', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '1', 'Porte PF - faixa 1', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '2', 'Porte PF - faixa 2', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '3', 'Porte PF - faixa 3', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '4', 'Porte PF - faixa 4', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '5', 'Porte PF - faixa 5', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '6', 'Porte PF - faixa 6', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '7', 'Porte PF - faixa 7', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPF', '8', 'Porte PF - faixa 8', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPJ', '0', 'Porte PJ - faixa 0', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPJ', '1', 'Porte PJ - faixa 1', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPJ', '2', 'Porte PJ - faixa 2', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPJ', '3', 'Porte PJ - faixa 3', 'Anexo 1', 'V1', '2000-01-01', true),
+  ('3040', 'PorteCliPJ', '4', 'Porte PJ - faixa 4', 'Anexo 1', 'V1', '2000-01-01', true),
   ('3050', 'encargo', 'pre', 'Prefixado', NULL, 'V11', '2025-11-07', true),
   ('3050', 'encargo', 'flu', 'Pós-fixado flutuante', NULL, 'V11', '2025-11-07', true),
   ('3050', 'encargo', 'vc', 'Variação cambial', NULL, 'V11', '2025-11-07', true),
@@ -79,7 +103,49 @@ VALUES
   ('3050', 'encargo', 'igpm', 'IGP-M', NULL, 'V11', '2025-11-07', true),
   ('3050', 'encargo', 'ind', 'Indexador genérico', NULL, 'V11', '2025-11-07', true),
   ('3050', 'segmento', 'pesJuridica', 'Pessoa Jurídica', NULL, 'V11', '2025-11-07', true),
-  ('3050', 'segmento', 'pesFisica', 'Pessoa Física', NULL, 'V11', '2025-11-07', true)
+  ('3050', 'segmento', 'pesFisica', 'Pessoa Física', NULL, 'V11', '2025-11-07', true),
+  -- Status bloqueante da reconciliação COSIF (consumido por v_recon_status_bloqueante).
+  ('4010', 'ReconStatusBloqueante', 'BLOQUEADO', 'Divergência de batimento acima da tolerância', NULL, 'V1', '2000-01-01', true)
+""")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1b. Views de domínio para os checks DQX
+# MAGIC
+# MAGIC O DQX Studio grava cada check via `parse_json('<json inline>')`; literais
+# MAGIC string na `expression` são corrompidos nesse caminho (aspas simples são
+# MAGIC engolidas no round-trip; aspas duplas quebram o parse). A saída robusta é
+# MAGIC manter a `expression` **sem literais string**: o filtro `documento`/`campo`
+# MAGIC vive nestas views, e o check faz apenas
+# MAGIC `col IN (SELECT valor_codigo FROM {CATALOG}.reference.v_dom_3040_*)`.
+
+# COMMAND ----------
+
+# Uma view por campo de domínio consumido pelos checks (filtro documento/campo
+# encapsulado aqui, fora do check). Nomes estáveis: v_dom_3040_<campo> em snake.
+for _campo, _view in [
+    ("NatuOp", "v_dom_3040_natuop"),
+    ("Mod", "v_dom_3040_mod"),
+    ("TpCli", "v_dom_3040_tpcli"),
+    ("Autorzc", "v_dom_3040_autorzc"),
+    ("TpCtrl", "v_dom_3040_tpctrl"),
+    ("PorteCliPF", "v_dom_3040_portecli_pf"),
+    ("PorteCliPJ", "v_dom_3040_portecli_pj"),
+]:
+    spark.sql(f"""
+        CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.{_view} AS
+        SELECT valor_codigo
+        FROM {CATALOG}.{SCHEMA}.dominios
+        WHERE documento = '3040' AND campo = '{_campo}' AND is_current
+    """)
+
+# Status que BLOQUEIAM a remessa na reconciliação COSIF (check usa NOT IN).
+spark.sql(f"""
+    CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.v_recon_status_bloqueante AS
+    SELECT valor_codigo
+    FROM {CATALOG}.{SCHEMA}.dominios
+    WHERE documento = '4010' AND campo = 'ReconStatusBloqueante' AND is_current
 """)
 
 # COMMAND ----------

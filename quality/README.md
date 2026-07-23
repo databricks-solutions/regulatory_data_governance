@@ -66,13 +66,25 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
    os checks de uma única tabela-alvo, basta associar o import ao
    **run_config / tabela** de mesmo nome do arquivo (indicado no cabeçalho).
 3. Garanta os pré-requisitos de cada categoria:
-   - **Domínio**: a tabela `reference.dominios` deve estar semeada
-     (`notebooks/setup/setup_reference_tables.py`).
+   - **Domínio**: rode `notebooks/setup/setup_reference_tables.py` — ele semeia
+     `reference.dominios` **e cria as views `reference.v_dom_3040_*` /
+     `reference.v_recon_status_bloqueante`** que os checks consultam (ver nota
+     abaixo sobre por que os checks usam views).
    - **Consistência**: a `silver` do 3040 deve estar populada (rode o pipeline).
    - **Batimento**: a tabela `gold.reconciliacao_cosif` deve existir — produzida
      pelo **simulador do CADOC 4010** (`demo/notebooks/doc4010_generator/`).
 4. Execute e revise no app RC18 (Críticas SCR / Qualidade R.18): cada regra
    aparece na sua dimensão, com o `critica_id` como identificador.
+
+> **Por que os checks de domínio usam `IN (SELECT ... FROM reference.v_dom_*)`
+> em vez de literais.** O DQX Studio grava cada check via `parse_json('<json
+> inline>')`; **qualquer literal string na `expression` é corrompido** nesse
+> caminho — aspas simples somem no round-trip (`IN ('0','1')` vira `IN (0,1)` →
+> `CAST_INVALID_INPUT` na execução) e aspas duplas quebram o próprio import
+> (`Failed to save rules`). A `expression` precisa ficar **sem literais string**:
+> o filtro `documento`/`campo` mora nas views (definidas no setup), e o check só
+> referencia a view. Isso vale também para novos checks — nunca coloque `'...'`
+> na `expression` de um `sql_expression` destinado ao DQX Studio.
 
 ## Limitações declaradas
 
@@ -85,4 +97,5 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
   foram **excluídas** — a classificação de risco migrou para o modelo de perda
   esperada da Res. CMN 4.966/2021 a partir de jan/2025.
 - O `expression` do DQX (`sql_expression`) retorna **true = passa**. As
-  subqueries `EXISTS` assumem os nomes de coluna reais da `silver` do 3040.
+  subqueries `IN (SELECT ...)` assumem os nomes de coluna reais da `silver` do
+  3040 e as views `reference.v_dom_3040_*` semeadas pelo setup.
