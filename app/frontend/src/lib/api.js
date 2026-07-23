@@ -29,6 +29,10 @@ async function apiFetch(path, options = {}) {
     err.body = body;
     throw err;
   }
+  // 204 No Content (soft-deletes: deleteLink/deleteCadoc/removeCadocTable) has an
+  // empty body — calling res.json() on it throws SyntaxError and would surface as
+  // the generic "Ocorreu um erro" toast even though the delete succeeded.
+  if (res.status === 204) return null;
   return res.json();
 }
 
