@@ -236,6 +236,8 @@
     "rulesFilterStatus": "Status do vínculo",
     "statusLinked": "Vinculada",
     "statusUnlinked": "Não vinculada",
+    "statusViaTag": "via tag",
+    "statusViaTagTitle": "Dimensão derivada da tag do check (user_metadata) — sem vínculo explícito. Crie um vínculo para sobrescrever.",
     "ruleColId": "ID da regra",
     "ruleColCheck": "Check",
     "ruleColFunction": "Função",
