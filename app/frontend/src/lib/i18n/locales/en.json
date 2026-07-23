@@ -475,6 +475,7 @@
     "passedCount": "{n} passed",
     "passedShort": "{n} passed",
     "rule": "Rule",
+    "targetTable": "Table",
     "rulesCount": "{n} rules",
     "runLabel": "Run",
     "semantic": "Semantic",

@@ -475,6 +475,7 @@
     "passedCount": "{n} superate",
     "passedShort": "{n} sup.",
     "rule": "Regola",
+    "targetTable": "Tabella",
     "rulesCount": "{n} regole",
     "runLabel": "Run",
     "semantic": "Semantica",

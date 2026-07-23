@@ -172,6 +172,7 @@ class ValidationResult(BaseModel):
     run_config_name: str | None = None   # silver_3040_operacoes | silver_3050 — dedup key for incidents
     dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
     critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
+    table_fqn: str | None = None         # tabela-alvo do check (source_table_fqn do run DQX)
 
 
 class ValidationResultsResponse(BaseModel):

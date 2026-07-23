@@ -173,7 +173,20 @@ def _mock_vr(*, rule_id, run_config_name, check_name, dqx_check_function,
         # deterministic across reloads of the page.
         dqx_run_id=f"mockrun_{rule_id}",
         critica_id=rule_id,
+        # Deriva a tabela-alvo do run_config_name (silver_3040_operacoes →
+        # {CATALOG}.silver.scr3040_operacoes) para o mock refletir a coluna real.
+        table_fqn=_table_fqn_from_run_config(run_config_name),
     )
+
+
+def _table_fqn_from_run_config(run_config_name: str | None) -> str | None:
+    """Mapeia o run_config mock (silver_3040_operacoes) para a table_fqn real
+    ({CATALOG}.silver.scr3040_operacoes). Só usado nas linhas mock — no caminho
+    real a table_fqn vem direto do source_table_fqn do run DQX."""
+    if not run_config_name:
+        return None
+    tbl = run_config_name.replace("silver_3040_", "scr3040_").replace("silver_3050", "scr3050")
+    return f"{CATALOG}.{SCHEMA_SILVER}.{tbl}"
 
 
 _RC_3040_OPER = "silver_3040_operacoes"
@@ -538,6 +551,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
                 run_config_name=run_cfg,
                 dqx_run_id=run_id,
                 critica_id=meta["critica_id"] or check_name,
+                table_fqn=source_table or None,
             ))
 
     return results, latest_run_id, latest_run_time
