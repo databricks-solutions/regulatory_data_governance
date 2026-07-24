@@ -74,6 +74,12 @@ resources:
           - name: DQX_STUDIO_URL
             value: ${var.dqx_studio_url}
 
+          # Módulos (menus da sidebar) a ocultar neste ambiente — CSV de slugs
+          # (ex. "lineage,genie"). Default `__none__` = nada oculto. NÃO pode
+          # ser vazio (Apps API rejeita env sem valor). Ver var.disabled_modules.
+          - name: DISABLED_MODULES
+            value: ${var.disabled_modules}
+
       permissions:
         - level: CAN_USE
           group_name: "compliance-team"

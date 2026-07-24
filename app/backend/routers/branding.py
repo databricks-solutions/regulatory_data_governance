@@ -12,6 +12,7 @@ they never get hardcoded into the bundled frontend). Currently:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -54,6 +55,21 @@ def _save(config: dict) -> None:
     CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def disabled_modules() -> list[str]:
+    """Módulos (menus da sidebar) a ocultar, vindos da env var DISABLED_MODULES.
+
+    Lista CSV de slugs (ex. "lineage,xml,genie"). O bundle injeta a var a
+    partir de `var.disabled_modules` (target.yml). O default do bundle é a
+    sentinela `__none__` (a Apps API rejeita env vazia — ver CLAUDE.md), que
+    aqui normaliza para lista vazia = nada desabilitado. Slugs em snake/kebab,
+    case-insensitive, espaços e vazios descartados.
+    """
+    raw = os.getenv("DISABLED_MODULES", "") or ""
+    if raw.strip().lower() in ("", "__none__"):
+        return []
+    return [s.strip().lower() for s in raw.split(",") if s.strip()]
+
+
 @router.get("/config")
 def get_brand_config():
     config = _load()
@@ -61,6 +77,8 @@ def get_brand_config():
     # only needs one fetch on bootstrap. Empty string = unset; in particular,
     # never expose the bundle's `about:blank` sentinel as an iframe URL.
     config["dqx_studio_url"] = dqx_studio_base_url() or ""
+    # Módulos desabilitados por ambiente — a sidebar oculta esses menus.
+    config["disabled_modules"] = disabled_modules()
     return config
 
 
