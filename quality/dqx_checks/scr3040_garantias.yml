@@ -7,14 +7,19 @@
 # Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
 # reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver.
 #
-# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC) — não há
-#    subquery neste arquivo, mas mantido por convenção do cabeçalho.
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL: o check tem `filter` = só a data-base corrente
+#    (`dt_base = (SELECT max(dt_base) FROM esta_tabela)`). Execute com "All rows"
+#    (sample_size=0): o DQX amostra ANTES do filter. Ver quality/README.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # S13 — garantidor fidejussório não pode ser o próprio cliente principal
 # (o identificador da garantia difere do código do cliente).
 - name: garantidor_fidejussorio_nao_e_cliente
   criticality: warn
+  # Escopo mensal: só a data-base corrente (MAX(dt_base) desta tabela).
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr3040_garantias)"
   check:
     function: sql_expression
     arguments:

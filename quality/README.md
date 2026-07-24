@@ -27,19 +27,17 @@ Regras puramente sintáticas/XSD ficam de fora (território do Validador).
 
 ## Arquivos
 
-**Um arquivo por tabela-alvo** — o DQX Studio importa cada conjunto de checks
-vinculado a um `run_config`/tabela, então o `.yml` é organizado pela tabela em
-que os checks rodam (não por categoria). Cada arquivo agrupa domínio +
-consistência da mesma tabela; o `critica_id`/dimensão de cada regra fica em
-`user_metadata`.
+**Um arquivo por tabela-alvo** — o DQX Studio importa cada `.yml` vinculado a uma
+tabela ("Regras de tabela única"). Cada arquivo agrupa os checks daquela tabela;
+`critica_id`/dimensão de cada regra ficam em `user_metadata`.
 
-| Arquivo (tabela-alvo) | Tabela-alvo (silver/gold) | Categorias de check | Dimensão R.18 |
-|---------|---------------------------|---------------------|:-------------:|
+| Arquivo (tabela-alvo) | Tabela-alvo | Categorias | Dimensão R.18 |
+|---|---|---|:-:|
 | [`dqx_checks/scr3040_operacoes.yml`](dqx_checks/scr3040_operacoes.yml) | `silver.scr3040_operacoes` | Domínio (NatuOp, Mod) + consistência (datas, IPOC, integridade ref.) | 9 · 2 · 8 |
 | [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 9 · 3 |
-| [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 Completude |
-| [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 Consistência |
-| [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 Consistência |
+| [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 |
+| [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 |
+| [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 |
 
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`
 (código oficial ancorado no catálogo), `descricao` e `nivel_verificacao`
@@ -59,32 +57,78 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
 | `REF-OP-CLI` | Integridade referencial operação → cliente | 8 |
 | `N01` | Batimento SCR 3040 × COSIF (Doc 4010) | 8 |
 
+## Execução mensal — escopo por data-base (via `filter`)
+
+As regras rodam mensalmente e devem avaliar apenas a **data-base mais recente** de
+cada dataset — não reprocessar meses já validados.
+
+O escopo é aplicado pelo campo **`filter`** de cada check, com uma subquery que
+restringe à `MAX(dt_base)` da própria tabela:
+
+```yaml
+- name: dia_atraso_nao_negativo
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr3040_operacoes)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "dia_atraso IS NULL OR dia_atraso >= 0"   # true = passa
+```
+
+Só as linhas da data-base mais recente são avaliadas. Não há coluna nem estado a
+manter — o `MAX(dt_base)` é recomputado a cada execução, direto do dado.
+
+Notas:
+
+- **Escopo por dataset.** Cada `filter` referencia a `MAX(dt_base)` da sua própria
+  tabela, então reprocessar um dataset (nova data-base) afeta só os checks dele.
+- **A subquery no `filter` exige que o SP da DQX Studio leia `rc18_catalog`** — sem o
+  grant (ver "Como aplicar", passo 3), a subquery não resolve e o DQX marca **100% das
+  linhas como violação** (falso-positivo silencioso: o run passa como SUCCESS).
+
+> ⚠️ **Amostragem (`sample_size`) na execução mensal: use "All rows" (`sample_size=0`).**
+> O DQX aplica o `sample_size` **antes** do `filter`. Como as tabelas são particionadas
+> por `dt_base`, um sample pequeno pode pegar só linhas de meses antigos e avaliar zero
+> linhas da data-base corrente — o run passa como SUCCESS com 0 violações, mascarando
+> problemas. Sempre execute/agende com **All rows**.
+
+> **Limitação:** o escopo cobre só a data-base mais recente. Para revalidar um mês
+> específico, ajuste o `filter` (ex.: `dt_base = '2026-03'`) pontualmente.
+
 ## Como aplicar no DQX Studio
 
-1. **Substitua `rc18_catalog`** pelo seu catálogo em todos os `.yml` (caso BYOC).
-2. No DQX Studio, importe **um arquivo por vez**: como cada `.yml` já contém só
-   os checks de uma única tabela-alvo, basta associar o import ao
-   **run_config / tabela** de mesmo nome do arquivo (indicado no cabeçalho).
-3. Garanta os pré-requisitos de cada categoria:
-   - **Domínio**: rode `notebooks/setup/setup_reference_tables.py` — ele semeia
-     `reference.dominios` **e cria as views `reference.v_dom_3040_*` /
-     `reference.v_recon_status_bloqueante`** que os checks consultam (ver nota
-     abaixo sobre por que os checks usam views).
-   - **Consistência**: a `silver` do 3040 deve estar populada (rode o pipeline).
-   - **Batimento**: a tabela `gold.reconciliacao_cosif` deve existir — produzida
-     pelo **simulador do CADOC 4010** (`demo/notebooks/doc4010_generator/`).
-4. Execute e revise no app RC18 (Críticas SCR / Qualidade R.18): cada regra
-   aparece na sua dimensão, com o `critica_id` como identificador.
+1. **Substitua `rc18_catalog`** pelo seu catálogo nos `.yml` (caso BYOC).
+2. No DQX Studio, em **Importar regras** (aba "From DQX YAML"), importe **um arquivo
+   por vez** e selecione a **tabela-alvo** correspondente (indicada no cabeçalho de
+   cada `.yml`). As regras entram como checks `sql_expression` de tabela única, com
+   `filter` escopando à data-base corrente.
+3. Garanta os pré-requisitos:
+   - **Domínios**: rode `notebooks/setup/setup_reference_tables.py` — semeia
+     `reference.dominios` e cria as views `reference.v_dom_3040_*` /
+     `reference.v_recon_status_bloqueante` que os checks consultam.
+   - **Silver/gold populadas**: rode o pipeline (silver) e o simulador do CADOC 4010
+     (gold `reconciliacao_cosif`).
+   - **GRANT para o SP da DQX Studio ler `rc18_catalog`** (⚠️ crítico e não-óbvio):
+     os jobs de validação rodam como o SP da DQX Studio, que precisa de `USE CATALOG`
+     + `SELECT` em `rc18_catalog.{silver,gold,reference}`. Sem isso, TODA subquery dos
+     checks — o `filter` de escopo mensal E os checks de domínio/referência/batimento —
+     não resolve e o check marca **100% como violação** (falso-positivo silencioso: o
+     run passa como SUCCESS). Ver `notebooks/setup/grant_dqx_studio_access.sql`
+     (seção "GRANT REVERSO").
+4. **Aprove** (Submit → Approve) e **Execute** (Run Rules) — usando **All rows**
+   (ver o aviso sobre `sample_size` acima). Revise no app RC18 (Críticas SCR /
+   Qualidade R.18): cada regra aparece na sua dimensão, com o `critica_id`.
 
-> **Por que os checks de domínio usam `IN (SELECT ... FROM reference.v_dom_*)`
-> em vez de literais.** O DQX Studio grava cada check via `parse_json('<json
-> inline>')`; **qualquer literal string na `expression` é corrompido** nesse
-> caminho — aspas simples somem no round-trip (`IN ('0','1')` vira `IN (0,1)` →
-> `CAST_INVALID_INPUT` na execução) e aspas duplas quebram o próprio import
-> (`Failed to save rules`). A `expression` precisa ficar **sem literais string**:
-> o filtro `documento`/`campo` mora nas views (definidas no setup), e o check só
-> referencia a view. Isso vale também para novos checks — nunca coloque `'...'`
-> na `expression` de um `sql_expression` destinado ao DQX Studio.
+> **Semântica do `sql_expression`.** A `expression` retorna `true` = a linha **passa**;
+> `false` = viola. O `filter` (`dt_base = (SELECT max…)`) restringe a avaliação à
+> data-base corrente antes da expression.
+
+> **Domínios via `IN (SELECT ... FROM reference.v_dom_*)`, sem literais string.** O
+> DQX Studio grava cada check via `parse_json` inline; **literais string na
+> `expression` são corrompidos** (aspas simples somem no round-trip; duplas quebram o
+> import). Por isso o filtro `documento`/`campo` mora nas views `reference.v_dom_3040_*`
+> (definidas no setup) e a `expression` só as referencia — nunca coloque `'...'` numa
+> `expression` destinada ao DQX Studio.
 
 ## Limitações declaradas
 
@@ -96,6 +140,9 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
 - Regras **descontinuadas** (ligadas a `ClassOp`/Anexo 17, "Vigente até 12/2024")
   foram **excluídas** — a classificação de risco migrou para o modelo de perda
   esperada da Res. CMN 4.966/2021 a partir de jan/2025.
-- O `expression` do DQX (`sql_expression`) retorna **true = passa**. As
-  subqueries `IN (SELECT ...)` assumem os nomes de coluna reais da `silver` do
-  3040 e as views `reference.v_dom_3040_*` semeadas pelo setup.
+- Os checks usam `sql_expression` (`true` = passa). As subqueries de domínio assumem
+  os nomes de coluna reais da `silver`/`gold` do 3040 e as views `reference.v_dom_3040_*`
+  semeadas pelo setup.
+- **Escopo mensal via subquery no `filter`** (`dt_base = (SELECT max(dt_base) …)`).
+  Execute sempre com **All rows** — o `sample_size` é aplicado antes do `filter` (ver
+  aviso na seção "Execução mensal"). Exige o grant do SP da DQX (passo 3).
