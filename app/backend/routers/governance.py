@@ -133,6 +133,24 @@ def _document_from_run_config(run_config_name: str | None) -> str:
     return "3040" if run_config_name.startswith("silver_3040_") else "3050" if run_config_name.startswith("silver_3050") else ""
 
 
+def _document_from_table(table_fqn: str | None) -> str:
+    """Infer the CADOC (3040/3050) from a silver table FQN.
+
+    DQX rules não têm mais run_config_name; a table_fqn do run
+    (ex. ``rc18_catalog.silver.scr3040_clientes``) é a fonte primária do
+    documento. Retorna '' quando não dá pra inferir."""
+    if not table_fqn:
+        return ""
+    t = table_fqn.lower()
+    return "3040" if "scr3040" in t else "3050" if "scr3050" in t else ""
+
+
+def _resolve_document(document: str | None, run_config_name: str | None, table_fqn: str | None) -> str:
+    """Documento explícito > inferido da table_fqn > inferido do run_config_name."""
+    return (document or _document_from_table(table_fqn)
+            or _document_from_run_config(run_config_name))
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -785,11 +803,11 @@ async def get_irregularities(
         "i.included_in_report, i.timeline, "
         "d.nome AS dimensao_nome "
         f"FROM {CATALOG}.governance.incidents i "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = "
-        "  CASE i.dimensao_r18 WHEN 'I' THEN 1 WHEN 'II' THEN 2 WHEN 'III' THEN 3 "
-        "    WHEN 'IV' THEN 4 WHEN 'V' THEN 5 WHEN 'VI' THEN 6 WHEN 'VII' THEN 7 "
-        "    WHEN 'VIII' THEN 8 WHEN 'IX' THEN 9 WHEN 'X' THEN 10 "
-        "    WHEN 'XI' THEN 11 WHEN 'XII' THEN 12 END "
+        # dimensao_id e dimensao_r18 são AMBOS strings romanas ('I'..'XII') —
+        # join direto. O CASE romano→inteiro anterior fazia o Spark tentar
+        # CAST('I' AS BIGINT) no lado d.dimensao_id, estourando a query inteira
+        # (CAST_INVALID_INPUT) e deixando a tela de Incidentes vazia.
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = i.dimensao_r18 "
         f"WHERE {where_sql} "
         "ORDER BY i.detected_at DESC LIMIT :page_size OFFSET :offset",
         {
@@ -809,11 +827,11 @@ async def get_irregularities(
     summary_rows = await execute_query(
         "SELECT i.status, i.dimensao_r18, i.detected_at, i.resolved_at, d.nome "
         f"FROM {CATALOG}.governance.incidents i "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = "
-        "  CASE i.dimensao_r18 WHEN 'I' THEN 1 WHEN 'II' THEN 2 WHEN 'III' THEN 3 "
-        "    WHEN 'IV' THEN 4 WHEN 'V' THEN 5 WHEN 'VI' THEN 6 WHEN 'VII' THEN 7 "
-        "    WHEN 'VIII' THEN 8 WHEN 'IX' THEN 9 WHEN 'X' THEN 10 "
-        "    WHEN 'XI' THEN 11 WHEN 'XII' THEN 12 END "
+        # dimensao_id e dimensao_r18 são AMBOS strings romanas ('I'..'XII') —
+        # join direto. O CASE romano→inteiro anterior fazia o Spark tentar
+        # CAST('I' AS BIGINT) no lado d.dimensao_id, estourando a query inteira
+        # (CAST_INVALID_INPUT) e deixando a tela de Incidentes vazia.
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = i.dimensao_r18 "
         f"WHERE {where_sql}",
         {
             "status": status_filter,
@@ -893,11 +911,11 @@ async def get_irregularity_detail(
         "i.included_in_report, i.timeline, "
         "d.nome AS dimensao_nome "
         f"FROM {CATALOG}.governance.incidents i "
-        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = "
-        "  CASE i.dimensao_r18 WHEN 'I' THEN 1 WHEN 'II' THEN 2 WHEN 'III' THEN 3 "
-        "    WHEN 'IV' THEN 4 WHEN 'V' THEN 5 WHEN 'VI' THEN 6 WHEN 'VII' THEN 7 "
-        "    WHEN 'VIII' THEN 8 WHEN 'IX' THEN 9 WHEN 'X' THEN 10 "
-        "    WHEN 'XI' THEN 11 WHEN 'XII' THEN 12 END "
+        # dimensao_id e dimensao_r18 são AMBOS strings romanas ('I'..'XII') —
+        # join direto. O CASE romano→inteiro anterior fazia o Spark tentar
+        # CAST('I' AS BIGINT) no lado d.dimensao_id, estourando a query inteira
+        # (CAST_INVALID_INPUT) e deixando a tela de Incidentes vazia.
+        f"LEFT JOIN {CATALOG}.reference.dimensoes_r18 d ON d.dimensao_id = i.dimensao_r18 "
         "WHERE i.incident_id = :incident_id LIMIT 1",
         {"incident_id": irregularity_id},
     )
@@ -967,7 +985,7 @@ async def create_incident(
             id=new_id,
             detected_at=now,
             data_base=body.dt_base,
-            document=body.document or _document_from_run_config(body.run_config_name),
+            document=_resolve_document(body.document, body.run_config_name, body.table_fqn),
             dimension_r18=body.dimension_r18 or 0,
             dimension_name="",
             severity=severity_ui if severity_ui in ("high", "medium", "low") else "medium",
@@ -1026,7 +1044,7 @@ async def create_incident(
     incident_id = str(uuid.uuid4())
     severidade = _SEVERITY_REVERSE_MAP.get(body.severity, "ALERTA")
     dim_roman = _DIM_INT_TO_ROMAN.get(int(body.dimension_r18)) if body.dimension_r18 else None
-    documento = body.document or _document_from_run_config(body.run_config_name)
+    documento = _resolve_document(body.document, body.run_config_name, body.table_fqn)
 
     # INSERT (MERGE is used by the auto-emit job for re-observation; manual
     # creation is INSERT-only because the dedup-pre-check above guarantees no

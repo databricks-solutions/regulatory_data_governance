@@ -134,10 +134,13 @@
   }
 
   function canCreateIncident(row) {
-    // Botão sempre visível quando temos run_config_name e identificador da regra.
+    // Botão visível quando há um identificador da regra E uma fonte de documento
+    // (run_config_name OU table_fqn). As regras da DQX Studio não carregam mais
+    // run_config_name (vem vazio no modo real), então antes o botão sumia; agora
+    // aceitamos table_fqn (source_table_fqn do run) como fonte do 3040/3050.
     // Quando status=pass (sem inconsistências), o caller renderiza o botão
     // disabled com tooltip para que o usuário entenda que a feature existe.
-    return !!row?.run_config_name && !!(row?.critica_id || row?.rule_id);
+    return !!(row?.critica_id || row?.rule_id) && !!(row?.run_config_name || row?.table_fqn);
   }
 
   function shouldDisableIncident(row) {
@@ -153,7 +156,8 @@
     try {
       const payload = {
         critica_id: row.critica_id || row.rule_id,
-        run_config_name: row.run_config_name,
+        run_config_name: row.run_config_name || '',
+        table_fqn: row.table_fqn || null,
         data_base: appState.dataBase,
         severity: row.severity,
         description: row.description || row.rule_name,
