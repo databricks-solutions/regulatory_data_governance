@@ -5,16 +5,21 @@
   import DataTable from '$lib/components/data/DataTable.svelte';
   import Pagination from '$lib/components/data/Pagination.svelte';
   import { appState } from '$lib/stores.svelte.js';
-  import { getValidationResults, createIncident, ApiError } from '$lib/api.js';
+  import { getValidationResults, createIncident, getCadocs, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { _ } from 'svelte-i18n';
 
   let activeTab = $state('3040');
-  const tabs = [
+  // Abas dirigidas pelos CADOCs cadastrados (tela de Vínculos → Gestão de
+  // CADOC), não mais fixas em 3040/3050. Assim um CADOC criado pelo cliente
+  // aparece aqui automaticamente. Fallback para os dois canônicos enquanto a
+  // lista carrega (ou em mock/erro), preservando o comportamento anterior.
+  const FALLBACK_TABS = [
     { key: '3040', label: 'DOC 3040' },
     { key: '3050', label: 'DOC 3050' }
   ];
+  let tabs = $state(FALLBACK_TABS);
 
   const NIVEL_LABELS = $derived.by(() => ({
     1: { label: $_('validations.levelOne'), subtitle: $_('validations.levelOneSubtitle'), desc: $_('validations.levelOneDesc'), color: 'var(--primary)' },
@@ -199,7 +204,26 @@
     } catch {}
   }
 
-  onMount(loadResults);
+  // Carrega as abas a partir dos CADOCs cadastrados. Cada CADOC vira uma aba
+  // "DOC <documento>" (usa o nome quando houver). Mantém o fallback se a lista
+  // vier vazia ou a chamada falhar, para não quebrar a tela.
+  async function loadTabs() {
+    try {
+      const data = await getCadocs();
+      const cadocs = (data?.cadocs || []).filter((c) => c.is_ativo !== false);
+      if (cadocs.length) {
+        // Label = apenas o código do documento (3040, 3050, 5050...) para as
+        // abas ficarem curtas; o nome completo do CADOC vive na tela de Vínculos.
+        tabs = cadocs.map((c) => ({ key: c.documento, label: `DOC ${c.documento}` }));
+        if (!tabs.some((t) => t.key === activeTab)) activeTab = tabs[0].key;
+      }
+    } catch { /* mantém FALLBACK_TABS */ }
+  }
+
+  onMount(() => {
+    loadTabs();
+    loadResults();
+  });
 
   $effect(() => {
     activeTab;

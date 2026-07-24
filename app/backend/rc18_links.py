@@ -45,6 +45,33 @@ async def load_cadoc_tables() -> tuple[dict[str, list[str]], dict[str, str]]:
     return tables_by_doc, doc_by_table
 
 
+async def scope_table_clause(column: str, param_prefix: str = "scope") -> tuple[str, dict]:
+    """Build a parameterized predicate scoping `column` (a source_table_fqn) to
+    the RC18 tables under quality analysis.
+
+    Escopo = tabelas silver do CADOC (comportamento legado) UNIÃO todas as
+    tabelas ativas registradas em `cadoc_tabelas` — incluindo tabelas de OUTROS
+    schemas (ex. `gold.reconciliacao_cosif`), que o filtro hard-coded
+    `LIKE '<catalog>.silver.%'` deixava de fora. Assim uma regra COSIF numa
+    tabela gold, uma vez associada a um CADOC, passa a contar nas Críticas,
+    no scorecard de dimensões e nos KPIs — como qualquer regra silver.
+
+    Retorna (sql_predicate, params). Nunca interpola table_fqn direto no SQL.
+    Fallback: `cadoc_tabelas` vazio → só o LIKE silver (sem regressão pre-seed).
+    """
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    registered = sorted({t for tables in tables_by_doc.values() for t in tables})
+    like_param = f"{param_prefix}_prefix"
+    params: dict = {like_param: f"{CATALOG}.silver.%"}
+    predicate = f"{column} LIKE :{like_param}"
+    if registered:
+        keys = [f"{param_prefix}{i}" for i in range(len(registered))]
+        placeholders = ",".join(f":{k}" for k in keys)
+        params.update({k: v for k, v in zip(keys, registered)})
+        predicate = f"({predicate} OR {column} IN ({placeholders}))"
+    return predicate, params
+
+
 async def load_vinculos() -> tuple[dict[tuple[str, str], dict], dict[str, dict]]:
     """Return (by_pair, by_rule_id) for active rule links.
 

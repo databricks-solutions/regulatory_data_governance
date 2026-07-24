@@ -6,56 +6,69 @@
   let { collapsed = false, brandConfig = { name: 'RC18 StarterKit', logo_url: null } } = $props();
 
   // `title` / `label` hold i18n keys resolved with $_ in the markup so the
-  // sidebar re-renders when the active locale changes.
+  // sidebar re-renders when the active locale changes. Cada item carrega um
+  // `module` slug estável (independente de i18n/href) usado para ocultar o
+  // menu via a flag `disabled_modules` (env DISABLED_MODULES → /brand/config).
   const sections = [
     {
       title: null,
       items: [
-        { label: 'nav.dashboard', href: '/', icon: 'grid' }
+        { label: 'nav.dashboard', href: '/', icon: 'grid', module: 'dashboard' }
       ]
     },
     {
       title: 'nav.sectionMonitoring',
       items: [
-        { label: 'nav.qualityR18', href: '/quality', icon: 'shield' },
-        { label: 'nav.validationsScr', href: '/validations', icon: 'check' }
+        { label: 'nav.qualityR18', href: '/quality', icon: 'shield', module: 'quality' },
+        { label: 'nav.validationsScr', href: '/validations', icon: 'check', module: 'validations' }
       ]
     },
     {
       title: 'nav.sectionRules',
       items: [
-        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine' },
-        { label: 'nav.ruleLinking', href: '/linking', icon: 'link' }
+        { label: 'nav.ruleEngine', href: '/rules', icon: 'engine', module: 'rules' },
+        { label: 'nav.ruleLinking', href: '/linking', icon: 'link', module: 'linking' }
       ]
     },
     {
       title: 'nav.sectionGovernance',
       items: [
-        { label: 'nav.incidentManagement', href: '/governance', icon: 'alert' }
+        { label: 'nav.incidentManagement', href: '/governance', icon: 'alert', module: 'governance' }
       ]
     },
     {
       title: 'nav.sectionExploration',
       items: [
-        { label: 'nav.lineage', href: '/lineage', icon: 'flow' },
-        { label: 'nav.xmlViewer', href: '/xml', icon: 'code' },
-        { label: 'nav.naturalQuery', href: '/genie', icon: 'bot' }
+        { label: 'nav.lineage', href: '/lineage', icon: 'flow', module: 'lineage' },
+        { label: 'nav.xmlViewer', href: '/xml', icon: 'code', module: 'xml' },
+        { label: 'nav.naturalQuery', href: '/genie', icon: 'bot', module: 'genie' }
       ]
     },
     {
       title: 'nav.sectionDashboards',
       items: [
-        { label: 'nav.complianceR18', href: '/dashboards/conformidade', icon: 'chart' },
-        { label: 'nav.validationsMonitor', href: '/dashboards/criticas', icon: 'chart' }
+        { label: 'nav.complianceR18', href: '/dashboards/conformidade', icon: 'chart', module: 'dash_conformidade' },
+        { label: 'nav.validationsMonitor', href: '/dashboards/criticas', icon: 'chart', module: 'dash_criticas' }
       ]
     },
     {
       title: 'nav.sectionReference',
       items: [
-        { label: 'nav.referenceData', href: '/reference', icon: 'book' }
+        { label: 'nav.referenceData', href: '/reference', icon: 'book', module: 'reference' }
       ]
     }
   ];
+
+  // Módulos ocultos por ambiente (vindos de /brand/config → DISABLED_MODULES).
+  // Filtra itens e descarta seções que ficarem sem nenhum item.
+  let disabledModules = $derived(
+    new Set((brandConfig?.disabled_modules ?? []).map((m) => String(m).toLowerCase()))
+  );
+  let visibleSections = $derived(
+    sections
+      .map((s) => ({ ...s, items: s.items.filter((it) => !disabledModules.has(it.module)) }))
+      .filter((s) => s.items.length > 0)
+  );
 
   function isActive(href, currentPath) {
     if (href === '/') return currentPath === '/';
@@ -100,7 +113,7 @@
   </div>
 
   <nav class="sidebar-nav">
-    {#each sections as section}
+    {#each visibleSections as section}
       {#if section.title && !collapsed}
         <div class="nav-section-title">{$_(section.title)}</div>
       {/if}

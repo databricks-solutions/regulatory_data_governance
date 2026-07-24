@@ -57,3 +57,11 @@ targets:
       # bundle opt-in `genie/` (ver genie/README.md), cole aqui o space_id gerado
       # e redeploy o core para o app embarcar o Genie.
       # genie_space_id: <your-genie-space-id>
+
+      # OPTIONAL — ocultar módulos (menus da sidebar esquerda) neste ambiente.
+      # CSV de slugs; default __none__ = todos visíveis. Slugs válidos:
+      #   dashboard, quality, validations, rules, linking, governance, lineage,
+      #   xml, genie, dash_conformidade, dash_criticas, reference
+      # Ex.: ocultar só o Lineage → disabled_modules: lineage
+      #      ocultar vários       → disabled_modules: lineage,genie,xml
+      # disabled_modules: lineage
