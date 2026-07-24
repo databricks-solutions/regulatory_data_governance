@@ -47,7 +47,7 @@ Invariant: a classical-only deploy must provision **no `pipelines:` resource at 
 | Quality (rule authoring + execution) | DQX Studio (external Databricks App, embedded via iframe) | env var `DQX_STUDIO_URL` → `/rules` page |
 | Dashboards | Lakeview (AI/BI) JSON definitions | `dashboards/` |
 | Deployment | Databricks Asset Bundles (DABs) | `databricks.yml`, `resources/` |
-| Data | Unity Catalog, catalog `rc18_catalog` | Workspace `latam-ssa` |
+| Data | Unity Catalog, catalog `rc18_catalog` | Workspace: defined by the CLI profile in `target.yml` |
 
 ## Project Structure
 
