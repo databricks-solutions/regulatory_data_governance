@@ -638,7 +638,15 @@ class IncidentCreateRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
     critica_id: str | None = None
-    run_config_name: str
+    # DQX Studio's dq_quality_rules no longer carries run_config_name, so the
+    # Críticas SCR rows come through with it empty. Optional (default ''): the
+    # document is inferred from ``table_fqn`` when it's absent, and the dedup key
+    # tolerates the empty value (all manual rows share ''). See create_incident.
+    run_config_name: str = ""
+    # Tabela-alvo do check (source_table_fqn do run DQX, ex.
+    # ``rc18_catalog.silver.scr3040_clientes``). Fonte primária p/ inferir o
+    # documento (3040/3050) agora que run_config_name vem vazio.
+    table_fqn: str | None = None
     # Accepts either ``dt_base`` (DB column name in governance.incidents) or
     # ``data_base`` (app-wide convention used by Críticas SCR + validation router).
     dt_base: str = Field(alias="data_base", validation_alias=AliasChoices("dt_base", "data_base"))
@@ -649,7 +657,7 @@ class IncidentCreateRequest(BaseModel):
     dimension_r18: int | None = None          # 1..12 (already int from Críticas SCR)
     dqx_check_name: str | None = None
     dqx_check_function: str | None = None
-    document: str | None = None               # '3040' | '3050' (optional; inferred from run_config_name)
+    document: str | None = None               # '3040' | '3050' (optional; inferred from table_fqn/run_config_name)
     owner: str | None = None
 
 
