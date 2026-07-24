@@ -73,7 +73,13 @@ export function getValidationResults(document, dataBase, filters = {}) {
   const params = new URLSearchParams();
   if (dataBase) params.set('data_base', dataBase);
   Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-  return apiFetch(`/validations/scr${document}/results?${params}`);
+  // 3040/3050 usam as rotas legadas /scr{doc}/results (que carregam os fixtures
+  // de mock da demo). Qualquer CADOC criado pelo cliente usa a rota genérica
+  // /validations/{document}/results, dirigida por cadoc_tabelas.
+  const path = (document === '3040' || document === '3050')
+    ? `/validations/scr${document}/results`
+    : `/validations/${encodeURIComponent(document)}/results`;
+  return apiFetch(`${path}?${params}`);
 }
 
 export function triggerValidation(body) {

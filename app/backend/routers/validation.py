@@ -676,6 +676,71 @@ async def get_validation_results_3050(
     )
 
 
+@router.get("/{document}/results", response_model=ValidationResultsResponse)
+async def get_validation_results_generic(
+    document: str,
+    data_base: str = Query("2026-03"),
+    severity: str | None = Query(None),
+    status: str | None = Query(None),
+    modality: str | None = Query(None),
+    rule_type: str | None = Query(None),
+    dimension_r18: int | None = Query(None),
+    nivel_verificacao: int | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    locale: str = Depends(get_locale),
+):
+    """Return validation results for ANY CADOC document, driven by its
+    `cadoc_tabelas` associations.
+
+    This is the extensible path: customers register a new CADOC on the
+    /linking screen, associate silver/gold tables to it, and its DQX runs
+    surface here without any hard-coded 3040/3050 wiring. The legacy
+    `/scr3040/results` and `/scr3050/results` routes remain for back-compat
+    (and carry the pt-BR mock fixtures); this route serves everything else and
+    returns empty results in mock mode (a custom CADOC has no fixtures).
+
+    NOTE: this catch-all is declared AFTER `/scr3040/results` and
+    `/scr3050/results` so those explicit paths win; `/trigger`, `/runs` etc.
+    live under different prefixes and are unaffected.
+    """
+    document = (document or "").strip()
+    if USE_MOCK:
+        # No fixtures for a customer-defined CADOC; keep the two canonical demos
+        # answering through their own routes and return empty for the rest.
+        return ValidationResultsResponse(
+            data_base=data_base, run_id="", run_status="completed",
+            run_completed_at=None,
+            summary=_summary_from_results([]),
+            results=[],
+            pagination=Pagination(page=page, page_size=page_size, total_results=0, total_pages=1),
+            studio_url=_studio_base_url(),
+        )
+
+    all_results, latest_run_id, latest_run_time = await _fetch_studio_results(document)
+    filtered = _apply_mock_filters(
+        all_results,
+        severity=severity, status=status, rule_type=rule_type,
+        dimension_r18=dimension_r18, nivel_verificacao=nivel_verificacao,
+    )
+    total = len(filtered)
+    start = (page - 1) * page_size
+    paged = filtered[start : start + page_size]
+    return ValidationResultsResponse(
+        data_base=data_base,
+        run_id=latest_run_id or "",
+        run_status="completed",
+        run_completed_at=latest_run_time,
+        summary=_summary_from_results(all_results),
+        results=paged,
+        pagination=Pagination(
+            page=page, page_size=page_size, total_results=total,
+            total_pages=max(1, (total + page_size - 1) // page_size),
+        ),
+        studio_url=_studio_base_url(),
+    )
+
+
 @router.post("/trigger", response_model=TriggerValidationResponse, status_code=202)
 async def trigger_validation(
     req: TriggerValidationRequest,
