@@ -313,6 +313,8 @@
   },
   "quality": {
     "associatedViolations": "Associated Violations",
+    "associatedRules": "Dimension Rules",
+    "colStatus": "Status",
     "breadcrumbRoot": "R.18 Quality",
     "colDescription": "Description",
     "colRecords": "Records",
@@ -322,6 +324,7 @@
     "metricComplianceRate": "Compliance Rate",
     "metricNonCompliantRecords": "Non-compliant Records",
     "noViolations": "No violations found",
+    "noRules": "No rules evaluated in this dimension",
     "statusAtencao": "Attention",
     "statusConforme": "Compliant",
     "statusNaoConforme": "Non-Compliant",
