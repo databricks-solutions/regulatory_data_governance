@@ -13,6 +13,11 @@ targets:
       # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
       dqx_studio_url: https://<your-dqx-studio-app-host>
 
+      # Service principal do DQX Studio (o run_as dos jobs de validação).
+      # Recebe leitura em rc18_catalog para que os checks com subquery (domínio/
+      # referência/batimento + o filtro de escopo mensal) funcionem. 
+      # dqx_studio_sp: <uuid-do-sp-da-dqx-studio>
+
       # OPTIONAL — catálogo/schema de vínculo com a DQX Studio (onde a Studio
       # persiste as regras). O FQN da tabela de regras é montado como
       # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_studio.
@@ -22,6 +27,8 @@ targets:
       # OPTIONAL — override do FQN completo, só se o nome da tabela divergir do
       # padrão dq_quality_rules. Normalmente basta ajustar dqx_catalog/dqx_schema acima.
       # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+
+      
 
       # OPTIONAL — modo de orquestração do medallion bronze→silver→gold:
       #   • classical (DEFAULT) — jobs Databricks + notebooks PySpark, SEM

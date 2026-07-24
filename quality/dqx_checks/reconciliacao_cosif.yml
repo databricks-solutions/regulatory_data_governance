@@ -23,6 +23,10 @@
 #    para demonstrar a dimensão Consistência ponta a ponta.
 #
 # ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL: cada check tem `filter` = só a data-base corrente
+#    (`dt_base = (SELECT max(dt_base) FROM esta_tabela)`). Execute com "All rows"
+#    (sample_size=0): o DQX amostra ANTES do filter. Ver quality/README.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # N01 (genérica) — a diferença entre o valor SCR e o valor COSIF de cada rubrica
@@ -30,6 +34,8 @@
 # Uma violação = divergência de batimento (a rejeição de negócio N01 do BACEN).
 - name: batimento_cosif_dentro_tolerancia
   criticality: error
+  # Escopo mensal: só a data-base corrente (MAX(dt_base) desta tabela).
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.gold.reconciliacao_cosif)"
   check:
     function: sql_expression
     arguments:
@@ -45,6 +51,8 @@
 # (redundante com a regra acima, mas explicita o gate de negócio no scorecard).
 - name: batimento_cosif_status_nao_bloqueado
   criticality: error
+  # Escopo mensal: só a data-base corrente (MAX(dt_base) desta tabela).
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.gold.reconciliacao_cosif)"
   check:
     function: sql_expression
     arguments:

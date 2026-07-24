@@ -7,13 +7,18 @@
 # Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
 # reproduzem o Validador BACEN — rodam CEDO (shift-left) sobre a silver.
 #
-# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC) — não há
-#    subquery neste arquivo, mas mantido por convenção do cabeçalho.
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL: o check tem `filter` = só a data-base corrente
+#    (`dt_base = (SELECT max(dt_base) FROM esta_tabela)`). Execute com "All rows"
+#    (sample_size=0): o DQX amostra ANTES do filter. Ver quality/README.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # A04 — cada operação/agregação deve conter pelo menos um vencimento (> 0).
 - name: possui_ao_menos_um_vencimento
   criticality: error
+  # Escopo mensal: só a data-base corrente (MAX(dt_base) desta tabela).
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr3040_vencimentos)"
   check:
     function: sql_expression
     arguments:

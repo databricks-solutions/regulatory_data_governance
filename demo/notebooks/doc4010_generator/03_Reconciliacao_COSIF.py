@@ -6,8 +6,9 @@
 # MAGIC `docs/spec/03_data_model.md §4.3`. Uma linha por rubrica: valor SCR
 # MAGIC (agregado do 3040) × valor COSIF (saldo do 4010) → diferença, % e status.
 # MAGIC
-# MAGIC É esta tabela que o check DQX `reconciliacao_cosif.yml` avalia (crítica
-# MAGIC N01, dimensão 8 — Consistência). O `status` segue a tolerância configurada:
+# MAGIC É esta tabela que os checks DQX `batimento_cosif_*` (em
+# MAGIC `quality/dqx_checks/reconciliacao_cosif.yml`) avaliam (crítica N01, dimensão
+# MAGIC 8 — Consistência). O `status` segue a tolerância configurada:
 # MAGIC - **APROVADO**: |pct_diferenca| == 0
 # MAGIC - **ALERTA**:   0 < |pct_diferenca| <= tolerancia_pct
 # MAGIC - **BLOQUEADO**: |pct_diferenca| > tolerancia_pct

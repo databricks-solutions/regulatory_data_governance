@@ -1,11 +1,17 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC # Cross-catalog read GRANTs para o app RC18 acessar a DQX Studio
+-- MAGIC # Cross-catalog GRANTs entre o RC18 e a DQX Studio (BIDIRECIONAL)
 -- MAGIC
--- MAGIC O app RC18 **lê** (não escreve) as tabelas da DQX Studio
--- MAGIC (`databrickslabs/dqx`) para popular o catálogo de Críticas SCR, os KPIs de
--- MAGIC qualidade e as validações. As regras em si são criadas pelo usuário na
--- MAGIC própria DQX Studio — o RC18 não faz mais seed automático de regras.
+-- MAGIC São DOIS grants cross-catalog, em direções opostas — ambos necessários:
+-- MAGIC   1. **RC18 → DQX** (abaixo): o SP do app RC18 LÊ `dqx.dqx_studio.*` para
+-- MAGIC      popular o catálogo de Críticas SCR, KPIs e validações.
+-- MAGIC   2. **DQX → RC18** (mais abaixo, seção "GRANT REVERSO"): o SP da DQX Studio
+-- MAGIC      LÊ `rc18_catalog.{silver,gold,reference}` para os jobs de validação
+-- MAGIC      resolverem os checks de domínio/referência. **Sem ele, esses checks dão
+-- MAGIC      falso-positivo silencioso de 100%** — ver a seção para o porquê.
+-- MAGIC
+-- MAGIC As regras em si são criadas pelo usuário na própria DQX Studio — o RC18 não
+-- MAGIC faz mais seed automático de regras.
 -- MAGIC
 -- MAGIC Para o service principal do bundle conseguir LER essas tabelas
 -- MAGIC (que vivem em `dqx.dqx_studio`, um catálogo/schema diferente do
@@ -58,6 +64,47 @@ GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_metrics               TO `<RC18_S
 -- COMMAND ----------
 
 -- MAGIC %md
+-- MAGIC ## GRANT REVERSO (obrigatório): o SP da DQX Studio precisa LER `rc18_catalog`
+-- MAGIC
+-- MAGIC **Por que:** os jobs de validação da DQX Studio rodam como o service
+-- MAGIC principal da PRÓPRIA DQX Studio (o `run_as` do job, NÃO o SP do RC18). Esse
+-- MAGIC SP lê a tabela-alvo do run via uma view temporária, mas os checks que
+-- MAGIC referenciam OUTRAS tabelas do `rc18_catalog` — os de DOMÍNIO
+-- MAGIC (`IN (SELECT valor_codigo FROM reference.v_dom_3040_*)`), a integridade
+-- MAGIC referencial (`EXISTS ... silver.scr3040_clientes`) e o batimento COSIF
+-- MAGIC (`NOT IN reference.v_recon_status_bloqueante`) — precisam que esse SP tenha
+-- MAGIC `USE CATALOG` + `SELECT` em `rc18_catalog`.
+-- MAGIC
+-- MAGIC **⚠️ Sintoma se faltar (silencioso e perigoso):** os checks de domínio/
+-- MAGIC referência marcam **100% das linhas como violação** (a subquery não resolve
+-- MAGIC por falta de permissão → expressão vira NULL → tudo falha). O run reporta
+-- MAGIC SUCCESS, então passa despercebido. `foreign_key` falha explícito com
+-- MAGIC `INSUFFICIENT_PERMISSIONS: USE CATALOG on rc18_catalog`.
+-- MAGIC
+-- MAGIC **Como achar o SP da DQX Studio** (é o `run_as` dos jobs dela — pode diferir
+-- MAGIC do `service_principal_client_id` do app):
+-- MAGIC
+-- MAGIC   ```bash
+-- MAGIC   # pegue um run_id recente de validação na UI (Runs History) e:
+-- MAGIC   databricks api get "/api/2.1/jobs/runs/get?run_id=<RUN_ID>" \
+-- MAGIC     | python3 -c "import sys,json;print(json.load(sys.stdin).get('creator_user_name'))"
+-- MAGIC   ```
+-- MAGIC
+-- MAGIC Substitua `<DQX_STUDIO_SP>` pelo identificador retornado.
+
+-- COMMAND ----------
+
+GRANT USE CATALOG ON CATALOG  rc18_catalog                  TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.silver           TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   rc18_catalog.silver           TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.gold             TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   rc18_catalog.gold             TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`;
+
+-- COMMAND ----------
+
+-- MAGIC %md
 -- MAGIC ## Verificação
 -- MAGIC
 -- MAGIC Confirme que os grants apareceram:
@@ -68,6 +115,11 @@ SHOW GRANTS ON TABLE dqx.dqx_studio.dq_quality_rules;
 
 -- COMMAND ----------
 
+SHOW GRANTS ON CATALOG rc18_catalog;
+
+-- COMMAND ----------
+
 -- MAGIC %md
 -- MAGIC Após rodar, o app RC18 (página Críticas SCR / `/rules`) conseguirá ler as
--- MAGIC regras autoradas na DQX Studio sem erro de permissão.
+-- MAGIC regras autoradas na DQX Studio sem erro de permissão, E os checks de domínio/
+-- MAGIC referência/batimento executarão corretamente (sem falso-positivo de 100%).

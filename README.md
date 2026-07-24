@@ -14,6 +14,16 @@ O que o deploy entrega:
 
 ---
 
+## Aviso legal — leia antes de usar
+
+> [!IMPORTANT]
+> - **Não é um produto Databricks.** Este repositório é um **acelerador / ativo de apoio** (código de exemplo, "as-is"), **não** um produto, serviço ou oferta comercial da Databricks. Não possui **SLA, suporte oficial, garantia ou manutenção** da Databricks.
+> - **Não garante conformidade com a RC18.** É apenas um **ponto de partida** para ajudar a mitigar parte dos desafios técnicos da Resolução Conjunta BACEN nº 18. **Não assegura aderência regulatória** — a conformidade depende de dados, processos, controles e decisões que estão fora do escopo deste repositório.
+> - **A responsabilidade é integralmente do cliente.** Cabe **exclusivamente à instituição usuária** validar a adequação à RC18 e à demais regulação aplicável, revisar as regras de qualidade, os mapeamentos e as críticas, e obter aconselhamento jurídico/regulatório próprio. As regras, domínios e batimentos aqui incluídos são **exemplos representativos e simplificados**, não o conjunto completo/oficial exigido pelo BACEN.
+> - **Sem garantias.** Fornecido **"COMO ESTÁ", sem garantias de qualquer natureza** (ver [LICENSE.md](LICENSE.md) e [NOTICE.md](NOTICE.md)). O uso é por conta e risco do usuário.
+
+---
+
 ## Pré-requisitos
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
