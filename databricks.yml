@@ -138,3 +138,11 @@ variables:
       DQX Studio must already be deployed in the target workspace.
       Valor NÃO pode ser string vazia (API de Databricks Apps rejeita env vars
       sem valor — ver CLAUDE.md "Bundle gotchas").
+
+  dqx_studio_sp:
+    description: |
+      Service principal da DQX Studio (o run_as dos jobs de validação). O task
+      grant_warehouse_perms concede a esse SP leitura em rc18_catalog — necessário
+      para os checks DQX com subquery (domínio/referência/batimento + o filter de
+      escopo mensal dt_base=(SELECT max…)) resolverem. 
+    default: ""

@@ -19,6 +19,10 @@
 # MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
 # MAGIC      tabela `governance.incidents` (necessário para criação de
 # MAGIC      incidentes via POST /governance/incidents)
+# MAGIC   4. GRANT REVERSO — USE CATALOG + SELECT em `rc18_catalog.{silver,gold,
+# MAGIC      reference}` para o SP da DQX Studio (o `run_as` dos jobs de
+# MAGIC      validação), para que os checks com subquery resolvam. Só aplicado se
+# MAGIC      o widget `dqx_studio_sp` for informado.
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter USE/SELECT no
@@ -31,10 +35,17 @@ dbutils.widgets.text("app_name", "", "Nome do app (ex: rc18-starter-kit-dev)")
 dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehouse-dev)")
 dbutils.widgets.text("dqx_checks_table", "dqx.dqx_studio.dq_quality_rules",
                      "FQN da tabela DQX Studio (catalog.schema.table)")
+# Service principal da DQX Studio (o run_as dos jobs de validação). Precisa LER
+# rc18_catalog para os checks com subquery (domínio/referência/batimento + o filter
+# de escopo mensal dt_base=(SELECT max…)) resolverem. Vazio = pula o grant reverso
+# (mas esses checks falharão com "invalid check filter" / 100% de violação).
+# Ver grant_dqx_studio_access.sql.
+dbutils.widgets.text("dqx_studio_sp", "", "SP da DQX Studio (run_as dos jobs de validação)")
 
 APP_NAME = dbutils.widgets.get("app_name")
 WAREHOUSE_NAME = dbutils.widgets.get("warehouse_name")
 DQX_CHECKS_TABLE = dbutils.widgets.get("dqx_checks_table")
+DQX_STUDIO_SP = dbutils.widgets.get("dqx_studio_sp")
 
 if not APP_NAME or not WAREHOUSE_NAME:
     raise ValueError(
@@ -178,3 +189,43 @@ print("\nSHOW GRANTS:")
 for row in spark.sql(f"SHOW GRANTS ON TABLE {DQX_CHECKS_TABLE}").collect():
     if sp_client_id in str(row):
         print(f"  {dict(row.asDict())}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. GRANT REVERSO: o SP da DQX Studio precisa LER `rc18_catalog`
+# MAGIC
+# MAGIC Os jobs de validação do DQX Studio rodam como o SP da PRÓPRIA DQX Studio
+# MAGIC (o `run_as`/creator do job — uma identidade DIFERENTE do SP do app RC18
+# MAGIC acima). Todo check com subquery — os de domínio
+# MAGIC (`IN (SELECT … FROM reference.v_dom_3040_*)`), integridade referencial
+# MAGIC (`EXISTS … silver.scr3040_clientes`), batimento COSIF
+# MAGIC (`NOT IN reference.v_recon_status_bloqueante`) E o `filter` de escopo mensal
+# MAGIC (`dt_base = (SELECT max(dt_base) …)`) — exige que esse SP tenha
+# MAGIC USE CATALOG + SELECT em `rc18_catalog`. SEM isso, a subquery não resolve e o
+# MAGIC DQX marca 100% das linhas como violação / "invalid check filter" — SILENCIOSO
+# MAGIC (o run reporta SUCCESS). Este grant é reaplicado a cada execução do job,
+# MAGIC igual aos demais, para sobreviver a `bundle destroy + deploy`.
+
+# COMMAND ----------
+
+if not DQX_STUDIO_SP:
+    print("[SKIP] Widget `dqx_studio_sp` vazio — grant reverso NÃO aplicado. Os checks "
+          "com subquery (domínio/referência/escopo mensal) falharão com "
+          "'invalid check filter'. Defina o SP da DQX Studio no target.yml para "
+          "habilitar, ou rode grant_dqx_studio_access.sql (seção GRANT REVERSO).")
+else:
+    print(f"DQX Studio SP: {DQX_STUDIO_SP}")
+    reverse_grants = [
+        f"GRANT USE CATALOG ON CATALOG `rc18_catalog` TO `{DQX_STUDIO_SP}`",
+    ] + [
+        cmd.format(s=s, sp=DQX_STUDIO_SP)
+        for s in ("silver", "gold", "reference")
+        for cmd in (
+            "GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+            "GRANT SELECT     ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+        )
+    ]
+    for g in reverse_grants:
+        spark.sql(g)
+        print(f"  ✓ {g}")

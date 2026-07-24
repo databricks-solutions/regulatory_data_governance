@@ -54,6 +54,7 @@ resources:
               app_name: ${resources.apps.r18_compliance_app.name}
               warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
               dqx_checks_table: ${var.dqx_checks_table}
+              dqx_studio_sp: ${var.dqx_studio_sp}
 
         - task_key: "bronze"
           depends_on:
