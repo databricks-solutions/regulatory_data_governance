@@ -381,6 +381,96 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
     return out
 
 
+async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
+    """Monthly score history for a single R.18 dimension (real mode).
+
+    Mirrors `_aggregate_by_dimension` but bucketed por mês: para cada mês toma
+    o ÚLTIMO run SUCCESS por tabela silver dentro daquele mês, soma total/invalid
+    das checks mapeadas a esta dimensão e deriva o score. O mês corrente casa com
+    o score atual do detalhe da dimensão (mesma semântica de agregação).
+
+    Devolve um ponto por mês com dado; com um único mês de execuções o gráfico
+    mostra um ponto (a série cresce conforme novos meses são executados). Sem
+    execuções → lista vazia (a UI renderiza "—").
+    """
+    # Último run SUCCESS por (tabela, mês). Auto Loader/DQX podem rodar várias
+    # vezes no mesmo mês — pega o mais recente de cada mês, como o score atual
+    # pega o mais recente global.
+    runs = await execute_query(
+        "WITH ranked AS ("
+        "  SELECT run_id, source_table_fqn, total_rows,"
+        "         SUBSTRING(date_format(created_at, 'yyyy-MM-dd'), 1, 7) AS month,"
+        "         ROW_NUMBER() OVER ("
+        "           PARTITION BY source_table_fqn, SUBSTRING(date_format(created_at, 'yyyy-MM-dd'), 1, 7)"
+        "           ORDER BY created_at DESC) AS rn"
+        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
+        "  WHERE status = 'SUCCESS'"
+        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        ") SELECT run_id, source_table_fqn, total_rows, month FROM ranked WHERE rn = 1",
+        {},
+    )
+    if not runs:
+        return []
+
+    quoted = ",".join(f"'{r['run_id']}'" for r in runs)
+    metrics_rows = await execute_query(
+        "SELECT run_id, metric_value AS check_metrics_json "
+        f"FROM {DQX_METRICS_TABLE} "
+        f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
+        {},
+    )
+    metrics_by_run = {m["run_id"]: m for m in metrics_rows}
+
+    rule_meta_cache = await _load_rule_user_metadata()
+    vinc_by_pair, _vinc_by_rule = await load_vinculos()
+
+    # month → {total, invalid} agregado só desta dimensão.
+    by_month: dict[str, dict] = {}
+    for r in runs:
+        month = r.get("month")
+        if not month:
+            continue
+        total = int(r.get("total_rows") or 0)
+        source_table = r.get("source_table_fqn", "")
+        cm = metrics_by_run.get(r["run_id"])
+        if not cm:
+            continue
+        try:
+            check_metrics = json.loads(cm["check_metrics_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(check_metrics, list):
+            continue
+        for cmrow in check_metrics:
+            check_name = cmrow.get("check_name")
+            if not check_name:
+                continue
+            link = vinc_by_pair.get((source_table, check_name))
+            if check_name not in rule_meta_cache and not link:
+                continue
+            um = rule_meta_cache.get(check_name, {})
+            meta = resolve_meta(
+                check_name,
+                table_fqn=source_table,
+                user_metadata=um,
+                vinculos_by_pair=vinc_by_pair,
+            )
+            if meta["dimension_r18"] != dimension_id:
+                continue
+            err = int(cmrow.get("error_count") or 0)
+            warn = int(cmrow.get("warning_count") or 0)
+            bucket = by_month.setdefault(month, {"total": 0, "invalid": 0})
+            bucket["total"] += total
+            bucket["invalid"] += (err + warn)
+
+    trend: list[TrendPoint] = []
+    for month in sorted(by_month):
+        agg = by_month[month]
+        score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 1) if agg["total"] else 100.0
+        trend.append(TrendPoint(month=month, score=score))
+    return trend
+
+
 @router.get("/dimensions/{dimension_id}", response_model=DimensionDetailResponse)
 async def get_quality_dimension_detail(
     dimension_id: int,
@@ -444,9 +534,10 @@ async def get_quality_dimension_detail(
             else "atencao" if score >= target - 10
             else "nao_conforme"
         )
-    # Violações reais da mesma fonte da página Críticas SCR (só busca quando há
-    # regras vinculadas — sem regras não há execução a inspecionar).
+    # Violações reais + tendência mensal da mesma fonte (dq_metrics). Só busca
+    # quando há regras vinculadas — sem regras não há execução a inspecionar.
     violations = await _real_violations_for_dimension(dimension_id) if agg["rules"] else []
+    trend = await _dimension_trend(dimension_id) if agg["rules"] else []
     return DimensionDetailResponse(
         dimension=d, score=score, target=target, status=status,
         metrics={
@@ -455,7 +546,7 @@ async def get_quality_dimension_detail(
             "registros_nao_conformes": float(agg["invalid"]),
             "regras_avaliadas": float(agg["rules"]),
         },
-        violations=violations, trend=[],
+        violations=violations, trend=trend,
     )
 
 
