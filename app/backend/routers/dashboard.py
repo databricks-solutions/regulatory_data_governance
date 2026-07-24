@@ -14,6 +14,7 @@ from i18n import get_locale
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for
+from rc18_links import scope_table_clause
 from models import (
     Alert,
     DashboardEmbed,
@@ -202,17 +203,19 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
     Calcula contagens de violações por documento (3040/3050) e timestamp do
     último run para o card "Última Execução".
     """
-    # 1. Latest SUCCESS runs per source_table_fqn (qualquer silver RC18)
+    # 1. Latest SUCCESS runs per source_table_fqn — escopo dirigido por
+    # cadoc_tabelas (inclui tabelas gold registradas), fallback silver.
+    scope_pred, scope_params = await scope_table_clause("source_table_fqn")
     runs = await execute_query(
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
-        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1",
-        {},
+        scope_params,
     )
     last_run_at = ""
     last_table = ""

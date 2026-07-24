@@ -26,7 +26,7 @@ from models import (
     Violation,
 )
 from rc18_rule_meta import meta_for, resolve_meta
-from rc18_links import load_vinculos
+from rc18_links import load_vinculos, scope_table_clause
 
 router = APIRouter()
 
@@ -304,16 +304,19 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
     `check_metrics` and looks up each check's dimension via `rc18_rule_meta`.
     Rules without a known dimension fall into the "Outras" bucket (id=0).
     """
-    # Latest SUCCESS run per source_table_fqn (any RC18 silver table).
+    # Latest SUCCESS run per source_table_fqn — escopo dirigido por cadoc_tabelas
+    # (inclui tabelas gold registradas, ex. reconciliacao_cosif), com fallback
+    # ao prefixo silver quando cadoc_tabelas está vazio.
+    scope_pred, scope_params = await scope_table_clause("source_table_fqn")
     runs = await execute_query(
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
-        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
-        {},
+        scope_params,
     )
     if not runs:
         return {}
@@ -396,6 +399,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
     # Último run SUCCESS por (tabela, mês). Auto Loader/DQX podem rodar várias
     # vezes no mesmo mês — pega o mais recente de cada mês, como o score atual
     # pega o mais recente global.
+    scope_pred, scope_params = await scope_table_clause("source_table_fqn")
     runs = await execute_query(
         "WITH ranked AS ("
         "  SELECT run_id, source_table_fqn, total_rows,"
@@ -405,9 +409,9 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
         "           ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
         "  WHERE status = 'SUCCESS'"
-        "    AND source_table_fqn LIKE 'rc18_catalog.silver.%'"
+        f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows, month FROM ranked WHERE rn = 1",
-        {},
+        scope_params,
     )
     if not runs:
         return []
