@@ -313,6 +313,9 @@
   },
   "quality": {
     "associatedViolations": "Violazioni Associate",
+    "associatedRules": "Regole della Dimensione",
+    "colStatus": "Stato",
+    "noRules": "Nessuna regola valutata in questa dimensione",
     "breadcrumbRoot": "Qualità R.18",
     "colDescription": "Descrizione",
     "colRecords": "Record",

@@ -66,12 +66,17 @@
     Object.entries(data.metrics || {}).filter(([k]) => !(k.includes('pct') || k.includes('taxa')))
   );
 
+  const conformeLabel = $derived($_('quality.statusConforme'));
+  const naoConformeLabel = $derived($_('quality.statusNaoConforme'));
   const violationColumns = $derived.by(() => [
     { key: 'rule_id', label: $_('quality.colRule'), sortable: true, width: '100px' },
     { key: 'rule_description', label: $_('quality.colDescription'), sortable: true },
     { key: 'severity', label: $_('quality.colSeverity'), sortable: true, width: '100px', render: (v) => `<span class="sev-${v}">${v}</span>` },
     { key: 'count', label: $_('quality.colRecords'), sortable: true, width: '100px' },
-    { key: 'status', label: $_('common.status'), sortable: true, width: '80px' }
+    { key: 'status', label: $_('quality.colStatus'), sortable: true, width: '140px',
+      render: (v) => v === 'conforme'
+        ? `<span class="status-badge status-pass">✓ ${conformeLabel}</span>`
+        : `<span class="status-badge status-fail">✗ ${naoConformeLabel}</span>` }
   ]);
 
   onMount(async () => {
@@ -150,10 +155,10 @@
     </div>
   </div>
 
-  <!-- Violations Table -->
+  <!-- Rules Table — todas as regras avaliadas na dimensão com seu status -->
   <div class="card">
-    <div class="card-header">{$_('quality.associatedViolations')}</div>
-    <DataTable columns={violationColumns} data={data.violations} emptyMessage={$_('quality.noViolations')} />
+    <div class="card-header">{$_('quality.associatedRules')}</div>
+    <DataTable columns={violationColumns} data={data.violations} emptyMessage={$_('quality.noRules')} />
   </div>
 </div>
 
@@ -241,4 +246,26 @@
   :global(.sev-error) { color: var(--error); font-weight: 600; }
   :global(.sev-warning) { color: var(--warning); font-weight: 600; }
   :global(.sev-info) { color: var(--info); font-weight: 600; }
+
+  /* Status badge for the "Regras da Dimensão" table — mirrors the Críticas SCR
+     page so conforme/não-conforme read identically across the app. */
+  :global(.status-badge) {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  :global(.status-badge.status-pass) {
+    background: rgba(34, 197, 94, 0.12);
+    color: var(--success, #16a34a);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+  :global(.status-badge.status-fail) {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--error, #dc2626);
+    border-color: rgba(220, 38, 38, 0.3);
+  }
 </style>

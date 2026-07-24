@@ -134,14 +134,17 @@ def _mock_trend(base_score: float | None) -> list[TrendPoint]:
 
 
 def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Violation]:
-    """Derive a dimension's violations from the SAME 3040/3050 fixtures the
-    Críticas SCR (Validations) page renders.
+    """Derive a dimension's rules from the SAME 3040/3050 fixtures the Críticas
+    SCR (Validations) page renders.
 
-    Drilling dashboard → dimensão → detalhe agora mostra os MESMOS rule_ids /
+    Drilling dashboard → dimensão → detalhe mostra os MESMOS rule_ids /
     descrições da página de validações (ex.: Acurácia → S10_004), em vez de uma
-    crítica sintética `SEM_xxx`. Cross-router import (lazy, sem ciclo:
-    validation.py não importa quality.py) DE PROPÓSITO — é a fonte única dos
-    fixtures de crítica; duplicá-los aqui reintroduz o drift que isto corrige.
+    crítica sintética `SEM_xxx`. Lista TODAS as regras avaliadas da dimensão
+    (não só as que falharam), cada uma com seu `status` conforme/nao_conforme —
+    o painel "Regras da Dimensão" exibe o resultado completo. Cross-router
+    import (lazy, sem ciclo: validation.py não importa quality.py) DE PROPÓSITO
+    — é a fonte única dos fixtures de crítica; duplicá-los aqui reintroduz o
+    drift que isto corrige.
     """
     from routers.validation import _mock_rules_3040, _mock_rules_3050
 
@@ -153,10 +156,50 @@ def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Viola
             severity=r.severity,
             count=r.affected_records,
             sample_records=list(r.sample_ipocs),
+            status="conforme" if r.status == "pass" else "nao_conforme",
         )
         for r in fixtures
-        if r.dimension_r18 == dimension_id and r.status != "pass"
+        if r.dimension_r18 == dimension_id
     ]
+
+
+async def _real_violations_for_dimension(dimension_id: int) -> list[Violation]:
+    """Real-mode analogue of `_mock_violations_for_dimension`.
+
+    Builds the dimension's rule results from the SAME source the Críticas SCR
+    page renders (`_fetch_studio_results`: latest DQX Studio run per silver
+    table → per-check counts), so drilling dashboard → dimensão → detalhe shows
+    the identical rule_ids / descrições / contagens. Returns ALL checks mapped
+    to this dimension (not only failures) with their `status` — the panel
+    "Regras da Dimensão" lists every evaluated rule with conforme/nao_conforme.
+    Lazy cross-router import (same as the mock helper) to avoid a cycle —
+    validation.py never imports quality.py.
+    """
+    from routers.validation import _fetch_studio_results
+
+    violations: list[Violation] = []
+    seen: set[tuple[str, str]] = set()
+    # 3040 and 3050 are scoped to disjoint silver tables, but a dimension can
+    # span both documents — call each and merge, deduping on (run, check) in
+    # case a table is linked to more than one CADOC on the /linking screen.
+    for document in ("3040", "3050"):
+        results, _run_id, _run_time = await _fetch_studio_results(document)
+        for vr in results:
+            if vr.dimension_r18 != dimension_id:
+                continue
+            key = (vr.dqx_run_id or "", vr.check_name or vr.rule_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            violations.append(Violation(
+                rule_id=vr.rule_id,
+                rule_description=vr.description,
+                severity=vr.severity,
+                count=vr.affected_records,
+                sample_records=list(vr.sample_ipocs or []),
+                status="conforme" if vr.status == "pass" else "nao_conforme",
+            ))
+    return violations
 
 
 @router.get("/dimensions", response_model=QualityDimensionsResponse)
@@ -401,6 +444,9 @@ async def get_quality_dimension_detail(
             else "atencao" if score >= target - 10
             else "nao_conforme"
         )
+    # Violações reais da mesma fonte da página Críticas SCR (só busca quando há
+    # regras vinculadas — sem regras não há execução a inspecionar).
+    violations = await _real_violations_for_dimension(dimension_id) if agg["rules"] else []
     return DimensionDetailResponse(
         dimension=d, score=score, target=target, status=status,
         metrics={
@@ -409,7 +455,7 @@ async def get_quality_dimension_detail(
             "registros_nao_conformes": float(agg["invalid"]),
             "regras_avaliadas": float(agg["rules"]),
         },
-        violations=[], trend=[],
+        violations=violations, trend=[],
     )
 
 

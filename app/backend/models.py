@@ -129,6 +129,11 @@ class Violation(BaseModel):
     severity: str
     count: int
     sample_records: list[str] = []
+    # Resultado da regra na última execução DQX: "conforme" (passou, 0 registros
+    # afetados) ou "nao_conforme" (falhou/alertou). Popula a coluna Status do
+    # painel "Regras da Dimensão" — o painel lista TODAS as regras avaliadas, não
+    # só as que falharam.
+    status: str = "nao_conforme"
 
 
 class DimensionDetailResponse(BaseModel):
