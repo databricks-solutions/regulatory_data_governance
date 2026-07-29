@@ -568,6 +568,9 @@
     "noOtherObjects": "Nenhum outro objeto externo",
     "nodeRelationships": "Relacionamentos",
     "deleteObject": "Excluir objeto",
-    "confirmDeleteObject": "Excluir o objeto de linhagem externa '{name}' e todos os seus relacionamentos?"
+    "confirmDeleteObject": "Excluir o objeto de linhagem externa '{name}' e todos os seus relacionamentos?",
+    "zoneExternalIn": "Ambiente externo — origem",
+    "zoneDatabricks": "Databricks",
+    "zoneExternalOut": "Ambiente externo — saída"
   }
 }

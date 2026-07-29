@@ -11,6 +11,10 @@
   import SystemTypeIcon from '$lib/components/domain/SystemTypeIcon.svelte';
   import ExternalMetadataForm from '$lib/components/domain/ExternalMetadataForm.svelte';
   import ExternalLineageForm from '$lib/components/domain/ExternalLineageForm.svelte';
+  import ZoneBand from '$lib/components/domain/ZoneBand.svelte';
+
+  // Custom node type for the background zone bands (external vs Databricks).
+  const nodeTypes = { zoneBand: ZoneBand };
 
   let SvelteFlow, MiniMap, Controls, Background, SvelteFlowProvider;
   let flowLoaded = $state(false);
@@ -37,10 +41,26 @@
 
   // Layer X positions (px) — left to right: origin → external sources → ETL → Databricks medallion → validators → BCB
   const LAYER_ORDER = ['origin', 'source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
-  const LAYER_X     = { origin: 40, source: 290, etl: 540, bronze: 790, silver: 1040, gold: 1290, validator: 1540, output: 1790 };
   const NODE_W = 200;
   const NODE_H = 44;
   const NODE_GAP = 24;
+  const COL_GAP = 90;           // horizontal gap between adjacent (packed) layer columns
+
+  // Environment zones — the three vertical bands separating the external world
+  // (pre-ingestion sources + post-processing delivery) from the Databricks
+  // medallion. Each lists the layers it spans; the band is drawn only if at
+  // least one of its layers has a node (stays consistent with the dynamic legend).
+  const ZONES = [
+    { id: 'zone-ext-in',  labelKey: 'lineageMgmt.zoneExternalIn',  layers: ['origin', 'source', 'etl'],
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A' },
+    { id: 'zone-dbx',     labelKey: 'lineageMgmt.zoneDatabricks',  layers: ['bronze', 'silver', 'gold'],
+      bg: 'rgba(255,54,33,0.05)',   border: '#F4A79B', text: '#C4321F', icon: 'databricks' },
+    { id: 'zone-ext-out', labelKey: 'lineageMgmt.zoneExternalOut', layers: ['validator', 'output'],
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A' },
+  ];
+  const ZONE_PAD = 16;          // horizontal padding around a zone's node columns
+  const ZONE_TOP = 4;           // top offset of a band
+  const ZONE_HEIGHT = 760;      // fixed band height (graph canvas is ~860 tall)
 
   // Resolve node color. Validators/outputs keep their layer identity; otherwise
   // the layer color drives the node (system identity is carried by the inline
@@ -69,13 +89,59 @@
 
   // Normalize any backend layer to one of the 8 rendered columns. UC schemas
   // like `reference`/`landing`/`quality`/`unknown` are valid layers on the API
-  // but have no column — without this they'd be silently dropped (and leave
-  // dangling edges). Map lookups/reference to the left (source), quality to
-  // silver.
-  function normalizeLayer(l) {
+  // but have no column of their own. Crucially, this must be TYPE-AWARE: a UC
+  // table (type 'table') in reference/landing/quality is INTERNAL to Databricks
+  // and must stay in the Databricks zone — NOT be misfiled as an external source
+  // (the old blanket `return 'source'` put reference lookups like
+  // modalidades_equivalencia in the "Fonte Externa" column, which is wrong).
+  // Only genuine external objects (BYOL, non-'table' type) with an unknown layer
+  // fall back to the external `source` column.
+  function normalizeLayer(node) {
+    const l = node?.layer || 'source';
     if (LAYER_ORDER.includes(l)) return l;
-    if (l === 'quality') return 'silver';
-    return 'source';
+    if (node?.type === 'table') {
+      // Internal UC table in a non-medallion schema → keep inside Databricks.
+      if (l === 'quality') return 'silver';
+      return 'bronze';   // reference/landing/unknown lookups sit on the input side
+    }
+    return 'source';     // external BYOL object with an unknown layer
+  }
+
+  // Assign a contiguous X to each PRESENT layer (packed, no gaps). An empty
+  // intermediate layer (e.g. no `etl`) must NOT reserve a column — otherwise a
+  // big void opens between the columns that do exist. Returns { layer: x }.
+  function packLayerX(byLayer) {
+    const layerX = {};
+    let col = 0;
+    for (const l of LAYER_ORDER) {
+      if ((byLayer[l] || []).length) {
+        layerX[l] = 40 + col * (NODE_W + COL_GAP);
+        col++;
+      }
+    }
+    return layerX;
+  }
+
+  // Compute background zone bands from the ACTUAL packed X of each layer.
+  function buildZoneNodes(layerX) {
+    const zones = [];
+    for (const z of ZONES) {
+      const cols = z.layers.filter(l => l in layerX);
+      if (!cols.length) continue;
+      const xs = cols.map(l => layerX[l]);
+      const x = Math.min(...xs) - ZONE_PAD;
+      const width = (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2;
+      zones.push({
+        id: z.id,
+        type: 'zoneBand',
+        position: { x, y: ZONE_TOP },
+        data: { label: $_(z.labelKey), width, height: ZONE_HEIGHT, bg: z.bg, border: z.border, text: z.text, icon: z.icon },
+        draggable: false, selectable: false, connectable: false, focusable: false,
+        zIndex: -1,
+        style: 'pointer-events: none;'
+      });
+    }
+    return zones;
   }
 
   // Build Svelte-Flow node/edge arrays from the API response format
@@ -84,19 +150,23 @@
     const byLayer = {};
     LAYER_ORDER.forEach(l => byLayer[l] = []);
     apiNodes.forEach(n => {
-      const l = normalizeLayer(n.layer || 'source');
+      const l = normalizeLayer(n);
       byLayer[l].push(n);
     });
 
-    const flowNodes = [];
+    const layerX = packLayerX(byLayer);
+    // Zone bands FIRST so they render behind the real nodes.
+    const flowNodes = buildZoneNodes(layerX);
+
     LAYER_ORDER.forEach(layer => {
       const group = byLayer[layer] || [];
+      if (!group.length) return;
       const totalH = group.length * (NODE_H + NODE_GAP) - NODE_GAP;
-      const startY = Math.max(40, 380 - totalH / 2); // vertically center around y=380
+      const startY = Math.max(60, 400 - totalH / 2); // vertically center
       group.forEach((n, i) => {
         flowNodes.push({
           id: n.id,
-          position: { x: LAYER_X[layer] ?? 40, y: startY + i * (NODE_H + NODE_GAP) },
+          position: { x: layerX[layer], y: startY + i * (NODE_H + NODE_GAP) },
           data: { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type,
                   ingestion_mode: n.ingestion_mode, properties: n.properties, metadata: n.metadata },
           type: 'default',
@@ -157,19 +227,47 @@
   const hasByolEdges = $derived(edges.some(e => e.data?.type === 'external_lineage'));
   const hasUcEdges = $derived(edges.some(e => e.data?.type === 'uc_automatic'));
 
-  // SVG fallback layer headers — descriptive captions translated; layer proper-names stay literal
-  const svgLayerHeaders = $derived.by(() => [
-    ['origin', $_('lineage.svgHeaderOrigin'), 40], ['source', 'Oracle/DB2', 290],
-    ['etl', 'ETL', 540], ['bronze', 'Bronze', 790], ['silver', 'Silver', 1040],
-    ['gold', 'Gold', 1290], ['validator', $_('lineage.svgHeaderValidators'), 1540],
-    ['output', 'BCB STA', 1790]
-  ]);
+  // Real (packed) X of each present layer, read back from the laid-out nodes.
+  // Both the SVG zone bands and the viewBox width derive from this, so the
+  // fallback stays in sync with the flow layout (no fixed LAYER_X gaps).
+  const layerXFromNodes = $derived.by(() => {
+    const m = {};
+    for (const n of nodes) {
+      if (n.type === 'zoneBand') continue;
+      const l = n.data?.layer;
+      if (l && !(l in m)) m[l] = n.position.x;
+    }
+    return m;
+  });
+
+  // SVG-fallback zone bands — same zones as the flow view, from real node X.
+  const svgZones = $derived.by(() => {
+    const layerX = layerXFromNodes;
+    const out = [];
+    for (const z of ZONES) {
+      const cols = z.layers.filter(l => l in layerX);
+      if (!cols.length) continue;
+      const xs = cols.map(l => layerX[l]);
+      const x = Math.min(...xs) - ZONE_PAD;
+      const width = (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2;
+      out.push({ x, width, label: $_(z.labelKey), bg: z.bg, border: z.border, text: z.text, icon: z.icon });
+    }
+    return out;
+  });
+
+  // SVG viewBox width — fit to the rightmost node so the fallback doesn't leave
+  // a huge empty canvas when few columns are present.
+  const svgWidth = $derived.by(() => {
+    const xs = nodes.filter(n => n.type !== 'zoneBand').map(n => n.position.x + NODE_W);
+    return Math.max(600, (xs.length ? Math.max(...xs) : 0) + ZONE_PAD + 20);
+  });
 
 
   // Select a node and load its full metadata (columns/owner/row count/CADOCs for
   // UC tables; system_type/url/properties for external objects).
   async function selectNode(node) {
     if (!node) return;
+    if (node.type === 'zoneBand') return;   // background band — not selectable
     selectedNode = node;
     selectedEdge = null;
     columnLineage = null;
@@ -426,7 +524,7 @@
           <button class="tbtn primary" onclick={openNewObject}>+ {$_('lineageMgmt.newObject')}</button>
         </div>
       {:else if flowLoaded && SvelteFlow}
-        <svelte:component this={SvelteFlow} {nodes} {edges} fitView
+        <svelte:component this={SvelteFlow} {nodes} {edges} {nodeTypes} fitView
           onnodeclick={handleNodeClick}
           onedgeclick={handleEdgeClick}>
           <svelte:component this={Controls} position="bottom-right" />
@@ -436,7 +534,7 @@
       {:else}
         <!-- SVG fallback -->
         <div class="graph-fallback">
-          <svg viewBox="0 0 2060 860" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 {svgWidth} 820" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <marker id="arrow-uc"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="#005CA9" />
@@ -445,6 +543,22 @@
                 <path d="M0,0 L0,6 L8,3 z" fill="#7A7A8A" />
               </marker>
             </defs>
+
+            <!-- Environment zone bands (behind everything) -->
+            {#each svgZones as z}
+              <rect x={z.x} y={ZONE_TOP} width={z.width} height={ZONE_HEIGHT} rx="12"
+                fill={z.bg} stroke={z.border} stroke-width="1.5" stroke-dasharray="6 4" />
+              {#if z.icon === 'databricks'}
+                <rect x={z.x + 10} y={ZONE_TOP + 6} width="22" height="22" rx="5" fill="#fff" />
+                <!-- Official Databricks symbol (24x24 path), scaled into the 18px chip area. -->
+                <g transform="translate({z.x + 13},{ZONE_TOP + 9}) scale(0.75)" fill="#FF3621">
+                  <path d="M.95 14.184L12 20.403l9.919-5.55v2.21L12 22.662l-10.484-5.96-.565.308v.77L12 24l11.05-6.218v-4.317l-.515-.309L12 19.118l-9.867-5.653v-2.21L12 16.805l11.05-6.218V6.32l-.515-.308L12 11.974 2.647 6.681 12 1.388l7.76 4.368.668-.411v-.566L12 0 .95 6.27v.72L12 13.207l9.919-5.55v2.26L12 15.52 1.516 9.56l-.565.308Z"/>
+                </g>
+              {/if}
+              <text x={z.x + (z.icon === 'databricks' ? 36 : 12)} y={ZONE_TOP + 22} fill={z.text}
+                font-size="12" font-weight="700" font-family="var(--font-primary)"
+                style="text-transform:uppercase;letter-spacing:0.06em;opacity:0.85;">{z.label}</text>
+            {/each}
 
             <!-- Edges -->
             {#each edges as edge}
@@ -474,13 +588,6 @@
                   </text>
                 {/if}
               {/if}
-            {/each}
-
-            <!-- Layer headers -->
-            {#each svgLayerHeaders as [l, lbl, lx]}
-              {@const c = layerColors[l]}
-              <rect x={lx} y="8" width={NODE_W} height="22" rx="4" fill={c.bg} stroke={c.border} />
-              <text x={lx + NODE_W/2} y="23" text-anchor="middle" fill={c.text} font-size="10" font-weight="700" font-family="var(--font-primary)">{lbl}</text>
             {/each}
 
             <!-- Nodes -->
