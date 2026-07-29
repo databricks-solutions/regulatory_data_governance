@@ -105,6 +105,49 @@ export function getColumnLineage(tableName, columnName) {
   return apiFetch(`/lineage/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`);
 }
 
+// External Metadata + External Lineage management (BYOL write surface).
+// Mirrors the native Catalog Explorer "New external metadata" dialog: register
+// external systems (COBOL, SQL Server, Oracle, BI…) and wire lineage edges.
+export function getSystemTypes() {
+  return apiFetch('/lineage/system-types');
+}
+export function getUcTables(schema) {
+  const params = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+  return apiFetch(`/lineage/uc-tables${params}`);
+}
+// Full metadata for a clicked graph node (UC table columns/owner/row count/CADOCs,
+// or a registered external object's system_type/entity_type/url/properties).
+export function getNodeMetadata(id) {
+  return apiFetch(`/lineage/node-metadata?id=${encodeURIComponent(id)}`);
+}
+export function listExternalMetadata() {
+  return apiFetch('/lineage/external-metadata');
+}
+export function createExternalMetadata(payload) {
+  return apiFetch('/lineage/external-metadata', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function updateExternalMetadata(name, payload) {
+  return apiFetch(`/lineage/external-metadata/${encodeURIComponent(name)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function deleteExternalMetadata(name) {
+  return apiFetch(`/lineage/external-metadata/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
+export function listExternalLineage() {
+  return apiFetch('/lineage/external-lineage');
+}
+export function createExternalLineage(payload) {
+  return apiFetch('/lineage/external-lineage', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+export function deleteExternalLineage(relId) {
+  return apiFetch(`/lineage/external-lineage/${encodeURIComponent(relId)}`, { method: 'DELETE' });
+}
+
 // XML
 export function uploadXml(file, documentType) {
   const formData = new FormData();

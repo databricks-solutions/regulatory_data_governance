@@ -105,6 +105,47 @@ GRANT SELECT      ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`
 -- COMMAND ----------
 
 -- MAGIC %md
+-- MAGIC ## GRANT BYOL (obrigatório para a Linhagem gravável): o SP do app precisa
+-- MAGIC ## gerenciar External Metadata / External Lineage
+-- MAGIC
+-- MAGIC **Por que:** a página **Linhagem** do app RC18 virou uma superfície de
+-- MAGIC gestão (read/write) sobre as APIs `external-metadata` / `external-lineage`
+-- MAGIC do Unity Catalog. As escritas (criar/editar/remover objeto externo e
+-- MAGIC relacionamento de linhagem) rodam como o **service principal do app**.
+-- MAGIC
+-- MAGIC Privilégios necessários para o SP do app:
+-- MAGIC   - `CREATE EXTERNAL METADATA` no **metastore** — criar objetos externos;
+-- MAGIC   - `MODIFY` no objeto externo — definir relacionamentos a partir dele
+-- MAGIC     (o owner recebe MODIFY automaticamente ao criar);
+-- MAGIC   - nas tabelas UC alvo de relacionamento: `SELECT` (relacionamento
+-- MAGIC     DOWNSTREAM, ex. gold→validador) e `MODIFY` (relacionamento UPSTREAM,
+-- MAGIC     ex. fonte→bronze). O SP do app já costuma ter esses no `rc18_catalog`.
+-- MAGIC
+-- MAGIC **Sintoma se faltar:** o formulário "Novo metadado externo" / "Novo
+-- MAGIC relacionamento" retorna HTTP 403 e o app mostra a mensagem
+-- MAGIC "O service principal do app não tem privilégio para gravar metadados/
+-- MAGIC linhagem externa…". A LEITURA do grafo (visualização) não exige esses
+-- MAGIC grants — só a escrita.
+-- MAGIC
+-- MAGIC Descubra o SP do app com:
+-- MAGIC   ```bash
+-- MAGIC   databricks apps get r18-compliance-app-dev --profile <perfil> \
+-- MAGIC     | grep -i "service_principal"
+-- MAGIC   ```
+-- MAGIC Substitua `<RC18_APP_SP>` abaixo. `CREATE EXTERNAL METADATA` é concedido no
+-- MAGIC metastore (não há FQN — é privilégio de metastore).
+
+-- COMMAND ----------
+
+GRANT CREATE EXTERNAL METADATA ON METASTORE TO `<RC18_APP_SP>`;
+-- Escrita de relacionamentos que apontam para tabelas do rc18_catalog:
+GRANT USE CATALOG ON CATALOG rc18_catalog                   TO `<RC18_APP_SP>`;
+GRANT MODIFY      ON SCHEMA  rc18_catalog.bronze            TO `<RC18_APP_SP>`;
+GRANT MODIFY      ON SCHEMA  rc18_catalog.gold              TO `<RC18_APP_SP>`;
+
+-- COMMAND ----------
+
+-- MAGIC %md
 -- MAGIC ## Verificação
 -- MAGIC
 -- MAGIC Confirme que os grants apareceram:

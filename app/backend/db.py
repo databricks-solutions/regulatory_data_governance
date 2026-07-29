@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "true").lower() == "true"
 CATALOG = os.getenv("DATABRICKS_CATALOG", "rc18_catalog")
+
+# Namespace prefix that scopes which External Metadata objects the RC18 app
+# lists/manages. Unity Catalog external metadata is metastore-wide, so WITHOUT a
+# prefix the Lineage page would pull in (and try to manage) unrelated objects
+# from OTHER projects sharing the metastore — the app SP is not their owner, so
+# delete/edit fails with "does not have MANAGE". Everything the app creates is
+# auto-namespaced under this prefix; listing/edit/delete are scoped to it.
+LINEAGE_OBJECT_PREFIX = os.getenv("LINEAGE_OBJECT_PREFIX", "rc18_")
 SCHEMA_BRONZE = os.getenv("SCHEMA_BRONZE", "bronze")
 SCHEMA_GOLD = os.getenv("SCHEMA_GOLD", "gold")
 SCHEMA_SILVER = os.getenv("SCHEMA_SILVER", "silver")

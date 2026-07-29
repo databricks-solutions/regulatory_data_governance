@@ -5,10 +5,16 @@
 #                            calendar, equivalencia, R.18 dimensions. Idempotent.
 #   2. load_sample_xmls    — copies sample/Doc3040_*.xml and sample/Doc3050_*.xml
 #                            into landing.scr_xml/{3040,3050}/. Idempotent.
-#   3. setup_byol_lineage  — registers 13 external metadata objects (Oracle, DB2,
-#                            Informatica, BACEN validators, STA/CADIP) and 13
-#                            lineage relationships with the UC External Lineage API.
-#                            Requires CREATE EXTERNAL METADATA on the metastore.
+#   3. setup_byol_lineage  — DEMO SEED only. Registers a small mixed-integration
+#                            starting topology (COBOL→file/AutoLoader, Oracle→
+#                            Federation, SQL Server→Lakeflow Connect, BACEN
+#                            validator, STA/CADIP) so a fresh deploy shows an
+#                            end-to-end graph. The customer then MANAGES the real
+#                            topology from the app's Linhagem page (write-through
+#                            over the same External Metadata / Lineage APIs).
+#                            Requires CREATE EXTERNAL METADATA on the metastore
+#                            (grant also needed by the app SP — see
+#                            notebooks/setup/grant_dqx_studio_access.sql).
 #                            Idempotent (deletes rc18_* objects before recreating).
 #
 # Run order on a fresh deployment:
