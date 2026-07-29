@@ -558,6 +558,14 @@
     "metaComment": "Comment",
     "metaOwner": "Owner",
     "metaTableType": "Table type",
-    "metaColumns": "Columns"
+    "metaColumns": "Columns",
+    "namePrefixHint": "The environment prefix is added automatically (you don't need to type it).",
+    "errConnectRequired": "Connect the object to a node (table or external object).",
+    "connectTitle": "Connect lineage",
+    "connectHint": "Every external object needs at least one relationship — that's how it shows up in the graph.",
+    "dirSource": "Is source (feeds the node)",
+    "dirTarget": "Is target (fed by the node)",
+    "noOtherObjects": "No other external object",
+    "nodeRelationships": "Relaciones"
   }
 }

@@ -375,6 +375,20 @@ class ExternalLineageListResponse(BaseModel):
     relationships: list[ExternalLineageRelationship]
 
 
+class ExternalObjectWithLineageRequest(BaseModel):
+    """Atomic create: register an external metadata object AND wire one lineage
+    relationship in a single call. ``connect_direction`` says whether the new
+    object is the ``source`` (feeds the connected node) or ``target`` (is fed by
+    it); ``connect_to`` is the other endpoint (a UC table or another external
+    object). This is the unified "Novo metadado externo" flow."""
+
+    object: ExternalMetadataObject
+    connect_direction: str            # "source" | "target"
+    connect_to: ExternalLineageEndpoint
+    columns: list[ColumnMapping] = []
+    relationship_properties: dict[str, str] = {}
+
+
 class UcTableOption(BaseModel):
     """A Unity Catalog table usable as a relationship endpoint (target picker)."""
 

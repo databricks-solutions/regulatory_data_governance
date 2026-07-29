@@ -136,16 +136,30 @@ export function updateExternalMetadata(name, payload) {
 export function deleteExternalMetadata(name) {
   return apiFetch(`/lineage/external-metadata/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
-export function listExternalLineage() {
-  return apiFetch('/lineage/external-lineage');
+export function listExternalLineage(objectName) {
+  const params = objectName ? `?object_name=${encodeURIComponent(objectName)}` : '';
+  return apiFetch(`/lineage/external-lineage${params}`);
 }
 export function createExternalLineage(payload) {
   return apiFetch('/lineage/external-lineage', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   });
 }
-export function deleteExternalLineage(relId) {
-  return apiFetch(`/lineage/external-lineage/${encodeURIComponent(relId)}`, { method: 'DELETE' });
+// Atomic create: external object + one lineage relationship in a single call.
+export function createExternalObjectWithLineage(payload) {
+  return apiFetch('/lineage/external-object-with-lineage', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+}
+// Delete a relationship by its endpoints (real mode has no delete-by-id).
+// endpoints: { source: {external_metadata_name|table_name}, target: {...} }
+export function deleteExternalLineage({ source, target }) {
+  const p = new URLSearchParams();
+  if (source?.external_metadata_name) p.set('source_external', source.external_metadata_name);
+  if (source?.table_name) p.set('source_table', source.table_name);
+  if (target?.external_metadata_name) p.set('target_external', target.external_metadata_name);
+  if (target?.table_name) p.set('target_table', target.table_name);
+  return apiFetch(`/lineage/external-lineage?${p}`, { method: 'DELETE' });
 }
 
 // XML

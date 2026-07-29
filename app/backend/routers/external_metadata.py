@@ -43,6 +43,7 @@ from models import (
     ExternalLineageRelationshipRequest,
     ExternalMetadataListResponse,
     ExternalMetadataObject,
+    ExternalObjectWithLineageRequest,
     NodeMetadataResponse,
     SystemTypeOption,
     TableColumn,
@@ -313,8 +314,8 @@ def _obj_to_body(obj: ExternalMetadataObject) -> dict:
         body["description"] = obj.description
     if obj.url:
         body["url"] = obj.url
-    if obj.owner:
-        body["owner"] = obj.owner
+    # NOTE: `owner` is NOT sent — the create/update API sets it server-side to the
+    # caller and rejects a supplied owner with "Must not supply an owner".
     if obj.columns:
         body["columns"] = obj.columns
     if obj.properties:
@@ -371,19 +372,23 @@ def _ensure_scoped(name: str) -> None:
         )
 
 
+def _namespaced(name: str) -> str:
+    """Auto-prefix a user-typed name with the deployment namespace so everything
+    the app creates stays manageable by the app SP. Idempotent — a name already
+    carrying the prefix is left as-is. So "cobol_batch" → "rc18_cobol_batch", and
+    "rc18_cobol_batch" stays unchanged. The user never has to type the prefix."""
+    n = name.strip()
+    return n if n.startswith(LINEAGE_OBJECT_PREFIX) else f"{LINEAGE_OBJECT_PREFIX}{n}"
+
+
 @router.post("/external-metadata", response_model=ExternalMetadataObject, status_code=201)
 async def create_external_metadata(obj: ExternalMetadataObject):
     if not obj.name.strip():
         raise HTTPException(status_code=400, detail="Nome é obrigatório")
     if obj.system_type not in _VALID_SYSTEM_TYPES:
         raise HTTPException(status_code=400, detail=f"system_type inválido: {obj.system_type}")
-    # Force the RC18 namespace so everything the app creates stays manageable by
-    # the app SP (and never collides with other projects on the metastore).
-    if not obj.name.startswith(LINEAGE_OBJECT_PREFIX):
-        raise HTTPException(
-            status_code=400,
-            detail=f"O nome deve começar com '{LINEAGE_OBJECT_PREFIX}' (namespace do app RC18).",
-        )
+    # Auto-prefix instead of rejecting — the namespace is enforced transparently.
+    obj.name = _namespaced(obj.name)
 
     if USE_MOCK:
         try:
@@ -408,7 +413,8 @@ async def update_external_metadata(name: str, patch: ExternalMetadataObject):
         return updated
 
     # PATCH requires an update_mask query param listing the fields to change.
-    fields = [f for f in ("system_type", "entity_type", "description", "url", "owner", "columns", "properties")
+    # `owner` is intentionally excluded — the API rejects a client-supplied owner.
+    fields = [f for f in ("system_type", "entity_type", "description", "url", "columns", "properties")
               if getattr(patch, f) not in (None, [], {})]
     if not fields:
         raise HTTPException(status_code=400, detail="Nada para atualizar")
@@ -460,60 +466,199 @@ def _endpoint_from_api(d: dict) -> ExternalLineageEndpoint:
 
 
 @router.get("/external-lineage", response_model=ExternalLineageListResponse)
-async def list_external_lineage():
-    """List all relationships. In real mode this is derived from the graph
-    fetch; here we expose the store (mock) so the UI can render/manage the list."""
+async def list_external_lineage(
+    object_name: str | None = Query(None, description="Restrict to relationships of this external object"),
+):
+    """List external lineage relationships (mock store, or real via REST).
+
+    In real mode we walk relationships from each rc18_* external metadata object
+    (both directions) — scoped to the namespace so we never surface other
+    projects' edges. ``object_name`` narrows to a single object (used by the
+    side panel to list a node's edges)."""
     if USE_MOCK:
-        return ExternalLineageListResponse(relationships=store.list_relationships(CATALOG))
-    # Real mode: the authoritative graph endpoint (/lineage/graph) already walks
-    # relationships. This list endpoint is primarily for the mock management UI;
-    # in real mode we return empty and let the graph be the source of truth.
-    return ExternalLineageListResponse(relationships=[])
+        rels = store.list_relationships(CATALOG)
+        if object_name:
+            rels = [r for r in rels
+                    if object_name in (r.source.external_metadata_name, r.target.external_metadata_name)]
+        return ExternalLineageListResponse(relationships=rels)
+
+    # ── Real mode ──────────────────────────────────────────────────────────
+    if object_name:
+        names = [object_name] if object_name.startswith(LINEAGE_OBJECT_PREFIX) else []
+    else:
+        try:
+            resp = _w().api_client.do("GET", _EM_PATH)
+            names = [d["name"] for d in (resp or {}).get("external_metadata", []) or []
+                     if (d.get("name") or "").startswith(LINEAGE_OBJECT_PREFIX)]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("list external_lineage: could not list objects: %s", exc)
+            names = []
+
+    rels: list[ExternalLineageRelationship] = []
+    seen: set[str] = set()
+    for name in names:
+        for direction in ("UPSTREAM", "DOWNSTREAM"):
+            try:
+                rr = _w().api_client.do(
+                    "GET", _EL_PATH,
+                    query={"object_info.external_metadata.name": name, "lineage_direction": direction},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("list external_lineage %s %s: %s", name, direction, exc)
+                continue
+            for info in (rr or {}).get("external_lineage_relationships", []) or []:
+                rel = info.get("external_lineage_info") or {}
+                rid = rel.get("id")
+                if rid and rid in seen:
+                    continue
+                if rid:
+                    seen.add(rid)
+                neighbor_em = info.get("external_metadata_info") or {}
+                neighbor_tb = info.get("table_info") or {}
+                # table_info returns catalog/schema/name separately — rebuild the
+                # full FQN so the endpoint matches the graph node ids.
+                tb_name = None
+                if neighbor_tb:
+                    cat, sch, nm = neighbor_tb.get("catalog_name"), neighbor_tb.get("schema_name"), neighbor_tb.get("name")
+                    tb_name = f"{cat}.{sch}.{nm}" if (cat and sch and nm) else nm
+                neighbor = ExternalLineageEndpoint(
+                    external_metadata_name=neighbor_em.get("name"),
+                    table_name=tb_name,
+                )
+                this = ExternalLineageEndpoint(external_metadata_name=name)
+                src, tgt = (this, neighbor) if direction == "DOWNSTREAM" else (neighbor, this)
+                rels.append(ExternalLineageRelationship(
+                    id=rid, source=src, target=tgt,
+                    columns=[ColumnMapping(source=c["source"], target=c["target"])
+                             for c in (rel.get("columns") or []) if c.get("source") and c.get("target")],
+                    properties=dict(rel.get("properties") or {}),
+                ))
+    return ExternalLineageListResponse(relationships=rels)
+
+
+def _create_relationship(
+    source: ExternalLineageEndpoint, target: ExternalLineageEndpoint,
+    columns: list[ColumnMapping], properties: dict[str, str],
+) -> ExternalLineageRelationship:
+    """Create one lineage relationship (mock store or real REST). Shared by the
+    standalone and the atomic-create endpoints."""
+    if USE_MOCK:
+        return store.create_relationship(CATALOG, ExternalLineageRelationship(
+            source=source, target=target, columns=columns, properties=properties,
+        ))
+    body: dict = {"source": _endpoint_to_body(source), "target": _endpoint_to_body(target)}
+    if columns:
+        body["columns"] = [{"source": c.source, "target": c.target} for c in columns]
+    if properties:
+        body["properties"] = properties
+    d = _w().api_client.do("POST", _EL_PATH, body=body)
+    return ExternalLineageRelationship(
+        id=d.get("id"),
+        source=_endpoint_from_api(d.get("source", {})),
+        target=_endpoint_from_api(d.get("target", {})),
+        columns=[ColumnMapping(source=c.get("source", ""), target=c.get("target", ""))
+                 for c in (d.get("columns") or [])],
+        properties=dict(d.get("properties") or {}),
+    )
 
 
 @router.post("/external-lineage", response_model=ExternalLineageRelationship, status_code=201)
 async def create_external_lineage(req: ExternalLineageRelationshipRequest):
-    if USE_MOCK:
-        rel = ExternalLineageRelationship(
-            source=req.source, target=req.target, columns=req.columns, properties=req.properties,
-        )
-        return store.create_relationship(CATALOG, rel)
-
-    body: dict = {
-        "source": _endpoint_to_body(req.source),
-        "target": _endpoint_to_body(req.target),
-    }
-    if req.columns:
-        body["columns"] = [{"source": c.source, "target": c.target} for c in req.columns]
-    if req.properties:
-        body["properties"] = req.properties
     try:
-        d = _w().api_client.do("POST", _EL_PATH, body=body)
-        return ExternalLineageRelationship(
-            id=d.get("id"),
-            source=_endpoint_from_api(d.get("source", {})),
-            target=_endpoint_from_api(d.get("target", {})),
-            columns=[ColumnMapping(source=c.get("source", ""), target=c.get("target", ""))
-                     for c in (d.get("columns") or [])],
-            properties=dict(d.get("properties") or {}),
-        )
+        return _create_relationship(req.source, req.target, req.columns, req.properties)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=_status_from_exc(exc), detail=_friendly_error(exc))
 
 
-@router.delete("/external-lineage/{rel_id}", status_code=204)
-async def delete_external_lineage(rel_id: str):
+@router.post("/external-object-with-lineage", response_model=ExternalLineageRelationship, status_code=201)
+async def create_external_object_with_lineage(req: ExternalObjectWithLineageRequest):
+    """Atomic: register the external object AND wire one lineage relationship.
+
+    This is the unified create flow — the object is never left orphaned, and the
+    namespace is enforced by auto-prefixing the object name. ``connect_direction``
+    decides whether the new object is upstream (source) or downstream (target) of
+    ``connect_to``."""
+    if req.connect_direction not in ("source", "target"):
+        raise HTTPException(status_code=400, detail="connect_direction deve ser 'source' ou 'target'")
+    if not (req.connect_to.external_metadata_name or req.connect_to.table_name):
+        raise HTTPException(status_code=400, detail="connect_to precisa de um node (tabela UC ou objeto externo)")
+
+    # 1. Create the object (auto-prefixed).
+    created = await create_external_metadata(req.object)
+    this_ep = ExternalLineageEndpoint(external_metadata_name=created.name)
+
+    # 2. Wire the relationship in the requested direction.
+    source, target = (this_ep, req.connect_to) if req.connect_direction == "source" else (req.connect_to, this_ep)
+    try:
+        return _create_relationship(source, target, req.columns, req.relationship_properties)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # The object was created but the edge failed — surface clearly so the user
+        # can retry the relationship without a duplicate-object error.
+        raise HTTPException(
+            status_code=_status_from_exc(exc),
+            detail=f"Objeto '{created.name}' criado, mas o relacionamento falhou: {_friendly_error(exc)}",
+        )
+
+
+def _endpoint_query_params(prefix: str, ep: ExternalLineageEndpoint) -> dict:
+    """Flatten an endpoint into the DELETE query params the API expects, e.g.
+    external_lineage_relationship.source.external_metadata.name=<x>."""
+    base = f"external_lineage_relationship.{prefix}"
+    if ep.external_metadata_name:
+        return {f"{base}.external_metadata.name": ep.external_metadata_name}
+    if ep.table_name:
+        return {f"{base}.table.name": ep.table_name}
+    raise HTTPException(status_code=400, detail=f"Endpoint {prefix} precisa de external_metadata_name ou table_name")
+
+
+@router.delete("/external-lineage", status_code=204)
+async def delete_external_lineage(
+    rel_id: str | None = Query(None, description="Relationship id (mock store)"),
+    source_external: str | None = Query(None),
+    source_table: str | None = Query(None),
+    target_external: str | None = Query(None),
+    target_table: str | None = Query(None),
+):
+    """Delete an external lineage relationship.
+
+    Real mode identifies the edge by its source+target (the REST API has no
+    delete-by-id); mock mode also accepts ``rel_id``. The frontend passes the
+    endpoints it already has from the graph/list."""
+    source = ExternalLineageEndpoint(external_metadata_name=source_external, table_name=source_table)
+    target = ExternalLineageEndpoint(external_metadata_name=target_external, table_name=target_table)
+
     if USE_MOCK:
-        if not store.delete_relationship(CATALOG, rel_id):
-            raise HTTPException(status_code=404, detail="Relacionamento não encontrado")
+        if rel_id and store.delete_relationship(CATALOG, rel_id):
+            return None
+        # Fall back to source/target match.
+        for r in store.list_relationships(CATALOG):
+            if (r.source.external_metadata_name == source.external_metadata_name
+                    and r.source.table_name == source.table_name
+                    and r.target.external_metadata_name == target.external_metadata_name
+                    and r.target.table_name == target.table_name):
+                store.delete_relationship(CATALOG, r.id)
+                return None
+        raise HTTPException(status_code=404, detail="Relacionamento não encontrado")
+
+    # ── Real mode: DELETE by flattened source/target query params ───────────
+    # Guard: at least one endpoint must be a namespaced external object, so the
+    # app never deletes edges it doesn't own.
+    ext_names = [n for n in (source.external_metadata_name, target.external_metadata_name) if n]
+    if not any(n.startswith(LINEAGE_OBJECT_PREFIX) for n in ext_names):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Só é possível remover relacionamentos de objetos do namespace '{LINEAGE_OBJECT_PREFIX}'.",
+        )
+    query = {**_endpoint_query_params("source", source), **_endpoint_query_params("target", target)}
+    try:
+        _w().api_client.do("DELETE", _EL_PATH, query=query)
         return None
-    # Real-mode delete needs the full source/target/columns identity, not an id.
-    # The management UI runs against mock; real-mode edits are done via the setup
-    # notebook / Catalog Explorer. Signal that clearly rather than silently no-op.
-    raise HTTPException(
-        status_code=501,
-        detail="Remoção de relacionamento em modo real ainda não suportada pelo app — use o Catalog Explorer.",
-    )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=_status_from_exc(exc), detail=_friendly_error(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -547,16 +692,29 @@ def _sanitize(msg: str) -> str:
 def _friendly_error(exc: Exception) -> str:
     msg = _sanitize(str(exc))
     upper = msg.upper()
-    if "DOES NOT HAVE MANAGE" in upper or "DOES NOT HAVE" in upper:
+    # Order matters — check the SPECIFIC causes before the generic "does not have".
+    if "CREATE EXTERNAL METADATA" in upper or "ON METASTORE" in upper:
+        return (
+            "O service principal do app não tem o privilégio 'CREATE EXTERNAL METADATA' "
+            "no metastore. Conceda-o ao SP do app (seção 'GRANT BYOL' em "
+            "notebooks/setup/grant_dqx_studio_access.sql) — é uma configuração única "
+            "por workspace. Detalhe: " + msg
+        )
+    if "MUST NOT SUPPLY AN OWNER" in upper:
+        return (
+            "O campo 'Proprietário' não pode ser enviado na criação — ele é definido "
+            "automaticamente. Deixe-o em branco. Detalhe: " + msg
+        )
+    if "DOES NOT HAVE MANAGE" in upper:
         return (
             "O service principal do app não é dono deste objeto de linhagem externa "
             "(ou não tem MANAGE sobre ele) — provavelmente foi criado por outro projeto/"
             "usuário. O app RC18 só gerencia objetos que ele próprio criou. Detalhe: " + msg
         )
-    if "PERMISSION_DENIED" in upper or "INSUFFICIENT_PERMISSIONS" in upper:
+    if "PERMISSION_DENIED" in upper or "INSUFFICIENT_PERMISSIONS" in upper or "DOES NOT HAVE" in upper:
         return (
             "O service principal do app não tem privilégio para gravar metadados/linhagem "
-            "externa. Conceda 'CREATE EXTERNAL METADATA' no metastore e 'MODIFY' no objeto "
-            "(ver notebooks/setup/grant_dqx_studio_access.sql). Detalhe: " + msg
+            "externa. Conceda 'CREATE EXTERNAL METADATA' no metastore e 'MODIFY' nas tabelas "
+            "de fronteira (ver notebooks/setup/grant_dqx_studio_access.sql). Detalhe: " + msg
         )
     return msg

@@ -7,9 +7,9 @@
   import { _ } from 'svelte-i18n';
   import Modal from '$lib/components/ui/Modal.svelte';
   import SystemTypeIcon from './SystemTypeIcon.svelte';
-  import { createExternalMetadata, updateExternalMetadata } from '$lib/api.js';
+  import { createExternalObjectWithLineage, updateExternalMetadata } from '$lib/api.js';
 
-  let { open = false, systemTypes = [], editing = null, onclose, onsaved } = $props();
+  let { open = false, systemTypes = [], externalObjects = [], ucTables = [], editing = null, onclose, onsaved } = $props();
 
   const LAYERS = ['origin', 'source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
   const ENTITY_TYPES = ['TABLE', 'JOB', 'PROCESS', 'DATASET', 'APPLICATION', 'FILE', 'DASHBOARD'];
@@ -21,8 +21,8 @@
   let entityType = $state('TABLE');
   let url = $state('');
   let description = $state('');
-  let owner = $state('');
   let columnsText = $state('');           // one column per line
+  // NOTE: no `owner` field — the External Metadata API sets owner server-side.
   let camada = $state('source');
   let sistema = $state('');
   let ingestionMode = $state('');
@@ -34,6 +34,15 @@
   let saving = $state(false);
   let error = $state('');
 
+  // ---- lineage connection (required on create) ----
+  // The new object must be wired to a node so the graph shows it and the
+  // namespace stays coherent. connectDir = is the NEW object the source (feeds
+  // the node) or the target (fed by it)? connectKind/connectValue = the node.
+  let connectDir = $state('target');      // 'source' | 'target'
+  let connectKind = $state('table');      // 'table' | 'external'
+  let connectValue = $state('');
+  let mappings = $state([]);              // [{source, target}]
+
   // Reset/prefill whenever the modal opens (create vs edit).
   $effect(() => {
     if (open) {
@@ -44,7 +53,6 @@
         entityType = editing.entity_type || 'TABLE';
         url = editing.url || '';
         description = editing.description || '';
-        owner = editing.owner || '';
         columnsText = (editing.columns || []).join('\n');
         const p = { ...(editing.properties || {}) };
         camada = p.camada || 'source'; delete p.camada;
@@ -54,9 +62,14 @@
         extraProps = Object.entries(p).map(([key, value]) => ({ key, value }));
       } else {
         name = ''; systemType = 'OTHER'; entityType = 'TABLE'; url = '';
-        description = ''; owner = ''; columnsText = ''; camada = 'source';
+        description = ''; columnsText = ''; camada = 'source';
         sistema = ''; ingestionMode = ''; extraProps = [];
       }
+      // Connection defaults: new source objects feed a bronze table; reset each open.
+      connectDir = 'target';
+      connectKind = 'table';
+      connectValue = ucTables[0]?.full_name || '';
+      mappings = [];
       showAdvanced = false; showJson = false; typeSearch = ''; typeOpen = false;
     }
   });
@@ -85,7 +98,6 @@
     entity_type: entityType,
     url: url.trim() || null,
     description: description.trim() || null,
-    owner: owner.trim() || null,
     columns: columnsText.split('\n').map(c => c.trim()).filter(Boolean),
     properties: buildProperties()
   });
@@ -93,17 +105,31 @@
   function pickType(t) { systemType = t.value; typeOpen = false; typeSearch = ''; }
   function addProp() { extraProps = [...extraProps, { key: '', value: '' }]; }
   function removeProp(i) { extraProps = extraProps.filter((_, idx) => idx !== i); }
+  function addMapping() { mappings = [...mappings, { source: '', target: '' }]; }
+  function removeMapping(i) { mappings = mappings.filter((_, idx) => idx !== i); }
+
+  const connectEndpoint = $derived(
+    connectKind === 'external' ? { external_metadata_name: connectValue } : { table_name: connectValue }
+  );
 
   async function submit() {
     if (!payload.name) { error = $_('lineageMgmt.errNameRequired'); return; }
     saving = true; error = '';
     try {
       if (editing) {
-        // Name is immutable on update; send the rest.
+        // Name is immutable on update; send the rest. Connection editing is done
+        // from the side panel, not here.
         const { name: _n, ...patch } = payload;
         await updateExternalMetadata(editing.name, patch);
       } else {
-        await createExternalMetadata(payload);
+        if (!connectValue) { error = $_('lineageMgmt.errConnectRequired'); saving = false; return; }
+        await createExternalObjectWithLineage({
+          object: payload,
+          connect_direction: connectDir,
+          connect_to: connectEndpoint,
+          columns: mappings.filter(m => m.source && m.target),
+          relationship_properties: ingestionMode ? { ingestion_mode: ingestionMode } : {},
+        });
       }
       onsaved?.();
     } catch (e) {
@@ -126,8 +152,12 @@
     <label class="field">
       <span class="field-label">{$_('lineageMgmt.fieldName')} <span class="req">*</span></span>
       <input class="input" bind:value={name} disabled={!!editing}
-        placeholder="rc18_oracle_tb_operacoes_credito" spellcheck="false" />
-      {#if editing}<span class="field-hint">{$_('lineageMgmt.nameImmutable')}</span>{/if}
+        placeholder="oracle_tb_operacoes_credito" spellcheck="false" />
+      {#if editing}
+        <span class="field-hint">{$_('lineageMgmt.nameImmutable')}</span>
+      {:else}
+        <span class="field-hint">{$_('lineageMgmt.namePrefixHint')}</span>
+      {/if}
     </label>
 
     <!-- System type (searchable dropdown with icons) -->
@@ -199,6 +229,53 @@
       <input class="input" bind:value={sistema} placeholder="Oracle Core Banking 19c / IBM z/OS COBOL" spellcheck="false" />
     </label>
 
+    <!-- Conectar linhagem (obrigatório na criação) -->
+    {#if !editing}
+      <div class="connect-box">
+        <div class="connect-title">{$_('lineageMgmt.connectTitle')} <span class="req">*</span></div>
+        <div class="connect-hint">{$_('lineageMgmt.connectHint')}</div>
+
+        <!-- Direction -->
+        <div class="dir-toggle">
+          <button type="button" class:active={connectDir === 'source'} onclick={() => connectDir = 'source'}>
+            {$_('lineageMgmt.dirSource')}
+          </button>
+          <button type="button" class:active={connectDir === 'target'} onclick={() => connectDir = 'target'}>
+            {$_('lineageMgmt.dirTarget')}
+          </button>
+        </div>
+
+        <!-- Node kind + value -->
+        <div class="kind-toggle">
+          <button type="button" class:active={connectKind === 'table'}
+            onclick={() => { connectKind = 'table'; connectValue = ucTables[0]?.full_name || ''; }}>{$_('lineageMgmt.ucTable')}</button>
+          <button type="button" class:active={connectKind === 'external'}
+            onclick={() => { connectKind = 'external'; connectValue = externalObjects[0]?.name || ''; }}>{$_('lineageMgmt.externalObject')}</button>
+        </div>
+        {#if connectKind === 'table'}
+          <select class="input" bind:value={connectValue}>
+            {#each ucTables as t}<option value={t.full_name}>{t.full_name}</option>{/each}
+          </select>
+        {:else}
+          <select class="input" bind:value={connectValue}>
+            {#if externalObjects.length === 0}<option value="">{$_('lineageMgmt.noOtherObjects')}</option>{/if}
+            {#each externalObjects as o}<option value={o.name}>{o.name}</option>{/each}
+          </select>
+        {/if}
+
+        <!-- Optional column mappings -->
+        {#each mappings as m, i}
+          <div class="map-row">
+            <input class="input mono" placeholder={$_('lineageMgmt.sourceCol')} bind:value={m.source} spellcheck="false" />
+            <span class="map-arrow">→</span>
+            <input class="input mono" placeholder={$_('lineageMgmt.targetCol')} bind:value={m.target} spellcheck="false" />
+            <button type="button" class="prop-del" onclick={() => removeMapping(i)} aria-label="remover">×</button>
+          </div>
+        {/each}
+        <button type="button" class="prop-add" onclick={addMapping}>+ {$_('lineageMgmt.addMapping')}</button>
+      </div>
+    {/if}
+
     <!-- Advanced options -->
     <button type="button" class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -208,10 +285,8 @@
 
     {#if showAdvanced}
       <div class="advanced">
-        <label class="field">
-          <span class="field-label">{$_('lineageMgmt.fieldOwner')}</span>
-          <input class="input" bind:value={owner} placeholder="squad-dados@bancorp.internal" spellcheck="false" />
-        </label>
+        <!-- Owner is NOT editable: the External Metadata API sets it server-side
+             and rejects a supplied owner ("Must not supply an owner"). -->
         <label class="field">
           <span class="field-label">{$_('lineageMgmt.fieldColumns')}</span>
           <textarea class="input mono" rows="3" bind:value={columnsText} placeholder="CD_IPOC&#10;CD_CNPJ_IF&#10;VLR_CONTABIL"></textarea>
@@ -315,4 +390,20 @@
   .btn-primary:hover:not(:disabled) { background: var(--blue-700, #004A8A); }
   .btn-secondary { background: var(--white); border-color: var(--border-color); color: var(--gray-700); }
   .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  /* Connect-lineage section */
+  .connect-box { display: flex; flex-direction: column; gap: 8px; padding: var(--space-3);
+    background: var(--blue-50, #EFF6FC); border: 1px solid var(--blue-200, #B3D4EA); border-radius: var(--radius-md); }
+  .connect-title { font-size: var(--font-size-sm); font-weight: 700; color: var(--blue-800, #003D73); }
+  .connect-hint { font-size: 11px; color: var(--gray-600); margin-top: -4px; }
+  .dir-toggle, .kind-toggle { display: flex; gap: 0; }
+  .dir-toggle button, .kind-toggle button {
+    flex: 1; padding: 6px 10px; border: 1px solid var(--border-color); background: var(--white);
+    font-size: var(--font-size-xs); cursor: pointer; color: var(--gray-600);
+  }
+  .dir-toggle button:first-child, .kind-toggle button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+  .dir-toggle button:last-child, .kind-toggle button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; border-left: none; }
+  .dir-toggle button.active, .kind-toggle button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .map-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 6px; align-items: center; }
+  .map-arrow { color: var(--gray-400); }
 </style>

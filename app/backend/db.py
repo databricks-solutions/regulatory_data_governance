@@ -38,9 +38,20 @@ CATALOG = os.getenv("DATABRICKS_CATALOG", "rc18_catalog")
 # lists/manages. Unity Catalog external metadata is metastore-wide, so WITHOUT a
 # prefix the Lineage page would pull in (and try to manage) unrelated objects
 # from OTHER projects sharing the metastore — the app SP is not their owner, so
-# delete/edit fails with "does not have MANAGE". Everything the app creates is
-# auto-namespaced under this prefix; listing/edit/delete are scoped to it.
-LINEAGE_OBJECT_PREFIX = os.getenv("LINEAGE_OBJECT_PREFIX", "rc18_")
+# delete/edit fails with "does not have MANAGE".
+#
+# The prefix is DERIVED from the deployment's catalog (the catalog the lineage
+# nodes connect to), NOT hardcoded — so a `caixa_catalog` deployment auto-scopes
+# to `caixa_`, a `rc18_catalog` one to `rc18_`, etc. This makes the namespace
+# multi-tenant and frees the user from typing it: the app auto-prefixes every
+# object it creates. Override explicitly with LINEAGE_OBJECT_PREFIX if needed.
+def _derive_lineage_prefix(catalog: str) -> str:
+    base = catalog[:-len("_catalog")] if catalog.endswith("_catalog") else catalog
+    base = base.strip("_") or "rc18"
+    return f"{base}_"
+
+
+LINEAGE_OBJECT_PREFIX = os.getenv("LINEAGE_OBJECT_PREFIX") or _derive_lineage_prefix(CATALOG)
 SCHEMA_BRONZE = os.getenv("SCHEMA_BRONZE", "bronze")
 SCHEMA_GOLD = os.getenv("SCHEMA_GOLD", "gold")
 SCHEMA_SILVER = os.getenv("SCHEMA_SILVER", "silver")

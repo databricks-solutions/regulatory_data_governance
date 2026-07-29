@@ -4,7 +4,8 @@
   import {
     getLineageGraph, getColumnLineage,
     getSystemTypes, getUcTables, listExternalMetadata,
-    deleteExternalMetadata, getNodeMetadata
+    deleteExternalMetadata, getNodeMetadata,
+    listExternalLineage, deleteExternalLineage
   } from '$lib/api.js';
   import { layerColors, systemColors } from '$lib/theme.js';
   import SystemTypeIcon from '$lib/components/domain/SystemTypeIcon.svelte';
@@ -18,6 +19,7 @@
   let selectedEdge = $state(null);
   let columnLineage = $state(null);
   let nodeMeta = $state(null);        // full metadata for the selected node (async-loaded)
+  let nodeRels = $state([]);          // lineage relationships of the selected external node
 
   // ---- BYOL management state ----
   let systemTypes = $state([]);          // dropdown options (value+label+icon)
@@ -159,10 +161,34 @@
     selectedEdge = null;
     columnLineage = null;
     nodeMeta = { loading: true };
+    nodeRels = [];
     try {
       nodeMeta = { loading: false, ...(await getNodeMetadata(node.id)) };
     } catch {
       nodeMeta = { loading: false, error: true };
+    }
+    // For a registered external object, also load its relationships so they can
+    // be managed (deleted) from the panel.
+    if (node.data?.type !== 'table') {
+      try {
+        const r = await listExternalLineage(node.id);
+        nodeRels = r?.relationships || [];
+      } catch { nodeRels = []; }
+    }
+  }
+
+  // Endpoint → short display label for a relationship row.
+  function epLabel(ep) {
+    return ep?.external_metadata_name || ep?.table_name?.split('.').slice(-1)[0] || ep?.table_name || '?';
+  }
+
+  async function removeRelationship(rel) {
+    try {
+      await deleteExternalLineage({ source: rel.source, target: rel.target });
+      nodeRels = nodeRels.filter(r => r !== rel);
+      await refreshGraph();
+    } catch (e) {
+      mgmtError = e?.message || String(e);
     }
   }
 
@@ -181,6 +207,7 @@
       selectedNode = null;
       columnLineage = null;
       nodeMeta = null;
+      nodeRels = [];
     }
   }
 
@@ -585,6 +612,19 @@
                 </table>
               </div>
             {/if}
+
+            <!-- Relationships of this external object (manageable) -->
+            {#if nodeMeta.kind === 'external' && nodeRels.length}
+              <div class="panel-section">
+                <div class="panel-label">{$_('lineageMgmt.nodeRelationships')} ({nodeRels.length})</div>
+                {#each nodeRels as rel}
+                  <div class="rel-row">
+                    <span class="rel-text mono">{epLabel(rel.source)} → {epLabel(rel.target)}</span>
+                    <button class="rel-del" title={$_('common.delete')} onclick={() => removeRelationship(rel)}>×</button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/if}
 
           {#if columnLineage && !columnLineage.loading}
@@ -666,6 +706,8 @@
 <ExternalMetadataForm
   open={showMetaForm}
   {systemTypes}
+  {externalObjects}
+  {ucTables}
   editing={editingObject}
   onclose={() => { showMetaForm = false; editingObject = null; }}
   onsaved={onSaved}
@@ -869,4 +911,11 @@
   }
   .col-link:hover { text-decoration: underline; }
   .col-link.active { background: var(--primary); color: #fff; border-radius: 3px; padding: 0 4px; }
+
+  .rel-row { display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 4px 6px; border-bottom: 1px solid var(--gray-100); }
+  .rel-text { font-size: 11px; color: var(--gray-700); word-break: break-all; }
+  .rel-del { background: none; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+    width: 22px; height: 22px; flex-shrink: 0; cursor: pointer; color: var(--gray-500); font-size: 14px; line-height: 1; }
+  .rel-del:hover { color: #C62828; border-color: #C62828; }
 </style>

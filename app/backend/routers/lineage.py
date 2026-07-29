@@ -228,6 +228,22 @@ _EM_PATH = "/api/2.0/lineage-tracking/external-metadata"
 _EL_PATH = "/api/2.0/lineage-tracking/external-lineage"
 
 
+def _table_info_fqn(ti: dict) -> str | None:
+    """Reconstruct a full ``catalog.schema.table`` FQN from a table_info object.
+
+    The external-lineage API returns the table as SEPARATE fields
+    (``catalog_name``/``schema_name``/``name``) — ``name`` alone is just the
+    table. Using ``name`` as the node id created a DUPLICATE node (`raw_3040_doc`
+    vs `rc18_catalog.bronze.raw_3040_doc`) disconnected from the medallion graph.
+    Rebuild the FQN so BYOL edges land on the SAME node the CADOC lineage uses."""
+    if not ti:
+        return None
+    cat, sch, name = ti.get("catalog_name"), ti.get("schema_name"), ti.get("name")
+    if cat and sch and name:
+        return f"{cat}.{sch}.{name}"
+    return name  # fallback: at least return whatever we have
+
+
 def _add_byol_from_rest(w, nodes: dict, edges: list) -> None:
     """Add BYOL nodes/edges from External Metadata + External Lineage, scoped to
     the rc18_* namespace, via the REST api_client. Best-effort — the caller wraps
@@ -282,8 +298,8 @@ def _add_byol_from_rest(w, nodes: dict, edges: list) -> None:
                 if em and em.get("name"):
                     neighbor = em["name"]
                     _ensure_ext_node(neighbor)
-                elif ti and ti.get("name"):
-                    neighbor = ti["name"]
+                elif ti and _table_info_fqn(ti):
+                    neighbor = _table_info_fqn(ti)   # full FQN — matches CADOC-lineage node ids
                     if neighbor not in nodes:
                         nodes[neighbor] = _uc_node(neighbor, neighbor.split(".")[0])
                 else:

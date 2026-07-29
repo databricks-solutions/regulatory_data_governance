@@ -558,6 +558,14 @@
     "metaComment": "Comentário",
     "metaOwner": "Proprietário",
     "metaTableType": "Tipo de tabela",
-    "metaColumns": "Colunas"
+    "metaColumns": "Colunas",
+    "namePrefixHint": "O prefixo do ambiente é adicionado automaticamente (você não precisa digitá-lo).",
+    "errConnectRequired": "Conecte o objeto a um node (tabela ou objeto externo).",
+    "connectTitle": "Conectar linhagem",
+    "connectHint": "Todo objeto externo precisa de ao menos um relacionamento — assim ele aparece no grafo.",
+    "dirSource": "É origem (alimenta o node)",
+    "dirTarget": "É destino (alimentado pelo node)",
+    "noOtherObjects": "Nenhum outro objeto externo",
+    "nodeRelationships": "Relacionamentos"
   }
 }
