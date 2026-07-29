@@ -566,6 +566,8 @@
     "dirSource": "É origem (alimenta o node)",
     "dirTarget": "É destino (alimentado pelo node)",
     "noOtherObjects": "Nenhum outro objeto externo",
-    "nodeRelationships": "Relacionamentos"
+    "nodeRelationships": "Relacionamentos",
+    "deleteObject": "Excluir objeto",
+    "confirmDeleteObject": "Excluir o objeto de linhagem externa '{name}' e todos os seus relacionamentos?"
   }
 }

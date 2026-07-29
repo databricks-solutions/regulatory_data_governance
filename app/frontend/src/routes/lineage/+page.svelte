@@ -137,12 +137,25 @@
   let edges = $state([]);
   let graphLoaded = $state(false);
 
-  // Legend layer entries — descriptive captions translated; system/layer proper-names stay literal
-  const legendLayers = $derived.by(() => [
-    ['origin', 'LOS/CRM'], ['source', 'Oracle/DB2'], ['etl', 'Informatica ETL'],
-    ['bronze', 'Bronze'], ['silver', 'Silver'], ['gold', 'Gold'],
-    ['validator', $_('lineage.legendValidator')], ['output', 'STA/CADIP']
-  ]);
+  // Generic label per layer (no hardcoded system names like "Informatica" —
+  // those don't necessarily exist in the customer's real graph).
+  const LAYER_LEGEND_LABEL = $derived.by(() => ({
+    origin: $_('lineage.layerOrigin'), source: $_('lineage.layerSource'), etl: $_('lineage.layerEtl'),
+    bronze: 'Bronze', silver: 'Silver', gold: 'Gold',
+    validator: $_('lineage.legendValidator'), output: $_('lineage.layerOutput')
+  }));
+
+  // Legend layers = ONLY the layers actually present among the current nodes,
+  // in canonical order. So a graph with no validator/output nodes won't show
+  // those swatches.
+  const legendLayers = $derived.by(() => {
+    const present = new Set(nodes.map(n => n.data?.layer));
+    return LAYER_ORDER.filter(l => present.has(l)).map(l => [l, LAYER_LEGEND_LABEL[l] || l]);
+  });
+
+  // Which edge kinds exist — drives the BYOL / UC legend entries.
+  const hasByolEdges = $derived(edges.some(e => e.data?.type === 'external_lineage'));
+  const hasUcEdges = $derived(edges.some(e => e.data?.type === 'uc_automatic'));
 
   // SVG fallback layer headers — descriptive captions translated; layer proper-names stay literal
   const svgLayerHeaders = $derived.by(() => [
@@ -275,6 +288,30 @@
     }
   }
 
+  // Build the object shape the form's `editing` prop expects from the loaded
+  // node metadata (side panel → "Editar").
+  function nodeMetaAsObject() {
+    return {
+      name: nodeMeta.id,
+      system_type: nodeMeta.system_type,
+      entity_type: nodeMeta.entity_type,
+      url: nodeMeta.url,
+      description: nodeMeta.comment,
+      columns: (nodeMeta.columns || []).map(c => c.name),
+      properties: nodeMeta.properties || {},
+    };
+  }
+
+  // Delete an external object from the graph (side panel "Excluir"). Confirms
+  // first because it also drops the object's lineage relationships.
+  async function confirmDeleteObject(name) {
+    if (!confirm($_('lineageMgmt.confirmDeleteObject', { values: { name } }))) return;
+    await removeObject(name);
+    selectedNode = null;
+    nodeMeta = null;
+    nodeRels = [];
+  }
+
   onMount(async () => {
     // Load Svelte Flow
     try {
@@ -305,8 +342,12 @@
   <div class="legend-bar">
     <span class="legend-title">{$_('lineage.legendTitle')}</span>
     <div class="legend-items">
-      <span class="legend-item"><span class="leg-line byol"></span> {$_('lineage.legendByol')}</span>
-      <span class="legend-item"><span class="leg-line uc"></span> {$_('lineage.legendUc')}</span>
+      {#if hasByolEdges}
+        <span class="legend-item"><span class="leg-line byol"></span> {$_('lineage.legendByol')}</span>
+      {/if}
+      {#if hasUcEdges}
+        <span class="legend-item"><span class="leg-line uc"></span> {$_('lineage.legendUc')}</span>
+      {/if}
       {#each legendLayers as [l, lbl]}
         {@const c = layerColors[l]}
         <span class="legend-item">
@@ -652,6 +693,14 @@
               {/if}
             </div>
           {/if}
+
+          <!-- Actions for a registered external object (edit/delete) -->
+          {#if nodeMeta?.kind === 'external'}
+            <div class="panel-actions">
+              <button class="pa-btn" onclick={() => openEditObject(nodeMetaAsObject())}>{$_('common.edit')}</button>
+              <button class="pa-btn danger" onclick={() => confirmDeleteObject(selectedNode.id)}>{$_('lineageMgmt.deleteObject')}</button>
+            </div>
+          {/if}
         </div>
 
       {:else if selectedEdge}
@@ -918,4 +967,12 @@
   .rel-del { background: none; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
     width: 22px; height: 22px; flex-shrink: 0; cursor: pointer; color: var(--gray-500); font-size: 14px; line-height: 1; }
   .rel-del:hover { color: #C62828; border-color: #C62828; }
+
+  .panel-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4);
+    padding-top: var(--space-3); border-top: 1px solid var(--gray-100); }
+  .pa-btn { flex: 1; padding: 7px 10px; border-radius: var(--radius-md); font-size: var(--font-size-xs);
+    font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: var(--white); color: var(--gray-700); }
+  .pa-btn:hover { background: var(--gray-100); }
+  .pa-btn.danger { color: #C62828; border-color: #F5C6C0; }
+  .pa-btn.danger:hover { background: #FDECEA; }
 </style>

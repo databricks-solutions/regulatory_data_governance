@@ -566,6 +566,8 @@
     "dirSource": "Is source (feeds the node)",
     "dirTarget": "Is target (fed by the node)",
     "noOtherObjects": "No other external object",
-    "nodeRelationships": "Relazioni"
+    "nodeRelationships": "Relazioni",
+    "deleteObject": "Delete object",
+    "confirmDeleteObject": "Delete external lineage object '{name}' and all its relationships?"
   }
 }
