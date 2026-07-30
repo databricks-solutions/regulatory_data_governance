@@ -127,20 +127,35 @@ GRANT SELECT      ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`
 -- MAGIC linhagem externa…". A LEITURA do grafo (visualização) não exige esses
 -- MAGIC grants — só a escrita.
 -- MAGIC
--- MAGIC Descubra o SP do app com:
+-- MAGIC **Prefira o script automatizado** — ele resolve o identificador correto,
+-- MAGIC aplica e verifica os grants:
 -- MAGIC   ```bash
--- MAGIC   databricks apps get r18-compliance-app-dev --profile <perfil> \
--- MAGIC     | grep -i "service_principal"
+-- MAGIC   ./scripts/grant_byol_lineage.sh -p <perfil>
 -- MAGIC   ```
--- MAGIC Substitua `<RC18_APP_SP>` abaixo. `CREATE EXTERNAL METADATA` é concedido no
--- MAGIC metastore (não há FQN — é privilégio de metastore).
+-- MAGIC
+-- MAGIC Para fazer manualmente, descubra o SP do app com:
+-- MAGIC   ```bash
+-- MAGIC   databricks apps get rc18-starter-kit-dev --profile <perfil> --output json \
+-- MAGIC     | grep service_principal_client_id
+-- MAGIC   ```
+-- MAGIC
+-- MAGIC **Use o `service_principal_client_id` (UUID), não o
+-- MAGIC `service_principal_name`.** O nome (ex.: `app-2i923x rc18-starter-kit-dev`)
+-- MAGIC é rejeitado com `PRINCIPAL_DOES_NOT_EXIST`, apesar de ser o campo exibido
+-- MAGIC na UI.
+-- MAGIC
+-- MAGIC Substitua `<RC18_APP_SP>` abaixo pelo UUID. `CREATE EXTERNAL METADATA` é
+-- MAGIC concedido no metastore (não há FQN — é privilégio de metastore) e exige que
+-- MAGIC quem executa seja **admin do metastore**.
 
 -- COMMAND ----------
 
 GRANT CREATE EXTERNAL METADATA ON METASTORE TO `<RC18_APP_SP>`;
 -- Escrita de relacionamentos que apontam para tabelas do rc18_catalog:
 GRANT USE CATALOG ON CATALOG rc18_catalog                   TO `<RC18_APP_SP>`;
+GRANT USE SCHEMA  ON SCHEMA  rc18_catalog.bronze            TO `<RC18_APP_SP>`;
 GRANT MODIFY      ON SCHEMA  rc18_catalog.bronze            TO `<RC18_APP_SP>`;
+GRANT USE SCHEMA  ON SCHEMA  rc18_catalog.gold              TO `<RC18_APP_SP>`;
 GRANT MODIFY      ON SCHEMA  rc18_catalog.gold              TO `<RC18_APP_SP>`;
 
 -- COMMAND ----------

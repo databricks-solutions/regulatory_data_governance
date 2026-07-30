@@ -402,8 +402,10 @@
     try {
       await deleteExternalMetadata(name);
       await Promise.all([refreshManagement(), refreshGraph()]);
+      return true;
     } catch (e) {
       mgmtError = e?.message || String(e);
+      return false;
     }
   }
 
@@ -422,13 +424,20 @@
   }
 
   // Delete an external object from the graph (side panel "Excluir"). Confirms
-  // first because it also drops the object's lineage relationships.
+  // first because it also drops the object's lineage relationships. Only close
+  // the panel on SUCCESS — otherwise keep it open so the error stays visible
+  // (closing it would hide mgmtError and make a failed delete look like a no-op).
   async function confirmDeleteObject(name) {
     if (!confirm($_('lineageMgmt.confirmDeleteObject', { values: { name } }))) return;
-    await removeObject(name);
-    selectedNode = null;
-    nodeMeta = null;
-    nodeRels = [];
+    const ok = await removeObject(name);
+    if (ok) {
+      selectedNode = null;
+      nodeMeta = null;
+      nodeRels = [];
+    } else {
+      // Surface the failure inside the still-open node panel.
+      nodeMeta = { ...nodeMeta, deleteError: mgmtError };
+    }
   }
 
   onMount(async () => {
@@ -837,6 +846,9 @@
 
           <!-- Actions for a registered external object (edit/delete) -->
           {#if nodeMeta?.kind === 'external'}
+            {#if nodeMeta.deleteError}
+              <div class="panel-section"><div class="mgmt-error">{nodeMeta.deleteError}</div></div>
+            {/if}
             <div class="panel-actions">
               <button class="pa-btn" onclick={() => openEditObject(nodeMetaAsObject())}>{$_('common.edit')}</button>
               <button class="pa-btn danger" onclick={() => confirmDeleteObject(selectedNode.id)}>{$_('lineageMgmt.deleteObject')}</button>

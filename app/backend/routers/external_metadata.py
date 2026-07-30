@@ -440,7 +440,32 @@ async def delete_external_metadata(name: str):
         _w().api_client.do("DELETE", f"{_EM_PATH}/{name}")
         return None
     except Exception as exc:  # noqa: BLE001
+        # An object created by a PREVIOUS deploy's app SP (now destroyed) is an
+        # ORPHAN (owner=unknown) — delete fails with "does not have MANAGE". The
+        # current app SP can reclaim it by taking ownership (PATCH owner), then
+        # retry the delete. Only attempted for the app's own namespace.
+        if "DOES NOT HAVE MANAGE" in str(exc).upper():
+            try:
+                _w().api_client.do(
+                    "PATCH", f"{_EM_PATH}/{name}",
+                    query={"update_mask": "owner"},
+                    body={"owner": _current_principal()},
+                )
+                _w().api_client.do("DELETE", f"{_EM_PATH}/{name}")
+                return None
+            except Exception as exc2:  # noqa: BLE001
+                raise HTTPException(status_code=_status_from_exc(exc2), detail=_friendly_error(exc2))
         raise HTTPException(status_code=_status_from_exc(exc), detail=_friendly_error(exc))
+
+
+def _current_principal() -> str:
+    """Identity to reclaim orphan ownership with — the app's own service
+    principal. Falls back to the SDK's current user if unavailable."""
+    try:
+        return _w().current_user.me().user_name
+    except Exception:  # noqa: BLE001
+        import os
+        return os.getenv("DATABRICKS_CLIENT_ID", "")
 
 
 # ---------------------------------------------------------------------------
