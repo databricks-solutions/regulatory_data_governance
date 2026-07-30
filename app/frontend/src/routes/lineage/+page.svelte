@@ -44,7 +44,9 @@
   const NODE_W = 200;
   const NODE_H = 44;
   const NODE_GAP = 24;
-  const COL_GAP = 90;           // horizontal gap between adjacent (packed) layer columns
+  const COL_GAP = 200;          // horizontal gap between adjacent (packed) layer columns —
+                                //   wide enough to spread the medallion edges and fill the canvas
+  const COL_GAP_BOUNDARY = 70;  // tighter gap at the external→Databricks crossing
 
   // Environment zones — the three vertical bands separating the external world
   // (pre-ingestion sources + post-processing delivery) from the Databricks
@@ -52,14 +54,15 @@
   // least one of its layers has a node (stays consistent with the dynamic legend).
   const ZONES = [
     { id: 'zone-ext-in',  labelKey: 'lineageMgmt.zoneExternalIn',  layers: ['origin', 'source', 'etl'],
-      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A' },
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A', icon: 'external-source' },
     { id: 'zone-dbx',     labelKey: 'lineageMgmt.zoneDatabricks',  layers: ['bronze', 'silver', 'gold'],
       bg: 'rgba(255,54,33,0.05)',   border: '#F4A79B', text: '#C4321F', icon: 'databricks' },
     { id: 'zone-ext-out', labelKey: 'lineageMgmt.zoneExternalOut', layers: ['validator', 'output'],
-      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A' },
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A', icon: 'external-output' },
   ];
   const ZONE_PAD = 16;          // horizontal padding around a zone's node columns
   const ZONE_TOP = 4;           // top offset of a band
+  const ZONE_MIN_WIDTH = 260;   // min band width so the icon+label header fits
   const ZONE_HEIGHT = 760;      // fixed band height (graph canvas is ~860 tall)
 
   // Resolve node color. Validators/outputs keep their layer identity; otherwise
@@ -107,17 +110,28 @@
     return 'source';     // external BYOL object with an unknown layer
   }
 
+  // First layer of the Databricks medallion — the external→Databricks boundary
+  // crossing lands here and uses a TIGHTER gap than the intra-medallion columns.
+  const DBX_LAYERS = ['bronze', 'silver', 'gold'];
+
   // Assign a contiguous X to each PRESENT layer (packed, no gaps). An empty
-  // intermediate layer (e.g. no `etl`) must NOT reserve a column — otherwise a
-  // big void opens between the columns that do exist. Returns { layer: x }.
+  // intermediate layer (e.g. no `etl`) must NOT reserve a column. The gap BEFORE
+  // a column varies: a normal COL_GAP inside a zone, but a smaller
+  // COL_GAP_BOUNDARY when crossing from the external zone into Databricks (so the
+  // two zones sit close together) — while intra-Databricks columns stay wide to
+  // spread the medallion edges. Returns { layer: x }.
   function packLayerX(byLayer) {
     const layerX = {};
-    let col = 0;
+    let x = 40;
+    let prevLayer = null;
     for (const l of LAYER_ORDER) {
-      if ((byLayer[l] || []).length) {
-        layerX[l] = 40 + col * (NODE_W + COL_GAP);
-        col++;
+      if (!(byLayer[l] || []).length) continue;
+      if (prevLayer !== null) {
+        const crossingIntoDbx = DBX_LAYERS.includes(l) && !DBX_LAYERS.includes(prevLayer);
+        x += NODE_W + (crossingIntoDbx ? COL_GAP_BOUNDARY : COL_GAP);
       }
+      layerX[l] = x;
+      prevLayer = l;
     }
     return layerX;
   }
@@ -130,7 +144,11 @@
       if (!cols.length) continue;
       const xs = cols.map(l => layerX[l]);
       const x = Math.min(...xs) - ZONE_PAD;
-      const width = (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2;
+      // Min width so a single-column zone still fits its icon + label header.
+      const width = Math.max(
+        (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2,
+        ZONE_MIN_WIDTH,
+      );
       zones.push({
         id: z.id,
         type: 'zoneBand',
@@ -249,7 +267,10 @@
       if (!cols.length) continue;
       const xs = cols.map(l => layerX[l]);
       const x = Math.min(...xs) - ZONE_PAD;
-      const width = (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2;
+      const width = Math.max(
+        (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2,
+        ZONE_MIN_WIDTH,
+      );
       out.push({ x, width, label: $_(z.labelKey), bg: z.bg, border: z.border, text: z.text, icon: z.icon });
     }
     return out;
@@ -548,14 +569,27 @@
             {#each svgZones as z}
               <rect x={z.x} y={ZONE_TOP} width={z.width} height={ZONE_HEIGHT} rx="12"
                 fill={z.bg} stroke={z.border} stroke-width="1.5" stroke-dasharray="6 4" />
-              {#if z.icon === 'databricks'}
+              {#if z.icon}
                 <rect x={z.x + 10} y={ZONE_TOP + 6} width="22" height="22" rx="5" fill="#fff" />
-                <!-- Official Databricks symbol (24x24 path), scaled into the 18px chip area. -->
-                <g transform="translate({z.x + 13},{ZONE_TOP + 9}) scale(0.75)" fill="#FF3621">
-                  <path d="M.95 14.184L12 20.403l9.919-5.55v2.21L12 22.662l-10.484-5.96-.565.308v.77L12 24l11.05-6.218v-4.317l-.515-.309L12 19.118l-9.867-5.653v-2.21L12 16.805l11.05-6.218V6.32l-.515-.308L12 11.974 2.647 6.681 12 1.388l7.76 4.368.668-.411v-.566L12 0 .95 6.27v.72L12 13.207l9.919-5.55v2.26L12 15.52 1.516 9.56l-.565.308Z"/>
+                <g transform="translate({z.x + 13},{ZONE_TOP + 9}) scale(0.75)">
+                  {#if z.icon === 'databricks'}
+                    <path fill="#FF3621" d="M.95 14.184L12 20.403l9.919-5.55v2.21L12 22.662l-10.484-5.96-.565.308v.77L12 24l11.05-6.218v-4.317l-.515-.309L12 19.118l-9.867-5.653v-2.21L12 16.805l11.05-6.218V6.32l-.515-.308L12 11.974 2.647 6.681 12 1.388l7.76 4.368.668-.411v-.566L12 0 .95 6.27v.72L12 13.207l9.919-5.55v2.26L12 15.52 1.516 9.56l-.565.308Z"/>
+                  {:else if z.icon === 'external-source'}
+                    <g fill="none" stroke={z.text} stroke-width="1.8" stroke-linejoin="round">
+                      <ellipse cx="12" cy="5" rx="7" ry="2.6" />
+                      <path d="M5 5 v6 c0 1.44 3.13 2.6 7 2.6 s7-1.16 7-2.6 V5" />
+                      <path d="M5 11 v6 c0 1.44 3.13 2.6 7 2.6 s7-1.16 7-2.6 v-6" />
+                    </g>
+                  {:else if z.icon === 'external-output'}
+                    <g fill="none" stroke={z.text} stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 15 V4" />
+                      <path d="M7.5 8.5 L12 4 l4.5 4.5" />
+                      <path d="M4 15 v3.5 c0 .8.7 1.5 1.5 1.5 h13 c.8 0 1.5-.7 1.5-1.5 V15" />
+                    </g>
+                  {/if}
                 </g>
               {/if}
-              <text x={z.x + (z.icon === 'databricks' ? 36 : 12)} y={ZONE_TOP + 22} fill={z.text}
+              <text x={z.x + (z.icon ? 36 : 12)} y={ZONE_TOP + 22} fill={z.text}
                 font-size="12" font-weight="700" font-family="var(--font-primary)"
                 style="text-transform:uppercase;letter-spacing:0.06em;opacity:0.85;">{z.label}</text>
             {/each}

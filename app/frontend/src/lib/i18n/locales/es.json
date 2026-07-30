@@ -569,8 +569,8 @@
     "nodeRelationships": "Relaciones",
     "deleteObject": "Delete object",
     "confirmDeleteObject": "Delete external lineage object '{name}' and all its relationships?",
-    "zoneExternalIn": "External environment — source",
+    "zoneExternalIn": "External source",
     "zoneDatabricks": "Databricks",
-    "zoneExternalOut": "External environment — output"
+    "zoneExternalOut": "External output"
   }
 }
