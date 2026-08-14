@@ -1,16 +1,18 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Bronze DLT/SDP — CADOC 4010 (Balancete Patrimonial Analítico) → `raw_4010_saldos`
+# MAGIC # Bronze DLT/SDP — CADOC 4016 (Balanço Patrimonial Analítico) → `raw_4016_saldos`
 # MAGIC
 # MAGIC Versão declarativa. Produz a MESMA tabela e o MESMO contrato que o notebook
-# MAGIC clássico `pipelines/classical/bronze/raw_4010.py` — ver lá a documentação
+# MAGIC clássico `pipelines/classical/bronze/raw_4016.py` — ver lá a documentação
 # MAGIC completa do leiaute (XML oficial da IN BCB 469/2024 e posicional legado).
 # MAGIC
-# MAGIC Documento **4010 — Balancete Patrimonial Analítico**, periodicidade **mensal**
-# MAGIC (toda data-base mensal), envio pelo STA com o código `ACOS010`.
+# MAGIC Documento **4016 — Balanço Patrimonial Analítico**, periodicidade **semestral**
+# MAGIC (apenas as datas-base de junho e dezembro), envio pelo STA com o código `ACOS016`.
 # MAGIC
-# MAGIC O Balancete é o documento MENSAL; inclui as contas de resultado
-# MAGIC (grupos 7 Receitas e 8 Despesas), ao contrário do 4016.
+# MAGIC O Balanço é SEMESTRAL e representa a posição contábil **após a
+# MAGIC apuração do resultado do exercício** — por isso não se espera a
+# MAGIC presença das contas dos grupos 7 (Receitas) e 8 (Despesas)
+# MAGIC (§3.2.2.a). Essa regra é validada na DQX Studio, não aqui.
 # MAGIC
 # MAGIC Tabela DLT em modo **batch** (`spark.read`, não streaming): o parse do
 # MAGIC posicional cruza o registro de identificação (data-base) com os de dados do
@@ -18,8 +20,8 @@
 # MAGIC balancete é baixo. As duas origens são unidas, discriminadas por
 # MAGIC `formato_origem`.
 # MAGIC
-# MAGIC ⚠️ O Doc 4016 compartilha ESTE MESMO leiaute e tem um notebook gêmeo
-# MAGIC (`raw_4016.py`). Mudança de parse aqui deve ser espelhada lá.
+# MAGIC ⚠️ O Doc 4010 compartilha ESTE MESMO leiaute e tem um notebook gêmeo
+# MAGIC (`raw_4010.py`). Mudança de parse aqui deve ser espelhada lá.
 
 # COMMAND ----------
 
@@ -34,7 +36,7 @@ def _conf(key, default):
         return default
 
 
-DOCUMENTO = "4010"
+DOCUMENTO = "4016"
 
 _CONTA = T.StructType([
     T.StructField("codigoConta", T.StringType()),
@@ -188,7 +190,7 @@ def _empty():
 
 @dlt.table(
     name=f"raw_{DOCUMENTO}_saldos",
-    comment="CADOC 4010 — Balancete Patrimonial Analítico COSIF (mensal). Leiaute XML oficial (IN BCB 469/2024) e posicional legado. Base da perna COSIF do batimento inter-CADOC 3040×COSIF.",
+    comment="CADOC 4016 — Balanço Patrimonial Analítico COSIF (semestral: junho e dezembro). Leiaute XML oficial (IN BCB 469/2024) e posicional legado. Posição após a apuração do resultado — sem contas dos grupos 7 e 8.",
     table_properties={
         "quality": "bronze",
         "delta.logRetentionDuration": "interval 1825 days",
@@ -196,7 +198,7 @@ def _empty():
     },
     partition_cols=["_ingestion_date"],
 )
-def raw_4010_saldos():
+def raw_4016_saldos():
     catalog = _conf("source_catalog", "rc18_catalog")
     schema = _conf("source_schema", "landing")
     landing_path = f"/Volumes/{catalog}/{schema}/scr_xml/{DOCUMENTO}/"

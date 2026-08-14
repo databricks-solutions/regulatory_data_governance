@@ -105,7 +105,17 @@ VALUES
   ('3050', 'segmento', 'pesJuridica', 'Pessoa Jurídica', NULL, 'V11', '2025-11-07', true),
   ('3050', 'segmento', 'pesFisica', 'Pessoa Física', NULL, 'V11', '2025-11-07', true),
   -- Status bloqueante da reconciliação COSIF (consumido por v_recon_status_bloqueante).
-  ('4010', 'ReconStatusBloqueante', 'BLOQUEADO', 'Divergência de batimento acima da tolerância', NULL, 'V1', '2000-01-01', true)
+  ('4010', 'ReconStatusBloqueante', 'BLOQUEADO', 'Divergência de batimento acima da tolerância', NULL, 'V1', '2000-01-01', true),
+  -- Tipo de remessa do leiaute XML COSIF (§3.1.2.e das Instruções 4010/4016).
+  ('4010', 'tipoRemessa', 'I', 'Inclusão — primeira remessa do documento para a data-base', NULL, 'XMLv1', '2025-01-01', true),
+  ('4010', 'tipoRemessa', 'S', 'Substituição — troca documento já aceito pelo BCB', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'tipoRemessa', 'I', 'Inclusão — primeira remessa do documento para a data-base', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'tipoRemessa', 'S', 'Substituição — troca documento já aceito pelo BCB', NULL, 'XMLv1', '2025-01-01', true),
+  -- Grupos COSIF VEDADOS no Doc 4016: como o Balanço Patrimonial Analítico
+  -- representa a posição APÓS a apuração do resultado do exercício, não se espera
+  -- a presença das contas dos grupos 7 e 8 (§3.2.2.a das Instruções 4010/4016).
+  ('4016', 'GrupoVedado', '7', 'Receitas — não esperadas no Balanço (posição após apuração do resultado)', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'GrupoVedado', '8', 'Despesas — não esperadas no Balanço (posição após apuração do resultado)', NULL, 'XMLv1', '2025-01-01', true)
 """)
 
 # COMMAND ----------
@@ -146,6 +156,24 @@ spark.sql(f"""
     SELECT valor_codigo
     FROM {CATALOG}.{SCHEMA}.dominios
     WHERE documento = '4010' AND campo = 'ReconStatusBloqueante' AND is_current
+""")
+
+# Tipo de remessa aceito no leiaute XML COSIF — vale para 4010 e 4016.
+spark.sql(f"""
+    CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.v_dom_cosif_tiporemessa AS
+    SELECT DISTINCT valor_codigo
+    FROM {CATALOG}.{SCHEMA}.dominios
+    WHERE documento IN ('4010', '4016') AND campo = 'tipoRemessa' AND is_current
+""")
+
+# Grupos COSIF vedados no Doc 4016 (7 = Receitas, 8 = Despesas). `valor_codigo`
+# já sai como INT para casar com `silver.scr4016_saldos.grupo_cosif` sem CAST no
+# check — mantendo a expression da DQX livre de literais e de conversões.
+spark.sql(f"""
+    CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.v_dom_4016_grupo_vedado AS
+    SELECT CAST(valor_codigo AS INT) AS valor_codigo
+    FROM {CATALOG}.{SCHEMA}.dominios
+    WHERE documento = '4016' AND campo = 'GrupoVedado' AND is_current
 """)
 
 # COMMAND ----------
@@ -505,6 +533,14 @@ SELECT * FROM (
   SELECT '3050', 'SCR 3050 - Estoque mensal agregado',
          'Documento SCR 3050 — dados agregados de crédito (TXB/XML, leiaute versionado).',
          'V11', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '4010', 'COSIF 4010 - Balancete Patrimonial Analítico',
+         'Documento contábil COSIF 4010 — balancete analítico mensal (uma conta COSIF por saldo). Leiaute XML obrigatório desde a data-base jan/2025 (IN BCB 469/2024); envio via STA com o código ACOS010. Perna contábil do batimento inter-CADOC com o SCR 3040.',
+         'XMLv1', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '4016', 'COSIF 4016 - Balanço Patrimonial Analítico',
+         'Documento contábil COSIF 4016 — balanço analítico SEMESTRAL (datas-base junho e dezembro), posição após a apuração do resultado do exercício, sem as contas dos grupos 7 (Receitas) e 8 (Despesas). Mesmo leiaute XML do 4010; envio via STA com o código ACOS016.',
+         'XMLv1', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
 ) src
 WHERE NOT EXISTS (
   SELECT 1 FROM {CATALOG}.governance.cadoc_documentos d WHERE d.documento = src.documento
@@ -540,6 +576,8 @@ _SILVER_SEED = [
     ("3040", "scr3040_vencimentos"),
     ("3040", "scr3040_cont_4966"),
     ("3050", "scr3050"),
+    ("4010", "scr4010_saldos"),
+    ("4016", "scr4016_saldos"),
 ]
 _values = ",\n  ".join(
     f"('{doc}', '{CATALOG}.silver.{t}')" for doc, t in _SILVER_SEED

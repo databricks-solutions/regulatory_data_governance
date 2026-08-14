@@ -1,12 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver CLÁSSICO — CADOC 4010 (Balancete Patrimonial Analítico) → `silver.scr4010_saldos`
+# MAGIC # Silver CLÁSSICO — CADOC 4016 (Balanço Patrimonial Analítico) → `silver.scr4016_saldos`
 # MAGIC
-# MAGIC Normaliza `bronze.raw_4010_saldos` → `silver.scr4010_saldos`.
+# MAGIC Normaliza `bronze.raw_4016_saldos` → `silver.scr4016_saldos`.
 # MAGIC
-# MAGIC Este é o documento MENSAL e é a **perna contábil do batimento
-# MAGIC inter-CADOC** (SCR 3040 × COSIF, crítica N01) — `gold.reconciliacao_cosif`
-# MAGIC lê esta tabela.
+# MAGIC Documento SEMESTRAL (junho/dezembro). Posição APÓS a apuração do
+# MAGIC resultado, então não deve trazer contas dos grupos 7 (Receitas) e 8
+# MAGIC (Despesas) — check `sem_contas_de_resultado_grupos_7_8` na DQX Studio.
+# MAGIC NÃO entra no batimento com o 3040 (que é mensal).
 # MAGIC
 # MAGIC `dt_base` é promovida a DATE (1º dia do mês) e `dt_base_mes` preserva o
 # MAGIC `AAAA-MM` textual do leiaute. Dedupe por (cnpj_if, dt_base, codigo_conta)
@@ -14,12 +15,12 @@
 # MAGIC (`tipoRemessa = 'S'`) sobrepõe a inclusão original já aceita pelo BCB.
 # MAGIC
 # MAGIC A coluna `documento` é passada adiante **sem filtro**: um arquivo do
-# MAGIC 4016 depositado por engano na pasta do 4010 tem de chegar até aqui
-# MAGIC para o check DQX `documento_e_4010` acusar, em vez de desaparecer em
+# MAGIC 4010 depositado por engano na pasta do 4016 tem de chegar até aqui
+# MAGIC para o check DQX `documento_e_4016` acusar, em vez de desaparecer em
 # MAGIC silêncio.
 # MAGIC
 # MAGIC Pure ELT: nenhuma coluna de qualidade, nenhum `_errors`/`_warnings`.
-# MAGIC MESMA tabela/contrato que o DLT `pipelines/silver/transformations/scr4010.py`.
+# MAGIC MESMA tabela/contrato que o DLT `pipelines/silver/transformations/scr4016.py`.
 
 # COMMAND ----------
 
@@ -36,7 +37,7 @@ CATALOG = dbutils.widgets.get("catalog")
 BRONZE_SCHEMA = dbutils.widgets.get("bronze_schema")
 SILVER_SCHEMA = dbutils.widgets.get("silver_schema")
 
-DOCUMENTO = "4010"
+DOCUMENTO = "4016"
 _PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
 
 # COMMAND ----------

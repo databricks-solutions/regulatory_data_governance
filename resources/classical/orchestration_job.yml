@@ -11,8 +11,14 @@
 # `databricks bundle run rc18_end_to_end` leve a stack de um deploy limpo às
 # tabelas gold populadas:
 #
-#   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#   setup_reference  ┬─→  load_sample_xmls  ─┬→ bronze_3040 → silver_3040 ─┐
+#                    │                       ├→ bronze_3050 → silver_3050 ─┤→ gold
+#                    │                       ├→ bronze_4010 → silver_4010 ─┤
+#                    │                       └→ bronze_4016 → silver_4016 ─┘
 #                    └─→  grant_warehouse_perms (paralelo)
+#
+# Uma trilha bronze→silver POR CADOC, independentes entre si: cada documento tem
+# tabela e checkpoint próprios, então falha em um não bloqueia os outros.
 #
 # bronze/silver/gold aqui são TASKS DE NOTEBOOK (não pipeline_task): rodam os
 # notebooks clássicos em pipelines/classical/**. Cada step espera o predecessor.
@@ -92,12 +98,25 @@ resources:
               landing_schema: ${resources.schemas.landing.name}
               bronze_schema: ${resources.schemas.bronze_schema.name}
 
+        # COSIF: uma task por documento (operados de forma independente pelos
+        # clientes). Tabelas e checkpoints distintos → rodam em paralelo.
         - task_key: "bronze_4010"
           depends_on:
             - task_key: "load_sample_xmls"
           environment_key: serverless_env
           notebook_task:
             notebook_path: ../../pipelines/classical/bronze/raw_4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        - task_key: "bronze_4016"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_4016.py
             base_parameters:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
@@ -139,13 +158,26 @@ resources:
               bronze_schema: ${resources.schemas.bronze_schema.name}
               silver_schema: ${resources.schemas.silver_schema.name}
 
+        - task_key: "silver_4016"
+          depends_on:
+            - task_key: "bronze_4016"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr4016.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+
         # ── Gold (clássico) ── posições + batimento COSIF + processing_state.
-        # Espera os três silver (o batimento cruza 3040 × 4010).
+        # Espera TODOS os silver (o batimento cruza 3040 × 4010; posicao_4016 vem
+        # do silver_4016).
         - task_key: "gold"
           depends_on:
             - task_key: "silver_3040"
             - task_key: "silver_3050"
             - task_key: "silver_4010"
+            - task_key: "silver_4016"
           environment_key: serverless_env
           notebook_task:
             notebook_path: ../../pipelines/classical/gold/posicao_mensal.py

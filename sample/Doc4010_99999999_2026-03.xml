@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<documento codigoDocumento="4010" cnpj="99999999" dataBase="2026-03" tipoRemessa="I">
+    <contas>
+        <conta codigoConta="0011000006" saldo="15000000.00" />
+        <conta codigoConta="0016110001" saldo="321460997.24" />
+        <conta codigoConta="0016120008" saldo="0.00" />
+        <conta codigoConta="0016130005" saldo="0.00" />
+        <conta codigoConta="0016210004" saldo="0.00" />
+        <conta codigoConta="0018100002" saldo="0.00" />
+        <conta codigoConta="0030980004" saldo="0.00" />
+        <conta codigoConta="0031000000" saldo="321460997.24" />
+        <conta codigoConta="0041000007" saldo="250000000.00" />
+        <conta codigoConta="0061000001" saldo="80000000.00" />
+        <conta codigoConta="0071000008" saldo="4200000.00" />
+        <conta codigoConta="0081000005" saldo="2800000.00" />
+    </contas>
+</documento>

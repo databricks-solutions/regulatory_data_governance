@@ -1,6 +1,10 @@
-# CADOC 4010 (Balancete COSIF) synthetic generator — 4-step sequential job.
+# CADOC 4010 / 4016 (COSIF) synthetic generator — 5-step sequential job.
 # Deriva os saldos COSIF dos microdados do 3040 (f_3040_*), injeta ~5% de
-# divergências e materializa gold.reconciliacao_cosif (batimento inter-CADOC).
+# divergências, materializa gold.reconciliacao_cosif (batimento inter-CADOC) e
+# exporta os DOIS documentos contábeis no leiaute XML oficial:
+#   - Doc 4010 (Balancete Patrimonial Analítico, mensal, STA ACOS010)
+#   - Doc 4016 (Balanço Patrimonial Analítico, semestral jun/dez, STA ACOS016)
+# O 4016 sai sem as contas dos grupos 7/8 (posição após apuração do resultado).
 #
 # Consome as tabelas f_3040_* produzidas pelo job `scr3040_generator`.
 #
@@ -11,7 +15,7 @@ resources:
   jobs:
     doc4010_generator:
       name: "rc18-doc4010-generator"
-      description: "Gera saldos COSIF sintéticos (Doc 4010) a partir do 3040 e materializa o batimento inter-CADOC (gold.reconciliacao_cosif)."
+      description: "Gera saldos COSIF sintéticos a partir do 3040, materializa o batimento inter-CADOC (gold.reconciliacao_cosif) e exporta os Doc 4010 (mensal) e Doc 4016 (semestral) no leiaute XML oficial."
       max_concurrent_runs: 1
 
       parameters:
@@ -33,6 +37,8 @@ resources:
           default: "0.10"
         - name: seed
           default: "42"
+        - name: volume_out
+          default: "/Volumes/${var.catalog}/${resources.schemas.reference.name}/cosif_out"
 
       environments:
         - environment_key: serverless_env
@@ -95,4 +101,19 @@ resources:
               schema: "{{job.parameters.schema}}"
               gold_schema: "{{job.parameters.gold_schema}}"
               tolerancia_pct: "{{job.parameters.tolerancia_pct}}"
+              seed: "{{job.parameters.seed}}"
+
+        # Exporta os DOIS documentos no leiaute XML oficial (IN BCB 469/2024).
+        - task_key: exportacao_xml_cosif
+          depends_on:
+            - task_key: reconciliacao_cosif
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../notebooks/doc4010_generator/04_Exportacao_XML_COSIF.py
+            base_parameters:
+              dt_base: "{{job.parameters.dt_base}}"
+              cnpj_if: "{{job.parameters.cnpj_if}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              volume_out: "{{job.parameters.volume_out}}"
               seed: "{{job.parameters.seed}}"

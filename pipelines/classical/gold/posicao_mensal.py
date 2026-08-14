@@ -9,7 +9,10 @@
 # MAGIC |---|---|---|
 # MAGIC | `posicao_3040` | silver `scr3040_operacoes` ⨝ `scr3040_cont_4966` ⨝ `scr3040_vencimentos` | `<Op>` por `(cnpj_if, dt_base)` |
 # MAGIC | `posicao_3050` | silver `scr3050` (passthrough + `_gold_timestamp`) | dimensão 3050 |
-# MAGIC | `processing_state` | posicao_3040/3050 (MAX dt_base) | 1 linha (seletor Data-Base do app) |
+# MAGIC | `posicao_4010` | silver `scr4010_saldos` (passthrough) | conta COSIF (Balancete, mensal) |
+# MAGIC | `posicao_4016` | silver `scr4016_saldos` (passthrough) | conta COSIF (Balanço, semestral) |
+# MAGIC | `reconciliacao_cosif` | 3040 ⨝ `reference.cosif_contas` ⨝ 4010 | regra de batimento |
+# MAGIC | `processing_state` | posicao_3040/3050/4010 (MAX dt_base) | 1 linha (seletor Data-Base do app) |
 # MAGIC
 # MAGIC Muda só o I/O: `@dlt.table`→`saveAsTable(overwrite)` e a dependência
 # MAGIC same-pipeline (`dlt.read`) de `processing_state` vira leitura sequencial
@@ -160,6 +163,33 @@ print(f"OK — {fqn_4010}: {spark.table(fqn_4010).count()} linha(s)")
 
 # COMMAND ----------
 # MAGIC %md
+# MAGIC ## Posição CADOC 4016 (Balanço Patrimonial Analítico — passthrough curado)
+# MAGIC Documento SEMESTRAL (datas-base junho e dezembro), posição contábil APÓS a
+# MAGIC apuração do resultado do exercício. Por isso NÃO entra no
+# MAGIC `processing_state` abaixo — ver a nota lá.
+
+# COMMAND ----------
+
+fqn_4016 = _gold_fqn("posicao_4016")
+(
+    spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr4016_saldos")
+    .withColumn("_gold_timestamp", F.current_timestamp())
+    .write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .partitionBy("dt_base")
+    .saveAsTable(fqn_4016)
+)
+spark.sql(
+    f"ALTER TABLE {fqn_4016} SET TBLPROPERTIES ("
+    "'delta.logRetentionDuration' = 'interval 1825 days', "
+    "'quality' = 'gold')"
+)
+print(f"OK — {fqn_4016}: {spark.table(fqn_4016).count()} linha(s)")
+
+# COMMAND ----------
+# MAGIC %md
 # MAGIC ## Batimento inter-CADOC: SCR 3040 × COSIF 4010 (`reconciliacao_cosif`)
 # MAGIC Dimensão VIII (Consistência). Para cada regra em `reference.cosif_contas`,
 # MAGIC soma o saldo do 3040 (perna SCR, via `predicado_3040`) e compara ao saldo
@@ -266,6 +296,11 @@ print(f"OK — {fqn_recon}: {spark.table(fqn_recon).count()} linha(s)")
 # MAGIC única linha, recalculada a cada run. No modo clássico lemos as posições já
 # MAGIC materializadas acima via `spark.table` (equivalente ao `dlt.read`
 # MAGIC same-pipeline do modo DLT).
+# MAGIC
+# MAGIC ⚠️ `posicao_4016` fica DE FORA de propósito: o 4016 é **semestral** (só
+# MAGIC junho/dezembro), então um Balanço de 30/06 entraria no MAX e empurraria o
+# MAGIC seletor de Data-Base do app para um mês em que os CADOCs mensais (3040/3050
+# MAGIC /4010) ainda não têm posição. O seletor acompanha o ciclo MENSAL.
 
 # COMMAND ----------
 

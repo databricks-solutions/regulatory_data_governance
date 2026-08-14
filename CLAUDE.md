@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Databricks-based accelerator for compliance with **BACEN Resolucao Conjunta N.18** — a Brazilian Central Bank regulation governing credit risk data reporting (SCR). Reference deployment: a major Brazilian financial institution.
+Databricks-based accelerator for compliance with **BACEN Resolucao Conjunta N.18** — a Brazilian Central Bank regulation governing credit risk data reporting (SCR).
 
 ## Two audiences, two bundles
 
@@ -12,7 +12,7 @@ The repo is organized around two distinct scenarios, with **physical separation*
 
 | Scenario | Who | Bundle | What gets deployed |
 |----------|-----|--------|---------------------|
-| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads `sample/Doc3040*.xml` and `sample/Doc3050*.xml` into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. DQX Studio is a mandatory external prerequisite and is not provisioned by this bundle. Apart from DQX, the bundle provisions its own dependencies. Customers with an existing catalog/warehouse set `catalog` / `warehouse_id` in `target.yml` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
+| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads the `sample/` CADOC files — `Doc3040*.xml`, `Doc3050*.xml`, `Doc4010*.xml`, `Doc4016*.xml` — into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. DQX Studio is a mandatory external prerequisite and is not provisioned by this bundle. Apart from DQX, the bundle provisions its own dependencies. Customers with an existing catalog/warehouse set `catalog` / `warehouse_id` in `target.yml` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
 | **Demo mode** | Anyone wanting a quick hands-on with the app in mock mode and synthetic XML generation | `rc18-demo` (`demo/databricks.yml`) | App (`USE_MOCK_BACKEND=true`) + 3 jobs only: `r18-synthetic-data-loader`, `rc18-scr3040-generator`, `rc18-scr3050-generator` + dedicated catalog (`rc18_demo_catalog`) + `bronze`/`reference` schemas. **No DLT pipelines, no dashboards, no Genie.** |
 
 Critical invariants:
@@ -66,7 +66,9 @@ regulatory-data-governance/
 │
 ├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
 │   ├── bronze/transformations/    # SDP/DLT mode: @dlt.table notebooks
+│   │                              #   raw_3040 · raw_3050 · raw_4010 · raw_4016
 │   ├── silver/transformations/    #   Pure ELT — no quality logic (lives in DQX Studio)
+│   │                              #   scr3040 · scr3050 · scr4010 · scr4016
 │   ├── gold/transformations/
 │   └── classical/                 # CLASSICAL mode (default): plain PySpark notebooks,
 │       ├── bronze/                #   no `import dlt`. Same tables/contract as the DLT path.
@@ -79,8 +81,12 @@ regulatory-data-governance/
 │
 ├── dashboards/                    # Lakeview JSON definitions (3)
 │
-├── sample/                        # Canonical Doc 3040 / Doc 3050 XMLs uploaded by the
-│                                  # implementation bundle into ${var.catalog}.landing.scr_xml
+├── sample/                        # Canonical CADOC samples uploaded by the implementation
+│                                  # bundle into ${var.catalog}.landing.scr_xml:
+│                                  #   Doc3040_*.xml · Doc3050_*.xml (2026-03/04)
+│                                  #   Doc4010_*.xml (mensal 2026-03/04) + Doc4016_*.xml
+│                                  #   (semestral 2025-06/12) — leiaute XML oficial;
+│                                  #   Doc4010_*_2024-12.txt = posicional legado
 │
 ├── resources/                     # DAB resources of the accelerator (no demo jobs here)
 │   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
@@ -96,6 +102,8 @@ regulatory-data-governance/
 │
 ├── scripts/                       # Dev utilities (not deployed)
 ├── docs/                          # Specs, BACEN references, regulatory docs
+│   └── cosif/                     # Leiaute oficial 4010/4016 (PDF do BCB) + README com
+│                                  #   tabelas de campos, DV da conta e base normativa
 │
 └── demo/                          # ⚠️  INTERNAL DATABRICKS USE — independent demo bundle
     ├── README.md                  # Demo runbook (deploy steps + parameters)
@@ -225,17 +233,19 @@ local-dev overrides.
 
 | Schema | Tables | Purpose |
 |--------|--------|---------|
-| `landing` | 0 + volumes | Raw XML inbox (volumes: scr_xml, _checkpoints) — populated externally |
-| `bronze` | 2 | Parsed XML docs (raw_3040_doc, raw_3050_doc) |
-| `silver` | 6 | Normalized SCR tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050`. Written by the silver DLT pipeline (DLT writes to a single schema). |
-| `gold` | 3 | Curated (`posicao_3040`, `posicao_3050`) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at` = último CADOC processado, MAX dt_base; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`) |
-| `reference` | 6 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions |
+| `landing` | 0 + volumes | Raw inbox (volumes: scr_xml, _checkpoints) — one subfolder per CADOC: `scr_xml/{3040,3050,4010,4016}/` |
+| `bronze` | 4 | Parsed XML docs, one row per file (`raw_3040_doc`, `raw_3050_doc`) + COSIF balances, one row per account, **one table per document** (`raw_4010_saldos`, `raw_4016_saldos`) |
+| `silver` | 8 | Normalized tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050` + `scr4010_saldos` (Balancete, mensal) e `scr4016_saldos` (Balanço, semestral). Written by the silver DLT pipeline (DLT writes to a single schema). |
+| `gold` | 6 | Curated (`posicao_3040`, `posicao_3050`, `posicao_4010`, `posicao_4016`) + `reconciliacao_cosif` (batimento 3040×4010) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at` = último CADOC processado, MAX dt_base sobre 3040/3050/**4010**; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`. `posicao_4016` fica FORA de propósito — é semestral e empurraria o seletor mensal) |
+| `reference` | 7 | Domains, criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions, `cosif_contas` (mapa de batimento COSIF) |
 
 ## Key Links
 
 ### BCB Reference Pages
 - SCR Doc 3040: https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040
 - SCR Doc 3050: https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3050
+- COSIF Doc 4010: https://www.bcb.gov.br/fis/info/doc4010.asp · Doc 4016: https://www.bcb.gov.br/fis/info/doc4016.asp
+- Leiaute COSIF 4010/4016 (um só p/ os dois): https://www.bcb.gov.br/estabilidadefinanceira/leiautecosif4010 — cópia + tabelas de campos em [docs/cosif/](docs/cosif/README.md)
 - External Lineage (BYOL): https://docs.databricks.com/aws/en/data-governance/unity-catalog/external-lineage
 
 ### Google Docs
@@ -246,6 +256,7 @@ See [docs/gdocs_notes.md](docs/gdocs_notes.md) for meeting notes and project con
 - **R.18**: Joint resolution mandating a formal Data Quality Policy covering ALL information reported to BCB. 12 mandatory quality dimensions, board-level governance, semi-annual reports, 5-year retention. Deadline: 31/12/2026.
 - **SCR 3040**: Detailed credit operation data — individual operations with 130+ fields, IPOC identification, cessao/FIDC complexity. Submitted as XML, validated before sending to BCB.
 - **SCR 3050**: Aggregated credit data in TXB/XML format. Versioned layouts (current: V11). Weekly/monthly periodicity with BCB business day calendar.
+- **COSIF 4010 / 4016**: the two accounting documents (doc 1 do COSIF) that carry the balance per COSIF account. **4010 = Balancete Patrimonial Analítico, monthly**, STA code `ACOS010`, due day 18 of the following month. **4016 = Balanço Patrimonial Analítico, semiannual (June and December only)**, STA code `ACOS016`, due the last business day of the following month; because it is the position *after* the year's result has been appropriated, accounts from groups 7 (Receitas) and 8 (Despesas) are NOT expected. Both share ONE layout — XML since data-base jan/2025 (IN BCB 469/2024), positional before that. Spec + field tables in [docs/cosif/README.md](docs/cosif/README.md); PDF in `docs/cosif/`. The 4010 is the accounting leg of the inter-CADOC reconciliation (crítica N01).
 - **Equivalencia**: Mapping between Doc 3040 and Doc 3050 modalities — exposed as `mod_3050_equiv` in silver for downstream consumers.
 - **Criticas**: Validation rules (syntactic + semantic + inter-document) that must pass before submission.
 - **Dominios**: Data dictionaries defining valid values for each field.
@@ -294,6 +305,10 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
   - `raw_3050_doc` stays on `binaryFile + lxml` UDF because the TXB V11 taxonomy uses element *names* (`<crdLivre><pesJuridica><pre><capGirPrzAte365 …/>`) as the dimension axis — defining a static native-XML schema would require enumerating every BCB taxonomy node and is brittle for what are tiny files (~1KB).
   - `lxml` is therefore declared under `environment.dependencies` for the 3050 path in BOTH modes — `resources/pipelines/bronze.yml` (SDP) and `resources/classical/bronze.yml` + `resources/classical/orchestration_job.yml` (classical `serverless_env`).
   - When migrating from `binaryFile` to native XML, use a NEW `cloudFiles.schemaLocation` path (e.g. `_checkpoints/bronze_3040_xml_native/`) — Auto Loader's checkpoint state is format-specific and reusing the old path crashes.
+- **COSIF 4010/4016 são UM leiaute, e o formato oficial é XML desde a data-base jan/2025.** A `IN BCB 469/2024` substituiu o arquivo posicional (71 posições) pelo XML — `<documento codigoDocumento cnpj dataBase tipoRemessa><contas><conta codigoConta saldo/></contas></documento>`, enviado no STA com `ACOS010` (4010) / `ACOS016` (4016). Apesar do leiaute ser um só, cada documento tem seu PRÓPRIO notebook e sua PRÓPRIA tabela (`raw_4010.py`→`bronze.raw_4010_saldos`, `raw_4016.py`→`bronze.raw_4016_saldos`, e o mesmo na silver) — os clientes operam 4010 e 4016 de forma independente, então cada um precisa de task, checkpoint e reprocessamento próprios, como já ocorre com 3040/3050. O preço é parse duplicado: **se mudar o parse de um, mude o do gêmeo** (as 4 combinações doc×modo devem ficar idênticas fora da prosa). A coluna `formato_origem` (`xml` | `posicional`) registra de qual leiaute a linha veio, e `documento` é gravada SEM filtro na silver de propósito: um arquivo do 4016 na pasta do 4010 tem de chegar na silver para o check DQX `documento_e_4010` acusar, em vez de desaparecer em silêncio. O leiaute XML **não tem campo de sinal** (o posicional tem, na posição 33), então `sinal` fica NULL nas linhas vindas de XML — `gold.reconciliacao_cosif` já usa `abs(saldo)`, então não é afetado. Tabelas de campos e base normativa em [docs/cosif/README.md](docs/cosif/README.md).
+- **Conta COSIF: o grupo é o 1º dígito SIGNIFICATIVO, nunca `substring(codigo_conta, 1, 1)`.** O campo tem 10 dígitos, mas as contas representativas deste repo (e as de qualquer extração legada) vêm na forma antiga — 8 dígitos + DV preenchidos à esquerda com zeros (`0031000000` = grupo 3) — enquanto a forma oficial de jan/2025 começa já no grupo (`1000000009` = grupo 1). Usar o 1º caractere retorna `0` para toda conta legada e faz o check "4016 não pode ter grupos 7/8" NUNCA acusar violação (falso-negativo silencioso). A derivação correta, usada em `scr4010.py`/`scr4016.py`, é `substring(cast(codigo_conta as bigint) as string, 1, 1)`.
+- **O DV da conta COSIF é verificável e vale a pena checar**: pesos 3-7-1 repetidos da direita para a esquerda sobre os 9 dígitos de hierarquia, `DV = 10 - (soma mod 10)` (0 se o resto for 0). Confirmado contra os quatro códigos do exemplo oficial do BCB (§4 do leiaute). Implementado no check DQX `conta_cosif_digito_verificador` e em `dv_cosif()` no gerador do demo.
+- **`gold.posicao_4016` NÃO entra em `processing_state`.** O 4016 é semestral (só junho/dezembro), então um Balanço de 30/06 entraria no `MAX(dt_base)` e empurraria o seletor de Data-Base do app para um mês em que 3040/3050/4010 ainda não têm posição. O seletor acompanha o ciclo MENSAL — `processing_state` cobre apenas `posicao_3040`/`3050`/`4010`.
 - **Setup job table with `DEFAULT` columns** needs `TBLPROPERTIES('delta.feature.allowColumnDefaults' = 'supported')` on Delta. Already wired in `notebooks/setup/setup_reference_tables.py` for `modalidades_equivalencia`.
 - Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.
 - **Direct-engine state is target-scoped, not profile-scoped** — this repository has one default target fixed as `dev`. Before changing `workspace.profile` in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.

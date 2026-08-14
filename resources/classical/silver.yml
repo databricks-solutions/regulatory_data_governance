@@ -2,12 +2,13 @@
 #
 # Equivalente clássico do pipeline DLT `resources.pipelines.silver`. Mesmo
 # resource key `silver` → `databricks bundle run silver` funciona nos dois modos.
-# Normaliza bronze → silver (5 tabelas 3040 + scr3050 unificada). Pure ELT.
+# Normaliza bronze → silver (5 tabelas 3040 + scr3050 unificada + scr4010_saldos
+# e scr4016_saldos COSIF). Pure ELT.
 resources:
   jobs:
     silver:
       name: "r18-silver-${bundle.target}"
-      description: "Normalização silver clássica (sem SDP/DLT) — bronze → scr3040_* + scr3050. Pure ELT (quality externo na DQX Studio)."
+      description: "Normalização silver clássica (sem SDP/DLT) — bronze → scr3040_* + scr3050 + scr4010_saldos/scr4016_saldos. Pure ELT (quality externo na DQX Studio)."
       max_concurrent_runs: 1
 
       tasks:
@@ -29,9 +30,18 @@ resources:
               silver_schema: ${resources.schemas.silver_schema.name}
               reference_schema: ${resources.schemas.reference.name}
 
+        # COSIF: uma task por documento (independentes, como no 3040/3050).
         - task_key: "scr4010"
           notebook_task:
             notebook_path: ../../pipelines/classical/silver/scr4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+
+        - task_key: "scr4016"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr4016.py
             base_parameters:
               catalog: ${var.catalog}
               bronze_schema: ${resources.schemas.bronze_schema.name}

@@ -22,5 +22,9 @@ resources:
             path: ../../pipelines/silver/transformations/scr3040.py
         - notebook:
             path: ../../pipelines/silver/transformations/scr3050.py
+        # COSIF: um notebook por documento — scr4010_saldos (Balancete, mensal)
+        # e scr4016_saldos (Balanço, semestral).
         - notebook:
             path: ../../pipelines/silver/transformations/scr4010.py
+        - notebook:
+            path: ../../pipelines/silver/transformations/scr4016.py

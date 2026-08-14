@@ -1,13 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver DLT/SDP — CADOC 4010 (Balancete Patrimonial Analítico) → `scr4010_saldos`
+# MAGIC # Silver DLT/SDP — CADOC 4016 (Balanço Patrimonial Analítico) → `scr4016_saldos`
 # MAGIC
 # MAGIC MESMA tabela e MESMO contrato que o clássico
-# MAGIC `pipelines/classical/silver/scr4010.py` — ver lá a documentação completa.
+# MAGIC `pipelines/classical/silver/scr4016.py` — ver lá a documentação completa.
 # MAGIC
-# MAGIC Este é o documento MENSAL e é a **perna contábil do batimento
-# MAGIC inter-CADOC** (SCR 3040 × COSIF, crítica N01) — `gold.reconciliacao_cosif`
-# MAGIC lê esta tabela.
+# MAGIC Documento SEMESTRAL (junho/dezembro). Posição APÓS a apuração do
+# MAGIC resultado, então não deve trazer contas dos grupos 7 (Receitas) e 8
+# MAGIC (Despesas) — check `sem_contas_de_resultado_grupos_7_8` na DQX Studio.
+# MAGIC NÃO entra no batimento com o 3040 (que é mensal).
 # MAGIC
 # MAGIC Leitura de bronze via `spark.table` (não `dlt.read`): bronze e silver são
 # MAGIC pipelines DLT SEPARADOS e `dlt.read` só resolve datasets do MESMO pipeline
@@ -22,7 +23,7 @@ from pyspark.sql import functions as F, Window
 SOURCE_CATALOG = spark.conf.get("source_catalog", "rc18_catalog")
 BRONZE_SCHEMA = spark.conf.get("source_schema", "bronze")
 
-DOCUMENTO = "4010"
+DOCUMENTO = "4016"
 _PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
 
 # COMMAND ----------
@@ -30,10 +31,10 @@ _PIPELINE_RUN_ID = f"run_{uuid.uuid4()}"
 
 @dlt.table(
     name=f"scr{DOCUMENTO}_saldos",
-    comment="Silver — Balancete Patrimonial Analítico (Doc 4010, mensal) normalizado. codigo_conta (10 díg COSIF) + saldo. Perna COSIF do batimento inter-CADOC.",
+    comment="Silver — Balanço Patrimonial Analítico (Doc 4016, semestral: jun/dez) normalizado. Posição APÓS a apuração do resultado — não se esperam contas dos grupos 7 (Receitas) e 8 (Despesas).",
     partition_cols=["dt_base"],
 )
-def scr4010_saldos():
+def scr4016_saldos():
     bronze = spark.table(f"{SOURCE_CATALOG}.{BRONZE_SCHEMA}.raw_{DOCUMENTO}_saldos")
     dedupe_w = Window.partitionBy("cnpj_if", "dt_base", "codigo_conta").orderBy(
         F.col("_ingestion_timestamp").desc()

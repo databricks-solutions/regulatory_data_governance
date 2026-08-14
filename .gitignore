@@ -2,7 +2,9 @@ docs/
 meta_prompt.md
 .ai-dev-kit/
 .claude/
+.isaac/
 .mcp.json
+cadocs_4010_4016/
 
 # Local secrets / environment overrides — never commit
 .env

@@ -37,6 +37,8 @@ tabela ("Regras de tabela única"). Cada arquivo agrupa os checks daquela tabela
 | [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 9 · 3 |
 | [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 |
 | [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 |
+| [`dqx_checks/scr4010_saldos.yml`](dqx_checks/scr4010_saldos.yml) | `silver.scr4010_saldos` | Leiaute COSIF 4010 — formato/DV da conta, saldo, tipoRemessa, data-base | 9 · 2 · 6 · 8 |
+| [`dqx_checks/scr4016_saldos.yml`](dqx_checks/scr4016_saldos.yml) | `silver.scr4016_saldos` | Idem 4010 + grupos 7/8 vedados + periodicidade semestral | 9 · 2 · 6 · 8 · 10 |
 | [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 |
 
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`

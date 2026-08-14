@@ -2,10 +2,17 @@
 # MAGIC %md
 # MAGIC # Load Sample XMLs into the Landing Volume
 # MAGIC
-# MAGIC Copies the canonical Doc 3040 / Doc 3050 sample XMLs from the deployed
-# MAGIC bundle's workspace files into `${catalog}.${landing_schema}.scr_xml`
-# MAGIC under `3040/` and `3050/` subdirectories. The bronze pipelines pick them
-# MAGIC up via Auto Loader (`pathGlobFilter Doc3040_*.xml` and `Doc3050_*.xml`).
+# MAGIC Copies the canonical sample files from the deployed bundle's workspace
+# MAGIC files into `${catalog}.${landing_schema}.scr_xml`, one subdirectory per
+# MAGIC CADOC (`3040/`, `3050/`, `4010/`, `4016/`). The bronze pipelines pick them
+# MAGIC up via Auto Loader (`pathGlobFilter Doc<cadoc>_*.xml`).
+# MAGIC
+# MAGIC | CADOC | Documento | Formato | Datas-base do sample |
+# MAGIC |---|---|---|---|
+# MAGIC | 3040 | Operações de crédito individualizadas | XML | 2026-03, 2026-04 |
+# MAGIC | 3050 | Estoque mensal agregado (TXB V11) | XML | 2026-03 |
+# MAGIC | 4010 | Balancete Patrimonial Analítico (mensal) | XML + posicional legado | 2026-03, 2026-04 (+ 2024-12 `.txt`) |
+# MAGIC | 4016 | Balanço Patrimonial Analítico (semestral) | XML | 2025-06, 2025-12 |
 # MAGIC
 # MAGIC Idempotent — overwrites the destination files on every run, so the
 # MAGIC schema/checkpoint state in `_checkpoints/` won't double-ingest existing
@@ -37,24 +44,28 @@ if not SOURCE_DIR:
 VOLUME_ROOT = f"/Volumes/{CATALOG}/{LANDING}/scr_xml"
 DEST_3040 = f"{VOLUME_ROOT}/3040"
 DEST_3050 = f"{VOLUME_ROOT}/3050"
-# CADOC 4010 (Balancete COSIF) chega como CSV (tabular), não XML. Mesmo volume,
-# subpasta própria — o bronze 4010 lê via Auto Loader CSV.
+# CADOC 4010 (Balancete Patrimonial Analítico, mensal) e 4016 (Balanço
+# Patrimonial Analítico, semestral) compartilham o MESMO leiaute XML oficial
+# (IN BCB 469/2024, obrigatório a partir da data-base jan/2025). Uma subpasta por
+# documento — cada um tem seu bronze próprio (`raw_4010.py` / `raw_4016.py`)
+# com checkpoint independente.
+# Os `.txt` posicionais legados (data-base < jan/2025) também vivem aqui.
 DEST_4010 = f"{VOLUME_ROOT}/4010"
+DEST_4016 = f"{VOLUME_ROOT}/4016"
 
 print(f"Catalog:        {CATALOG}")
 print(f"Landing schema: {LANDING}")
 print(f"Source dir:     {SOURCE_DIR}")
-print(f"Dest 3040:      {DEST_3040}")
-print(f"Dest 3050:      {DEST_3050}")
-print(f"Dest 4010:      {DEST_4010}")
+for _label, _dest in (("3040", DEST_3040), ("3050", DEST_3050),
+                      ("4010", DEST_4010), ("4016", DEST_4016)):
+    print(f"Dest {_label}:      {_dest}")
 
 # COMMAND ----------
 
 # Volume already declared by the bundle (resources/uc_assets.yml -> volumes.scr_xml),
-# but the 3040/ 3050/ 4010/ subdirectories are runtime artifacts. Create them via FUSE.
-os.makedirs(DEST_3040, exist_ok=True)
-os.makedirs(DEST_3050, exist_ok=True)
-os.makedirs(DEST_4010, exist_ok=True)
+# but the 3040/ 3050/ 4010/ 4016/ subdirectories are runtime artifacts. Create via FUSE.
+for _dest in (DEST_3040, DEST_3050, DEST_4010, DEST_4016):
+    os.makedirs(_dest, exist_ok=True)
 
 # COMMAND ----------
 
@@ -83,13 +94,23 @@ copy_pattern("Doc3040_*.xml", DEST_3040, "3040")
 print("Copying Doc 3050 samples (Doc3050_*.xml)…")
 copy_pattern("Doc3050_*.xml", DEST_3050, "3050")
 
-print("Copying Doc 4010 samples (Doc4010_*.txt)…")
-copy_pattern("Doc4010_*.txt", DEST_4010, "4010")
+# COSIF — leiaute XML oficial (data-base ≥ jan/2025) …
+print("Copying Doc 4010 samples (Doc4010_*.xml)…")
+copy_pattern("Doc4010_*.xml", DEST_4010, "4010")
+
+print("Copying Doc 4016 samples (Doc4016_*.xml)…")
+copy_pattern("Doc4016_*.xml", DEST_4016, "4016")
+
+# … e o posicional legado (data-base < jan/2025), quando houver.
+print("Copying legacy positional COSIF samples (Doc4010_*.txt / Doc4016_*.txt)…")
+copy_pattern("Doc4010_*.txt", DEST_4010, "4010-legado")
+copy_pattern("Doc4016_*.txt", DEST_4016, "4016-legado")
 
 # COMMAND ----------
 
 print("Sample files ready under:")
-for sub, label in ((DEST_3040, "3040"), (DEST_3050, "3050"), (DEST_4010, "4010")):
+for sub, label in ((DEST_3040, "3040"), (DEST_3050, "3050"),
+                   (DEST_4010, "4010"), (DEST_4016, "4016")):
     print(f"  {label}: {sub}")
     for f in sorted(os.listdir(sub)):
         print(f"    - {f}")

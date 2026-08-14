@@ -126,6 +126,27 @@ def posicao_4010():
     )
 
 
+# ── Posição CADOC 4016 (Balanço Patrimonial Analítico — passthrough) ──────────
+# Documento SEMESTRAL (datas-base junho e dezembro), posição contábil APÓS a
+# apuração do resultado do exercício. NÃO entra no processing_state — ver a nota
+# na definição daquela tabela.
+
+@dlt.table(
+    name="posicao_4016",
+    comment="Posição CADOC 4016 — passthrough de silver.scr4016_saldos (Balanço Patrimonial Analítico, semestral) + timestamp de gold.",
+    table_properties={
+        "quality": "gold",
+        "delta.logRetentionDuration": "interval 1825 days",
+    },
+    partition_cols=["dt_base"],
+)
+def posicao_4016():
+    return (
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr4016_saldos")
+        .withColumn("_gold_timestamp", F.current_timestamp())
+    )
+
+
 # ── Batimento inter-CADOC: SCR 3040 × COSIF 4010 ─────────────────────────────
 # Dimensão VIII (Consistência). Mesma lógica do notebook clássico
 # (pipelines/classical/gold/posicao_mensal.py). Mapeamento rubrica↔filtro
@@ -223,6 +244,11 @@ def reconciliacao_cosif():
 def processing_state():
     # dlt.read (não spark.table) para tabelas do MESMO pipeline: garante que o
     # DLT ordene este cálculo DEPOIS de posicao_3040/3050/4010 materializarem.
+    #
+    # ⚠️ posicao_4016 fica DE FORA de propósito: o 4016 é semestral (só jun/dez),
+    # então um Balanço de 30/06 entraria no MAX e empurraria o seletor de
+    # Data-Base do app para um mês sem posição dos CADOCs mensais. O seletor
+    # acompanha o ciclo MENSAL (3040/3050/4010).
     p3040 = dlt.read("posicao_3040").select("dt_base")
     p3050 = dlt.read("posicao_3050").select("dt_base")
     p4010 = dlt.read("posicao_4010").select("dt_base")

@@ -1,31 +1,33 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Bronze CLÁSSICO — CADOC 4010 (Balancete Patrimonial Analítico) → `bronze.raw_4010_saldos`
+# MAGIC # Bronze CLÁSSICO — CADOC 4016 (Balanço Patrimonial Analítico) → `bronze.raw_4016_saldos`
 # MAGIC
-# MAGIC Documento contábil COSIF **4010 — Balancete Patrimonial Analítico**, periodicidade
-# MAGIC **mensal** (toda data-base mensal), prazo de envio até o dia 18 do mês seguinte ao da data-base (ou dia útil subsequente).
+# MAGIC Documento contábil COSIF **4016 — Balanço Patrimonial Analítico**, periodicidade
+# MAGIC **semestral** (apenas as datas-base de junho e dezembro), prazo de envio até o último dia útil do mês seguinte ao da data-base.
 # MAGIC
-# MAGIC O Balancete é o documento MENSAL; inclui as contas de resultado
-# MAGIC (grupos 7 Receitas e 8 Despesas), ao contrário do 4016.
+# MAGIC O Balanço é SEMESTRAL e representa a posição contábil **após a
+# MAGIC apuração do resultado do exercício** — por isso não se espera a
+# MAGIC presença das contas dos grupos 7 (Receitas) e 8 (Despesas)
+# MAGIC (§3.2.2.a). Essa regra é validada na DQX Studio, não aqui.
 # MAGIC
 # MAGIC ## Leiaute oficial (XML) — vigente a partir da data-base jan/2025
 # MAGIC Fonte: *Balancete e Balanço Patrimonial Analítico — Documentos 4010/4016,
 # MAGIC Instruções de Preenchimento* (Desig/BCB) —
 # MAGIC `bcb.gov.br/content/estabilidadefinanceira/cosif_leiautes/Leiaute_4010_xmlV1.pdf`,
 # MAGIC cópia e tabelas de campos em `docs/cosif/README.md`. A **IN BCB 469/2024**
-# MAGIC substituiu o arquivo posicional pelo XML. Envio pelo STA com o código `ACOS010`.
+# MAGIC substituiu o arquivo posicional pelo XML. Envio pelo STA com o código `ACOS016`.
 # MAGIC
 # MAGIC ```xml
-# MAGIC <documento codigoDocumento="4010" cnpj="99999999" dataBase="AAAA-MM" tipoRemessa="I">
+# MAGIC <documento codigoDocumento="4016" cnpj="99999999" dataBase="AAAA-MM" tipoRemessa="I">
 # MAGIC   <contas>
 # MAGIC     <conta codigoConta="0031000000" saldo="321460997.24" />
 # MAGIC   </contas>
 # MAGIC </documento>
 # MAGIC ```
 # MAGIC
-# MAGIC - `codigoDocumento` — sempre `4010` neste pipeline (§3.1.2.b). É gravado na
-# MAGIC   coluna `documento` SEM filtro: um arquivo do 4016 depositado por engano
-# MAGIC   nesta pasta precisa aparecer para o check DQX `documento_e_4010` acusar.
+# MAGIC - `codigoDocumento` — sempre `4016` neste pipeline (§3.1.2.b). É gravado na
+# MAGIC   coluna `documento` SEM filtro: um arquivo do 4010 depositado por engano
+# MAGIC   nesta pasta precisa aparecer para o check DQX `documento_e_4016` acusar.
 # MAGIC - `cnpj` — obrigatório, alfanumérico de 8 caracteres (§3.1.2.c).
 # MAGIC - `dataBase` — padrão `AAAA-MM` (§3.1.2.d).
 # MAGIC - `tipoRemessa` — `I` (inclusão) ou `S` (substituição) (§3.1.2.e).
@@ -41,8 +43,8 @@
 # MAGIC N(18) em centavos + sinal `+`/`-`) e controle (`@1` + nº de registros).
 # MAGIC Mantido para reprocessar histórico anterior à migração XML.
 # MAGIC
-# MAGIC ⚠️ O Doc 4016 compartilha ESTE MESMO leiaute e tem um notebook gêmeo
-# MAGIC (`raw_4016.py`). Mudança de parse aqui deve ser espelhada lá.
+# MAGIC ⚠️ O Doc 4010 compartilha ESTE MESMO leiaute e tem um notebook gêmeo
+# MAGIC (`raw_4010.py`). Mudança de parse aqui deve ser espelhada lá.
 # MAGIC
 # MAGIC Os dois caminhos (XML e posicional) gravam o MESMO contrato e rodam em
 # MAGIC sequência (append no mesmo Delta). Checkpoints DISTINTOS do modo DLT.
@@ -61,7 +63,7 @@ catalog = dbutils.widgets.get("catalog")
 landing_schema = dbutils.widgets.get("landing_schema")
 bronze_schema = dbutils.widgets.get("bronze_schema")
 
-DOCUMENTO = "4010"
+DOCUMENTO = "4016"
 LANDING_PATH = f"/Volumes/{catalog}/{landing_schema}/scr_xml/{DOCUMENTO}/"
 CHECKPOINT_ROOT = f"/Volumes/{catalog}/{landing_schema}/_checkpoints"
 TARGET_TABLE = f"{catalog}.{bronze_schema}.raw_{DOCUMENTO}_saldos"
@@ -101,7 +103,7 @@ CREATE TABLE IF NOT EXISTS {TARGET_TABLE} (
 )
 USING DELTA
 PARTITIONED BY (_ingestion_date)
-COMMENT 'CADOC 4010 — Balancete Patrimonial Analítico COSIF (mensal). Leiaute XML oficial (IN BCB 469/2024) e posicional legado. Base da perna COSIF do batimento inter-CADOC 3040×COSIF.'
+COMMENT 'CADOC 4016 — Balanço Patrimonial Analítico COSIF (semestral: junho e dezembro). Leiaute XML oficial (IN BCB 469/2024) e posicional legado. Posição após a apuração do resultado — sem contas dos grupos 7 e 8.'
 TBLPROPERTIES (
     'delta.logRetentionDuration'         = 'interval 1825 days',
     'delta.deletedFileRetentionDuration' = 'interval 1825 days',

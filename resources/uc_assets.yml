@@ -23,7 +23,7 @@ resources:
     landing:
       catalog_name: ${var.catalog}
       name: landing
-      comment: "Landing zone — raw SCR Doc 3040/3050 XML files, COSIF parquet, and Auto Loader schema/checkpoint state."
+      comment: "Landing zone — raw SCR Doc 3040/3050 XML, COSIF Doc 4010/4016 XML (+ legacy positional .txt), and Auto Loader schema/checkpoint state."
 
     reference:
       catalog_name: ${var.catalog}
@@ -33,17 +33,17 @@ resources:
     bronze_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_bronze}
-      comment: "Bronze — raw XML parsed into typed structs, one row per file (raw_3040_doc, raw_3050_doc); COSIF Doc 4010 balances (raw_cosif_saldos)."
+      comment: "Bronze — raw XML parsed into typed structs, one row per file (raw_3040_doc, raw_3050_doc); COSIF balances, one row per account, one table per document (raw_4010_saldos, raw_4016_saldos)."
 
     silver_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_silver}
-      comment: "Silver — normalized SCR tables (scr3040_operacoes, scr3040_clientes, scr3040_garantias, scr3040_vencimentos, scr3040_cont_4966; scr3050 unified; scr4010_saldos COSIF). Pure ELT — quality runs externally in DQX Studio."
+      comment: "Silver — normalized SCR tables (scr3040_operacoes, scr3040_clientes, scr3040_garantias, scr3040_vencimentos, scr3040_cont_4966; scr3050 unified; scr4010_saldos + scr4016_saldos COSIF). Pure ELT — quality runs externally in DQX Studio."
 
     gold_schema:
       catalog_name: ${var.catalog}
       name: ${var.schema_gold}
-      comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050, posicao_4010, reconciliacao_cosif)."
+      comment: "Gold — curated tables for App + dashboards (posicao_3040, posicao_3050, posicao_4010, posicao_4016, reconciliacao_cosif, processing_state)."
 
     quality:
       catalog_name: ${var.catalog}
@@ -61,7 +61,7 @@ resources:
       schema_name: landing
       name: scr_xml
       volume_type: MANAGED
-      comment: "Inbox for SCR submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.txt (COSIF Balancete, posicional) under scr_xml/4010/. The bronze pipeline auto-loads from here."
+      comment: "Inbox for submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.xml (COSIF Balancete, mensal) under scr_xml/4010/, Doc4016_*.xml (COSIF Balanco, semestral) under scr_xml/4016/. Legacy positional Doc40*.txt (data-base < jan/2025) live in the same COSIF subfolders. The bronze pipeline auto-loads from here."
 
     checkpoints:
       catalog_name: ${var.catalog}
