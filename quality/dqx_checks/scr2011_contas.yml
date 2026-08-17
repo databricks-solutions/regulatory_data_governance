@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr2011_contas
+#
+# CADOC 2011 — DDR (Demonstrativo Diário). Leiaute oficial v5, XSD, Instruções v7.
+# bcb.gov.br/estabilidadefinanceira/leiautedocumentoDDR2011
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ Escopo mensal (filter por `data_base_month`, não `dt_base`): o DDR é diário
+#    mas o seletor do app é mensal. Execute com "All rows" (sample_size=0).
+#
+# 🚧 Não há check de soma `valorDetalhe` = `valorConta`: o arquivo oficial do BCB
+#    viola o invariante, então não é regra de leiaute.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Anexo 4 — domínio de contas. Domínio via view reference.v_dom_2011_conta.
+- name: conta_ddr_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "codigo_conta IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_conta)"
+      msg: "Código de conta fora do domínio do Anexo 4 do leiaute do DDR."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "DDR-DOM-CONTA"
+    descricao: "Código da conta deve pertencer ao domínio do Anexo 4."
+    nivel_verificacao: "1"
+
+# Documento deve ser 2011. A silver propaga sem filtro para acusar arquivo errado na pasta.
+- name: documento_e_2011
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "cast(documento as int) = 2011"
+      msg: "Documento diferente de 2011 na pasta do DDR."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "DDR-DOC-CODIGO"
+    descricao: "Toda linha deve vir do documento 2011."
+    nivel_verificacao: "1"
+
+# Anexo 1 — CNPJ base deve ser exatamente 8 dígitos numéricos.
+- name: cnpj_if_formato_8_digitos
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(cnpj_if) = 8 AND cast(cnpj_if as bigint) IS NOT NULL"
+      msg: "CNPJ da instituição fora do formato (exatamente 8 dígitos numéricos)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "DDR-FMT-CNPJ"
+    descricao: "CNPJ base deve ter 8 dígitos numéricos."
+    nivel_verificacao: "1"
+
+# Anexo 1 — tipo de envio: I (inclusão) ou S (substituição).
+- name: tipo_envio_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tipo_envio IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_tipoenvio)"
+      msg: "Tipo de envio fora do domínio (I ou S)."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "DDR-DOM-TIPOENVIO"
+    descricao: "Tipo de envio deve ser I (inclusão) ou S (substituição)."
+    nivel_verificacao: "1"
+
+# valorConta obrigatório no XSD.
+- name: valor_conta_informado
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "valor_conta IS NOT NULL"
+      msg: "Conta sem valor informado."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "DDR-VLR-NULO"
+    descricao: "Toda conta deve trazer seu valor."
+    nivel_verificacao: "1"
+
+# Escala de valorConta: até 14 dígitos inteiros.
+- name: valor_conta_dentro_da_escala_do_leiaute
+  criticality: warn
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "valor_conta IS NULL OR abs(valor_conta) < 100000000000000"
+      msg: "Valor da conta excede 14 dígitos inteiros."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "DDR-VLR-ESCALA"
+    descricao: "Valor deve caber em 14 dígitos inteiros e 2 decimais."
+    nivel_verificacao: "1"
+
+# Anexo 4 — 1º dígito do código identifica o bloco (1..7).
+- name: bloco_ddr_valido
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "bloco_ddr BETWEEN 1 AND 7"
+      msg: "Bloco do DDR fora de 1..7."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "DDR-BLOCO"
+    descricao: "Primeiro dígito do código deve identificar blocos 1..7."
+    nivel_verificacao: "1"
+
+# Data-base deve ser dia útil do calendário do BCB (CADOC diário).
+- name: data_base_e_dia_util
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_contas)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "dt_base IN (SELECT data FROM rc18_catalog.reference.v_dom_2011_data_base)"
+      msg: "Data-base não é dia útil do calendário do BCB."
+  user_metadata:
+    dimensao_r18: "12"
+    critica_id: "DDR-DTBASE-DU"
+    descricao: "Data-base deve ser dia útil do calendário do BCB."
+    nivel_verificacao: "1"

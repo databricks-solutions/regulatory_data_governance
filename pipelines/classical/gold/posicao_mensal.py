@@ -11,8 +11,10 @@
 # MAGIC | `posicao_3050` | silver `scr3050` (passthrough + `_gold_timestamp`) | dimensão 3050 |
 # MAGIC | `posicao_4010` | silver `scr4010_saldos` (passthrough) | conta COSIF (Balancete, mensal) |
 # MAGIC | `posicao_4016` | silver `scr4016_saldos` (passthrough) | conta COSIF (Balanço, semestral) |
+# MAGIC | `posicao_2011` | silver `scr2011_contas` (+ `is_ultima_do_mes`) | conta DDR por DIA (Doc 2011, diário) |
+# MAGIC | `criticas_ddr_2011` | silver `scr2011_contas` + `scr2011_detalhamentos` | crítica intra-DDR (4693, 4751) por data-base |
 # MAGIC | `reconciliacao_cosif` | 3040 ⨝ `reference.cosif_contas` ⨝ 4010 | regra de batimento |
-# MAGIC | `processing_state` | posicao_3040/3050/4010 (MAX dt_base) | 1 linha (seletor Data-Base do app) |
+# MAGIC | `processing_state` | posicao_3040/3050/4010/2011 (mês vigente) | 1 linha (seletor Data-Base do app) |
 # MAGIC
 # MAGIC Muda só o I/O: `@dlt.table`→`saveAsTable(overwrite)` e a dependência
 # MAGIC same-pipeline (`dlt.read`) de `processing_state` vira leitura sequencial
@@ -190,6 +192,137 @@ print(f"OK — {fqn_4016}: {spark.table(fqn_4016).count()} linha(s)")
 
 # COMMAND ----------
 # MAGIC %md
+# MAGIC ## Posição CADOC 2011 (DDR — grão DIÁRIO preservado)
+# MAGIC Único CADOC diário. Preserva o grão diário e marca `is_ultima_do_mes` (a
+# MAGIC posição de fechamento — uma data-base por cnpj_if/mês), de forma que o
+# MAGIC dashboard escolha entre série diária e fechamento sem que o seletor de
+# MAGIC Data-Base mensal precise de um modo próprio.
+
+# COMMAND ----------
+
+_contas_2011 = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr2011_contas")
+_ultima_2011 = (
+    _contas_2011.groupBy("cnpj_if", "data_base_month")
+    .agg(F.max("dt_base").alias("_dt_ultima"))
+)
+
+fqn_2011 = _gold_fqn("posicao_2011")
+(
+    _contas_2011.join(_ultima_2011, on=["cnpj_if", "data_base_month"], how="left")
+    .withColumn("is_ultima_do_mes", F.col("dt_base") == F.col("_dt_ultima"))
+    .drop("_dt_ultima")
+    .withColumn("_gold_timestamp", F.current_timestamp())
+    .write.format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .partitionBy("dt_base")
+    .saveAsTable(fqn_2011)
+)
+spark.sql(
+    f"ALTER TABLE {fqn_2011} SET TBLPROPERTIES ("
+    "'delta.logRetentionDuration' = 'interval 1825 days', "
+    "'quality' = 'gold')"
+)
+print(f"OK — {fqn_2011}: {spark.table(fqn_2011).count()} linha(s)")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## Críticas INTRA-documento do DDR (`criticas_ddr_2011`)
+# MAGIC Das 11 críticas vigentes do Doc 2011, só duas confrontam o próprio DDR (as
+# MAGIC outras 9 batem contra os docs 2060/DRM e 2061/DLO, fora do escopo):
+# MAGIC
+# MAGIC | Crítica | Tipo | Regra |
+# MAGIC |---|---|---|
+# MAGIC | 4693 | E | 161000 (vendidas no PL) não pode ser < 181000 (excesso de hedge no exterior) |
+# MAGIC | 4751 | I | chaves duplicadas entre posição e moeda nos detalhamentos |
+# MAGIC
+# MAGIC Ambas são de grão AGREGADO e a `sql_expression` do DQX roda linha a linha,
+# MAGIC então são materializadas aqui com `status` e o check só verifica o status —
+# MAGIC mesmo padrão de `reconciliacao_cosif` para a N01. Ver `docs/ddr2011/README.md`.
+
+# COMMAND ----------
+
+_CRIT_OK = "OK"
+_CRIT_BLOQUEADO = "BLOQUEADO"
+
+_det_2011 = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr2011_detalhamentos")
+
+# 4693 — soma de 161000 vs soma de 181000 na mesma data-base.
+_por_data_2011 = (
+    _contas_2011.groupBy("cnpj_if", "dt_base", "data_base_month")
+    .agg(
+        F.sum(F.when(F.col("codigo_conta") == "161000", F.col("valor_conta")))
+         .alias("vlr_esquerdo"),
+        F.sum(F.when(F.col("codigo_conta") == "181000", F.col("valor_conta")))
+         .alias("vlr_direito"),
+    )
+)
+_c4693 = _por_data_2011.select(
+    "cnpj_if", "dt_base", "data_base_month",
+    F.lit("4693").alias("critica_id"),
+    F.lit("E").alias("tipo_critica"),
+    F.lit(
+        "Somatorio das Posicoes Vendidas no Patrimonio Liquido (161000) inferior ao "
+        "Excesso da Posicao Vendida para Hedge em Participacoes no Exterior (181000)."
+    ).alias("descricao_critica"),
+    F.col("vlr_esquerdo").cast("decimal(17,2)").alias("vlr_esquerdo"),
+    F.col("vlr_direito").cast("decimal(17,2)").alias("vlr_direito"),
+    F.lit(None).cast("bigint").alias("qtd_ocorrencias"),
+    # Sem uma das duas contas na remessa não há o que confrontar → OK.
+    F.when(
+        F.col("vlr_esquerdo").isNull() | F.col("vlr_direito").isNull(), F.lit(_CRIT_OK)
+    ).when(
+        F.col("vlr_esquerdo") < F.col("vlr_direito"), F.lit(_CRIT_BLOQUEADO)
+    ).otherwise(F.lit(_CRIT_OK)).alias("status"),
+)
+
+# 4751 — a chave (conta, país, moeda, posição) não pode repetir na data-base.
+# `count(*) - count(distinct)` = linhas excedentes, o que o BCB reporta.
+_dup_2011 = (
+    _det_2011.groupBy("cnpj_if", "dt_base", "data_base_month")
+    .agg(
+        (
+            F.count(F.lit(1))
+            - F.countDistinct(
+                F.concat_ws(
+                    "|",
+                    F.col("codigo_conta"),
+                    F.coalesce(F.col("pais"), F.lit("")),
+                    F.coalesce(F.col("moeda"), F.lit("")),
+                    F.coalesce(F.col("posicao_pais_exterior"), F.lit("")),
+                )
+            )
+        ).alias("qtd_ocorrencias")
+    )
+)
+_c4751 = _dup_2011.select(
+    "cnpj_if", "dt_base", "data_base_month",
+    F.lit("4751").alias("critica_id"),
+    F.lit("I").alias("tipo_critica"),
+    F.lit("Chaves duplicadas entre posicao e moeda nos detalhamentos do DDR.")
+     .alias("descricao_critica"),
+    F.lit(None).cast("decimal(17,2)").alias("vlr_esquerdo"),
+    F.lit(None).cast("decimal(17,2)").alias("vlr_direito"),
+    F.col("qtd_ocorrencias").cast("bigint").alias("qtd_ocorrencias"),
+    F.when(F.col("qtd_ocorrencias") > 0, F.lit(_CRIT_BLOQUEADO))
+     .otherwise(F.lit(_CRIT_OK)).alias("status"),
+)
+
+fqn_crit_2011 = _gold_fqn("criticas_ddr_2011")
+(
+    _c4693.unionByName(_c4751)
+    .withColumn("_gold_timestamp", F.current_timestamp())
+    .write.format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .partitionBy("dt_base")
+    .saveAsTable(fqn_crit_2011)
+)
+spark.sql(f"ALTER TABLE {fqn_crit_2011} SET TBLPROPERTIES ('quality' = 'gold')")
+print(f"OK — {fqn_crit_2011}: {spark.table(fqn_crit_2011).count()} linha(s)")
+
+# COMMAND ----------
+# MAGIC %md
 # MAGIC ## Batimento inter-CADOC: SCR 3040 × COSIF 4010 (`reconciliacao_cosif`)
 # MAGIC Dimensão VIII (Consistência). Para cada regra em `reference.cosif_contas`,
 # MAGIC soma o saldo do 3040 (perna SCR, via `predicado_3040`) e compara ao saldo
@@ -291,25 +424,38 @@ print(f"OK — {fqn_recon}: {spark.table(fqn_recon).count()} linha(s)")
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## Estado de processamento (data-base corrente)
-# MAGIC O app usa este valor para preencher o seletor de Data-Base com o ÚLTIMO
-# MAGIC CADOC processado (MAX dt_base observado nas posições 3040/3050/4010). Uma
-# MAGIC única linha, recalculada a cada run. No modo clássico lemos as posições já
-# MAGIC materializadas acima via `spark.table` (equivalente ao `dlt.read`
-# MAGIC same-pipeline do modo DLT).
+# MAGIC Alimenta o seletor de Data-Base do app, que é **mensal e compartilhado** por
+# MAGIC todos os CADOCs — não há data-base por documento. Uma linha, recalculada a
+# MAGIC cada run, lendo as posições materializadas acima via `spark.table`.
 # MAGIC
-# MAGIC ⚠️ `posicao_4016` fica DE FORA de propósito: o 4016 é **semestral** (só
-# MAGIC junho/dezembro), então um Balanço de 30/06 entraria no MAX e empurraria o
-# MAGIC seletor de Data-Base do app para um mês em que os CADOCs mensais (3040/3050
-# MAGIC /4010) ainda não têm posição. O seletor acompanha o ciclo MENSAL.
+# MAGIC Cada CADOC contribui com o **mês** da sua data-base; o mês vigente é o maior
+# MAGIC deles e `current_data_base` é o maior `dt_base` dentro dele. É essa redução
+# MAGIC que acomoda o **DDR (diário)** sem tratamento especial: suas várias datas no
+# MAGIC mês colapsam. Como o DDR é remetido todo dia útil, normalmente é ele que
+# MAGIC define o mês vigente — o mês corrente aparece antes de 3040/3050/4010
+# MAGIC fecharem, correto para um mês em andamento.
+# MAGIC
+# MAGIC ⚠️ `posicao_4016` fica fora: semestral (jun/dez), empurraria o seletor para
+# MAGIC um mês sem posição dos demais CADOCs.
 
 # COMMAND ----------
 
-p3040 = spark.table(fqn_3040).select("dt_base")
-p3050 = spark.table(fqn_3050).select("dt_base")
-p4010 = spark.table(fqn_4010).select("dt_base")
+# Mês vigente = maior mês entre os CADOCs; `current_data_base` = maior `dt_base`
+# dentro dele. É o que acomoda o DDR diário sem tratamento especial.
+contribuicoes = (
+    spark.table(fqn_3040).select("dt_base")
+    .unionByName(spark.table(fqn_3050).select("dt_base"))
+    .unionByName(spark.table(fqn_4010).select("dt_base"))
+    .unionByName(spark.table(fqn_2011).select("dt_base"))
+    .withColumn("_mes", F.trunc(F.col("dt_base"), "month"))
+)
+mes_vigente = contribuicoes.agg(F.max("_mes").alias("_mes_vigente"))
 
 processing_state = (
-    p3040.unionByName(p3050).unionByName(p4010)
+    contribuicoes.join(
+        F.broadcast(mes_vigente),
+        contribuicoes["_mes"] == F.col("_mes_vigente"),
+    )
     .agg(F.max("dt_base").alias("current_data_base"))
     .withColumn("data_base_month", F.date_format(F.col("current_data_base"), "yyyy-MM"))
     .withColumn("updated_at", F.current_timestamp())

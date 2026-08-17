@@ -46,3 +46,13 @@ resources:
               catalog: ${var.catalog}
               bronze_schema: ${resources.schemas.bronze_schema.name}
               silver_schema: ${resources.schemas.silver_schema.name}
+
+        # CADOC 2011 (DDR, diário) — um notebook escreve as TRÊS tabelas
+        # (scr2011_contas, scr2011_detalhamentos, scr2011_parametros).
+        - task_key: "scr2011"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}

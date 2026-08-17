@@ -60,3 +60,14 @@ resources:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}
               bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        # CADOC 2011 (DDR, DIÁRIO) — leitor nativo de XML, tabela e checkpoint
+        # próprios, então roda em paralelo com os demais.
+        - task_key: "raw_2011"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}

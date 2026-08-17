@@ -147,6 +147,129 @@ def posicao_4016():
     )
 
 
+# ── Posição CADOC 2011 (DDR — grão DIÁRIO preservado) ────────────────────────
+# Único CADOC diário. Preserva o grão diário e marca `is_ultima_do_mes` (a
+# posição de fechamento — uma data-base por cnpj_if/mês), de forma que o
+# dashboard escolha entre série diária e fechamento sem que o seletor de
+# Data-Base mensal precise de um modo próprio.
+
+@dlt.table(
+    name="posicao_2011",
+    comment="Posição CADOC 2011 (DDR, diário) — passthrough de silver.scr2011_contas + flag is_ultima_do_mes (posição de fechamento do mês) + timestamp de gold.",
+    table_properties={
+        "quality": "gold",
+        "delta.logRetentionDuration": "interval 1825 days",
+    },
+    partition_cols=["dt_base"],
+)
+def posicao_2011():
+    contas = spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr2011_contas")
+    ultima = (
+        contas.groupBy("cnpj_if", "data_base_month")
+        .agg(F.max("dt_base").alias("_dt_ultima"))
+    )
+    return (
+        contas.join(ultima, on=["cnpj_if", "data_base_month"], how="left")
+        .withColumn("is_ultima_do_mes", F.col("dt_base") == F.col("_dt_ultima"))
+        .drop("_dt_ultima")
+        .withColumn("_gold_timestamp", F.current_timestamp())
+    )
+
+
+# ── Críticas INTRA-documento do DDR (Doc 2011) ───────────────────────────────
+# Das 11 críticas vigentes do 2011, só duas confrontam o próprio DDR (as outras 9
+# batem contra os docs 2060/DRM e 2061/DLO, fora do escopo):
+#   4693 (E) — 161000 (vendidas no PL) não pode ser < 181000 (excesso de hedge).
+#   4751 (I) — chaves duplicadas entre posição e moeda nos detalhamentos.
+# Ambas são de grão AGREGADO e a `sql_expression` do DQX roda linha a linha, então
+# são materializadas aqui com `status` e o check só verifica o status — mesmo
+# padrão de `reconciliacao_cosif` para a N01. Ver docs/ddr2011/README.md.
+
+_CRIT_OK = "OK"
+_CRIT_BLOQUEADO = "BLOQUEADO"
+
+
+def _criticas_ddr_2011(contas, detalhamentos):
+    """Avalia as críticas 4693 e 4751 por (cnpj_if, dt_base)."""
+    # 4693 — soma de 161000 vs soma de 181000 na mesma data-base.
+    por_data = (
+        contas.groupBy("cnpj_if", "dt_base", "data_base_month")
+        .agg(
+            F.sum(F.when(F.col("codigo_conta") == "161000", F.col("valor_conta")))
+             .alias("vlr_esquerdo"),
+            F.sum(F.when(F.col("codigo_conta") == "181000", F.col("valor_conta")))
+             .alias("vlr_direito"),
+        )
+    )
+    c4693 = por_data.select(
+        "cnpj_if", "dt_base", "data_base_month",
+        F.lit("4693").alias("critica_id"),
+        F.lit("E").alias("tipo_critica"),
+        F.lit(
+            "Somatorio das Posicoes Vendidas no Patrimonio Liquido (161000) inferior ao "
+            "Excesso da Posicao Vendida para Hedge em Participacoes no Exterior (181000)."
+        ).alias("descricao_critica"),
+        F.col("vlr_esquerdo").cast("decimal(17,2)").alias("vlr_esquerdo"),
+        F.col("vlr_direito").cast("decimal(17,2)").alias("vlr_direito"),
+        F.lit(None).cast("bigint").alias("qtd_ocorrencias"),
+        # Sem uma das duas contas na remessa não há o que confrontar → OK.
+        F.when(
+            F.col("vlr_esquerdo").isNull() | F.col("vlr_direito").isNull(), F.lit(_CRIT_OK)
+        ).when(
+            F.col("vlr_esquerdo") < F.col("vlr_direito"), F.lit(_CRIT_BLOQUEADO)
+        ).otherwise(F.lit(_CRIT_OK)).alias("status"),
+    )
+
+    # 4751 — a chave (conta, país, moeda, posição) não pode repetir na data-base.
+    # `count(*) - count(distinct)` = linhas excedentes, o que o BCB reporta.
+    dup = (
+        detalhamentos.groupBy("cnpj_if", "dt_base", "data_base_month")
+        .agg(
+            (
+                F.count(F.lit(1))
+                - F.countDistinct(
+                    F.concat_ws(
+                        "|",
+                        F.col("codigo_conta"),
+                        F.coalesce(F.col("pais"), F.lit("")),
+                        F.coalesce(F.col("moeda"), F.lit("")),
+                        F.coalesce(F.col("posicao_pais_exterior"), F.lit("")),
+                    )
+                )
+            ).alias("qtd_ocorrencias")
+        )
+    )
+    c4751 = dup.select(
+        "cnpj_if", "dt_base", "data_base_month",
+        F.lit("4751").alias("critica_id"),
+        F.lit("I").alias("tipo_critica"),
+        F.lit("Chaves duplicadas entre posicao e moeda nos detalhamentos do DDR.")
+         .alias("descricao_critica"),
+        F.lit(None).cast("decimal(17,2)").alias("vlr_esquerdo"),
+        F.lit(None).cast("decimal(17,2)").alias("vlr_direito"),
+        F.col("qtd_ocorrencias").cast("bigint").alias("qtd_ocorrencias"),
+        F.when(F.col("qtd_ocorrencias") > 0, F.lit(_CRIT_BLOQUEADO))
+         .otherwise(F.lit(_CRIT_OK)).alias("status"),
+    )
+
+    return c4693.unionByName(c4751).withColumn(
+        "_gold_timestamp", F.current_timestamp()
+    )
+
+
+@dlt.table(
+    name="criticas_ddr_2011",
+    comment="Criticas INTRA-documento do DDR (Doc 2011): 4693 (161000 >= 181000, tipo E) e 4751 (chaves duplicadas posicao x moeda, tipo I). Uma linha por (cnpj_if, dt_base, critica_id) com status OK/BLOQUEADO. As outras 9 criticas vigentes confrontam os documentos 2060/2061 e ficam fora do escopo.",
+    table_properties={"quality": "gold"},
+    partition_cols=["dt_base"],
+)
+def criticas_ddr_2011():
+    return _criticas_ddr_2011(
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr2011_contas"),
+        spark.table(f"{SOURCE_CATALOG}.{SILVER_SCHEMA}.scr2011_detalhamentos"),
+    )
+
+
 # ── Batimento inter-CADOC: SCR 3040 × COSIF 4010 ─────────────────────────────
 # Dimensão VIII (Consistência). Mesma lógica do notebook clássico
 # (pipelines/classical/gold/posicao_mensal.py). Mapeamento rubrica↔filtro
@@ -238,22 +361,36 @@ def reconciliacao_cosif():
 
 @dlt.table(
     name="processing_state",
-    comment="Estado de processamento do pipeline gold — data-base do último CADOC processado (MAX dt_base 3040/3050/4010). Consumido pelo app para o seletor de Data-Base.",
+    comment="Estado de processamento do pipeline gold — data-base do ultimo CADOC processado. O mes vigente e o MAX do mes observado em 3040/3050/4010/2011 e current_data_base e o MAX dt_base DENTRO desse mes. Consumido pelo app para o seletor de Data-Base.",
     table_properties={"quality": "gold"},
 )
 def processing_state():
-    # dlt.read (não spark.table) para tabelas do MESMO pipeline: garante que o
-    # DLT ordene este cálculo DEPOIS de posicao_3040/3050/4010 materializarem.
+    # dlt.read (não spark.table) para tabelas do MESMO pipeline: garante que o DLT
+    # ordene este cálculo DEPOIS das posições materializarem.
     #
-    # ⚠️ posicao_4016 fica DE FORA de propósito: o 4016 é semestral (só jun/dez),
-    # então um Balanço de 30/06 entraria no MAX e empurraria o seletor de
-    # Data-Base do app para um mês sem posição dos CADOCs mensais. O seletor
-    # acompanha o ciclo MENSAL (3040/3050/4010).
-    p3040 = dlt.read("posicao_3040").select("dt_base")
-    p3050 = dlt.read("posicao_3050").select("dt_base")
-    p4010 = dlt.read("posicao_4010").select("dt_base")
+    # O seletor de Data-Base do app é MENSAL e compartilhado — não há data-base por
+    # documento. Cada CADOC contribui com o MÊS da sua data-base; o mês vigente é o
+    # maior deles e `current_data_base` é o maior `dt_base` dentro dele. É essa
+    # redução que acomoda o DDR (diário) sem tratamento especial: suas várias datas
+    # no mês colapsam. Como o DDR é remetido todo dia útil, normalmente é ele que
+    # define o mês vigente — o mês corrente aparece antes de 3040/3050/4010
+    # fecharem, correto para um mês em andamento.
+    #
+    # ⚠️ posicao_4016 fica fora: semestral (jun/dez), empurraria o seletor para um
+    # mês sem posição dos demais CADOCs.
+    contribuicoes = (
+        dlt.read("posicao_3040").select("dt_base")
+        .unionByName(dlt.read("posicao_3050").select("dt_base"))
+        .unionByName(dlt.read("posicao_4010").select("dt_base"))
+        .unionByName(dlt.read("posicao_2011").select("dt_base"))
+        .withColumn("_mes", F.trunc(F.col("dt_base"), "month"))
+    )
+    mes_vigente = contribuicoes.agg(F.max("_mes").alias("_mes_vigente"))
     return (
-        p3040.unionByName(p3050).unionByName(p4010)
+        contribuicoes.join(
+            F.broadcast(mes_vigente),
+            contribuicoes["_mes"] == F.col("_mes_vigente"),
+        )
         .agg(F.max("dt_base").alias("current_data_base"))
         .withColumn("data_base_month", F.date_format(F.col("current_data_base"), "yyyy-MM"))
         .withColumn("updated_at", F.current_timestamp())

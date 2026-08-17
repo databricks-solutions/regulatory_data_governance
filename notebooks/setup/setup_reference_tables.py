@@ -541,6 +541,10 @@ SELECT * FROM (
   SELECT '4016', 'COSIF 4016 - Balanço Patrimonial Analítico',
          'Documento contábil COSIF 4016 — balanço analítico SEMESTRAL (datas-base junho e dezembro), posição após a apuração do resultado do exercício, sem as contas dos grupos 7 (Receitas) e 8 (Despesas). Mesmo leiaute XML do 4010; envio via STA com o código ACOS016.',
          'XMLv1', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '2011', 'DDR 2011 - Demonstrativo Diário de Acompanhamento das Parcelas de Requerimento de Capital e dos Limites Operacionais',
+         'Documento 2011 (DDR) — periodicidade DIÁRIA. Exposições em ouro, moeda estrangeira e operações sujeitas à variação cambial, mais as parcelas de requerimento de capital para risco de mercado (RWACAM, RWAJUR1-4, RWACOM, RWAACS, RWAMPAD, RWAMINT e o VPRM total). Projeto BCB Limites Operacionais; leiaute v5 vigente a partir de 01/07/2023. Único CADOC diário do acelerador — participa do seletor de Data-Base MENSAL pelo mês da data-base.',
+         'DDRv5', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
 ) src
 WHERE NOT EXISTS (
   SELECT 1 FROM {CATALOG}.governance.cadoc_documentos d WHERE d.documento = src.documento
@@ -567,20 +571,31 @@ TBLPROPERTIES (
 )
 """)
 
-# Seed com as tabelas silver canônicas (ver resources/uc_assets.yml). FQN completo
-# ({CATALOG}.silver.<t>) porque é a forma que aparece em dq_validation_runs.source_table_fqn.
-_SILVER_SEED = [
-    ("3040", "scr3040_operacoes"),
-    ("3040", "scr3040_clientes"),
-    ("3040", "scr3040_garantias"),
-    ("3040", "scr3040_vencimentos"),
-    ("3040", "scr3040_cont_4966"),
-    ("3050", "scr3050"),
-    ("4010", "scr4010_saldos"),
-    ("4016", "scr4016_saldos"),
+# Seed com as tabelas canônicas sob análise de qualidade (ver resources/uc_assets.yml).
+# FQN completo ({CATALOG}.<schema>.<t>) porque é a forma que aparece em
+# dq_validation_runs.source_table_fqn.
+#
+# O schema é explícito por linha: quase todas são silver, mas o DDR (2011) também
+# registra a tabela GOLD `criticas_ddr_2011`, onde vivem as duas críticas oficiais
+# intra-documento (4693/4751) — de grão agregado, logo não expressáveis como check
+# linha a linha na silver. Mesma ideia de `gold.reconciliacao_cosif` no batimento
+# COSIF: a regra é materializada no gold e o DQX checa o `status`.
+_TABELA_SEED = [
+    ("3040", "silver", "scr3040_operacoes"),
+    ("3040", "silver", "scr3040_clientes"),
+    ("3040", "silver", "scr3040_garantias"),
+    ("3040", "silver", "scr3040_vencimentos"),
+    ("3040", "silver", "scr3040_cont_4966"),
+    ("3050", "silver", "scr3050"),
+    ("4010", "silver", "scr4010_saldos"),
+    ("4016", "silver", "scr4016_saldos"),
+    ("2011", "silver", "scr2011_contas"),
+    ("2011", "silver", "scr2011_detalhamentos"),
+    ("2011", "silver", "scr2011_parametros"),
+    ("2011", "gold", "criticas_ddr_2011"),
 ]
 _values = ",\n  ".join(
-    f"('{doc}', '{CATALOG}.silver.{t}')" for doc, t in _SILVER_SEED
+    f"('{doc}', '{CATALOG}.{schema}.{t}')" for doc, schema, t in _TABELA_SEED
 )
 spark.sql(f"""
 INSERT INTO {CATALOG}.governance.cadoc_tabelas

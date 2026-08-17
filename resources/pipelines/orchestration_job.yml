@@ -31,6 +31,19 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
 
+        # Domínios do CADOC 2011 (DDR) — 551 valores dos 7 anexos do leiaute +
+        # as views v_dom_2011_* consumidas pelos checks DQX. Notebook GERADO por
+        # scripts/gen_ddr2011_reference_seed.py. Depende do setup_reference, que
+        # cria a tabela reference.dominios.
+        - task_key: "setup_reference_2011"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}
+
         - task_key: "load_sample_xmls"
           depends_on:
             - task_key: "setup_reference"

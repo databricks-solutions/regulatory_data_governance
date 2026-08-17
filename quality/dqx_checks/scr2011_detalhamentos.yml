@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr2011_detalhamentos
+#
+# CADOC 2011 — DDR, detalhamentos por país (81), moeda (83), posição (84) — Anexo 3.
+# Leiaute oficial v5, XSD de validação, em docs/ddr2011/.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ Escopo mensal (filter por `data_base_month`). Execute com "All rows" (sample_size=0).
+#
+# ℹ️ Eixos NULLABLE: variam por conta. Duplicidade de chave é a crítica 4751 no gold.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Anexo 5 — 186 moedas. Nulo é válido por conta.
+- name: moeda_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "moeda IS NULL OR moeda IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_moeda)"
+      msg: "Moeda fora do domínio do Anexo 5."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "DDR-DOM-MOEDA"
+    descricao: "Moeda deve pertencer ao domínio do Anexo 5."
+    nivel_verificacao: "1"
+
+# Anexo 7 — 248 países. Nulo é válido por conta.
+- name: pais_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "pais IS NULL OR pais IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_pais)"
+      msg: "País fora do domínio do Anexo 7."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "DDR-DOM-PAIS"
+    descricao: "País deve pertencer ao domínio do Anexo 7."
+    nivel_verificacao: "1"
+
+# Anexo 6 — posição país/exterior: 1 ou 2. Nulo é válido por conta.
+- name: posicao_pais_exterior_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "posicao_pais_exterior IS NULL OR posicao_pais_exterior IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_posicao)"
+      msg: "Posição país/exterior fora do domínio (1 ou 2)."
+  user_metadata:
+    dimensao_r18: "3"
+    critica_id: "DDR-DOM-POSICAO"
+    descricao: "Posição deve ser 1 (País) ou 2 (Exterior)."
+    nivel_verificacao: "1"
+
+# Anexo 4 — conta deve existir no domínio (repetido aqui por consumo independente).
+- name: conta_ddr_in_dominio
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "codigo_conta IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_conta)"
+      msg: "Conta do detalhamento fora do domínio do Anexo 4."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "DDR-DET-CONTA"
+    descricao: "Detalhamento deve pertencer a conta do domínio do Anexo 4."
+    nivel_verificacao: "1"
+
+# valorDetalhe obrigatório no XSD.
+- name: valor_detalhe_informado
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "valor_detalhe IS NOT NULL"
+      msg: "Detalhamento sem valor informado."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "DDR-DET-VLR-NULO"
+    descricao: "Detalhamento deve trazer seu valor."
+    nivel_verificacao: "1"
+
+# Deve ter ao menos um eixo do Anexo 3 (país, moeda ou posição).
+- name: detalhamento_tem_eixo_do_anexo_3
+  criticality: error
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "pais IS NOT NULL OR moeda IS NOT NULL OR posicao_pais_exterior IS NOT NULL"
+      msg: "Detalhamento sem nenhum eixo válido (país, moeda ou posição)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "DDR-DET-SEM-EIXO"
+    descricao: "Detalhamento deve ter ao menos um eixo do Anexo 3."
+    nivel_verificacao: "1"
+
+# Escala de valorDetalhe: até 14 dígitos inteiros (igual a valorConta).
+- name: valor_detalhe_dentro_da_escala_do_leiaute
+  criticality: warn
+  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.silver.scr2011_detalhamentos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "valor_detalhe IS NULL OR abs(valor_detalhe) < 100000000000000"
+      msg: "Valor do detalhamento excede 14 dígitos inteiros."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "DDR-DET-ESCALA"
+    descricao: "Valor deve caber em 14 dígitos inteiros e 2 decimais."
+    nivel_verificacao: "1"
