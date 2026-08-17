@@ -13,10 +13,14 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Query
 
-from db import CATALOG, USE_MOCK
+import external_lineage_store as store
+from db import CATALOG, LINEAGE_OBJECT_PREFIX, USE_MOCK
 from models import (
     ColumnLineageResponse,
     ColumnMapping,
+    ExternalLineageEndpoint,
+    ExternalLineageRelationship,
+    ExternalMetadataObject,
     ExternalSource,
     LineageEdge,
     LineageGraphResponse,
@@ -27,34 +31,6 @@ from models import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Display metadata for each rc18_* external metadata object
-# ---------------------------------------------------------------------------
-
-_EXT_META: dict[str, dict] = {
-    # Origin systems (upstream of Oracle/DB2)
-    "rc18_los_originacao_credito":      dict(label="LOS: Originacao de Credito",    layer="origin",    system="Loan Origination System", system_type="OTHER"),
-    "rc18_crm_cadastro_clientes":       dict(label="CRM: Cadastro de Clientes",     layer="origin",    system="CRM / MDM Clientes",      system_type="OTHER"),
-    # Oracle Core Banking
-    "rc18_oracle_tb_operacoes_credito": dict(label="Oracle: TB_OPERACOES_CREDITO",  layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
-    "rc18_oracle_tb_garantias":         dict(label="Oracle: TB_GARANTIAS",          layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
-    "rc18_oracle_tb_contratantes":      dict(label="Oracle: TB_CONTRATANTES",       layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
-    "rc18_oracle_tb_cessoes_fidc":      dict(label="Oracle: TB_CESSOES_FIDC",       layer="source",    system="Oracle Core Banking",     system_type="ORACLE"),
-    # IBM DB2 Mainframe
-    "rc18_db2_clientes_credito":        dict(label="DB2: CLIENTES_CREDITO",         layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
-    "rc18_db2_historico_scr":           dict(label="DB2: HISTORICO_SCR",            layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
-    "rc18_db2_plano_contas_cosif":      dict(label="DB2: PLANO_CONTAS_COSIF",       layer="source",    system="IBM DB2 Mainframe",       system_type="OTHER"),
-    # ETL
-    "rc18_etl_scr3040_extractor":       dict(label="Informatica ETL: SCR3040",      layer="etl",       system="Informatica PowerCenter", system_type="OTHER"),
-    "rc18_etl_scr3050_aggregator":      dict(label="Informatica ETL: SCR3050",      layer="etl",       system="Informatica PowerCenter", system_type="OTHER"),
-    # BACEN validators
-    "rc18_bacen_validador_scr3040":     dict(label="Validador BCB: Doc 3040",        layer="validator", system="BACEN Validador3040",     system_type="OTHER"),
-    "rc18_bacen_validador_scr3050":     dict(label="Validador BCB: Doc 3050",        layer="validator", system="BACEN ValidadorMDR",      system_type="OTHER"),
-    # Final submission
-    "rc18_sta_cadip_doc3040":           dict(label="STA/CADIP: Doc 3040",           layer="output",    system="BACEN STA/CADIP",        system_type="OTHER"),
-    "rc18_sta_cadip_doc3050":           dict(label="STA/CADIP: Doc 3050",           layer="output",    system="BACEN STA/CADIP",        system_type="OTHER"),
-}
 
 
 def _uc_layer(full_name: str) -> str:
@@ -72,88 +48,111 @@ def _short_label(full_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Mock data — rich topology matching the BYOL topology, for local dev
+# External object → LineageNode. Layer/system/ingestion are DERIVED FROM the
+# object's own ``properties`` (customer-editable via the app form), not from a
+# hardcoded lookup — so any topology the customer registers renders correctly.
+# ---------------------------------------------------------------------------
+
+def _ext_object_to_node(obj: ExternalMetadataObject) -> LineageNode:
+    props = obj.properties or {}
+    layer = store.derive_layer(props, obj.entity_type)
+    return LineageNode(
+        id=obj.name,
+        label=props.get("label") or obj.name,
+        type=store.derive_node_type(layer, obj.entity_type),
+        layer=layer,
+        system=props.get("sistema") or props.get("source_system") or obj.system_type,
+        system_type=obj.system_type or "OTHER",
+        ingestion_mode=props.get("ingestion_mode"),
+        properties=props,
+        metadata=LineageNodeMetadata(
+            connection=obj.url,
+            update_frequency=props.get("update_mode") or props.get("update_frequency"),
+        ),
+    )
+
+
+def _uc_node(fqn: str, catalog: str) -> LineageNode:
+    return LineageNode(
+        id=fqn, label=_short_label(fqn), type="table",
+        layer=_uc_layer(fqn),
+        catalog=fqn.split(".")[0] if "." in fqn else None,
+        metadata=LineageNodeMetadata(),
+    )
+
+
+def _endpoint_id(ep: ExternalLineageEndpoint) -> str | None:
+    return ep.external_metadata_name or ep.table_name
+
+
+def _rel_to_edge(rel: ExternalLineageRelationship) -> LineageEdge | None:
+    src, tgt = _endpoint_id(rel.source), _endpoint_id(rel.target)
+    if not src or not tgt:
+        return None
+    props = rel.properties or {}
+    label = props.get("mechanism") or props.get("transform") or props.get("label")
+    return LineageEdge(
+        source=src, target=tgt, type="external_lineage", label=label,
+        column_mappings=list(rel.columns) if rel.columns else None,
+    )
+
+
+# Internal medallion edges (bronze → silver → gold). These are Databricks-native
+# (UC automatic lineage) and are NOT part of the external store; in mock mode we
+# synthesize them so the graph tells the full end-to-end story.
+def _mock_uc_automatic(catalog: str) -> tuple[list[LineageNode], list[LineageEdge]]:
+    def n(schema: str, table: str, **md) -> LineageNode:
+        return LineageNode(
+            id=f"{catalog}.{schema}.{table}", label=table, type="table",
+            layer=schema, catalog=catalog, metadata=LineageNodeMetadata(**md),
+        )
+    nodes = [
+        n("bronze", "raw_3040_doc", row_count=1, last_updated="2026-03-31T23:15:00Z"),
+        n("silver", "scr3040_operacoes", row_count=1, last_updated="2026-03-31T01:30:00Z", expectations_pass_rate=99.9),
+        n("silver", "scr3040_clientes", row_count=1, last_updated="2026-03-31T01:30:00Z"),
+        n("gold", "posicao_3040", row_count=0, last_updated="2026-03-31T04:00:00Z"),
+    ]
+    def e(s_schema, s_tbl, t_schema, t_tbl, label):
+        return LineageEdge(source=f"{catalog}.{s_schema}.{s_tbl}", target=f"{catalog}.{t_schema}.{t_tbl}",
+                           type="uc_automatic", label=label)
+    edges = [
+        e("bronze", "raw_3040_doc", "silver", "scr3040_operacoes", "DLT silver"),
+        e("bronze", "raw_3040_doc", "silver", "scr3040_clientes", "DLT silver"),
+        e("silver", "scr3040_operacoes", "gold", "posicao_3040", "DLT gold"),
+    ]
+    return nodes, edges
+
+
+# ---------------------------------------------------------------------------
+# Mock graph — built from the shared external-lineage store so that objects and
+# relationships created via the app form appear in the graph immediately.
 # ---------------------------------------------------------------------------
 
 def _build_mock(catalog: str) -> LineageGraphResponse:
-    nodes = [
-        # Origin systems — upstream of Oracle/DB2
-        LineageNode(id="rc18_los_originacao_credito", label="LOS: Originacao de Credito", type="external_source", layer="origin", system="Loan Origination System", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="https://los-prod.bancorp.internal/api/v2", update_frequency="Tempo real — evento de aprovacao de credito")),
-        LineageNode(id="rc18_crm_cadastro_clientes",  label="CRM: Cadastro de Clientes",  type="external_source", layer="origin", system="CRM / MDM Clientes",      system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="https://crm.bancorp.internal/sfdc", update_frequency="Batch diario 01h00 + atualizacoes em tempo real")),
-        LineageNode(id="rc18_oracle_tb_operacoes_credito", label="Oracle: TB_OPERACOES_CREDITO", type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
-                    metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-banking-prod:1521/CREDITO", update_frequency="CDC via ROWSCN 15 min")),
-        LineageNode(id="rc18_oracle_tb_garantias",   label="Oracle: TB_GARANTIAS",    type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
-                    metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-banking-prod:1521/CREDITO", update_frequency="CDC via ROWSCN")),
-        LineageNode(id="rc18_oracle_tb_contratantes", label="Oracle: TB_CONTRATANTES", type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
-                    metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-banking-prod:1521/CREDITO", update_frequency="Batch 02h00")),
-        LineageNode(id="rc18_oracle_tb_cessoes_fidc", label="Oracle: TB_CESSOES_FIDC", type="external_source", layer="source", system="Oracle Core Banking", system_type="ORACLE",
-                    metadata=LineageNodeMetadata(connection="jdbc:oracle:thin:@core-banking-prod:1521/CREDITO", update_frequency="Batch mensal D-1")),
-        LineageNode(id="rc18_db2_clientes_credito",   label="DB2: CLIENTES_CREDITO",   type="external_source", layer="source", system="IBM DB2 Mainframe", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="jdbc:db2://mainframe:50000/CLICRED", update_frequency="Batch 00h30")),
-        LineageNode(id="rc18_db2_historico_scr",      label="DB2: HISTORICO_SCR",      type="external_source", layer="source", system="IBM DB2 Mainframe", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="jdbc:db2://mainframe:50000/HSCR", update_frequency="Pos-envio BCB")),
-        LineageNode(id="rc18_db2_plano_contas_cosif", label="DB2: PLANO_CONTAS_COSIF", type="external_source", layer="source", system="IBM DB2 Mainframe", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="jdbc:db2://mainframe:50000/COSIF", update_frequency="Por publicacao BACEN")),
-        LineageNode(id="rc18_etl_scr3040_extractor",  label="Informatica ETL: SCR3040", type="etl_process", layer="etl", system="Informatica PowerCenter", system_type="OTHER",
-                    metadata=LineageNodeMetadata(update_frequency="Diario 22h00", connection="RC18_SCR3040_EXTRACT")),
-        LineageNode(id="rc18_etl_scr3050_aggregator", label="Informatica ETL: SCR3050", type="etl_process", layer="etl", system="Informatica PowerCenter", system_type="OTHER",
-                    metadata=LineageNodeMetadata(update_frequency="Semanal/Mensal 23h00", connection="RC18_SCR3050_AGG")),
-        LineageNode(id=f"{catalog}.bronze.raw_3040_doc", label="raw_3040_doc", type="table", layer="bronze", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T23:15:00Z")),
-        LineageNode(id=f"{catalog}.bronze.raw_3050_doc", label="raw_3050_doc", type="table", layer="bronze", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T23:15:00Z")),
-        LineageNode(id=f"{catalog}.silver.scr3040_operacoes", label="scr3040_operacoes", type="table", layer="silver", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T01:30:00Z", expectations_pass_rate=99.9)),
-        LineageNode(id=f"{catalog}.silver.scr3040_clientes", label="scr3040_clientes", type="table", layer="silver", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=1, last_updated="2026-03-31T01:30:00Z")),
-        LineageNode(id=f"{catalog}.silver.quality_scorecard", label="quality_scorecard", type="table", layer="silver", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=15, last_updated="2026-03-31T02:00:00Z")),
-        LineageNode(id=f"{catalog}.gold.posicao_3040", label="posicao_3040", type="table", layer="gold", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=0, last_updated="2026-03-31T04:00:00Z")),
-        LineageNode(id=f"{catalog}.gold.posicao_3050", label="posicao_3050", type="table", layer="gold", catalog=catalog,
-                    metadata=LineageNodeMetadata(row_count=0, last_updated="2026-03-31T04:00:00Z")),
-        LineageNode(id="rc18_bacen_validador_scr3040", label="Validador BCB: Doc 3040", type="validator", layer="validator", system="BACEN Validador3040", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3040")),
-        LineageNode(id="rc18_bacen_validador_scr3050", label="Validador BCB: Doc 3050", type="validator", layer="validator", system="BACEN ValidadorMDR", system_type="OTHER",
-                    metadata=LineageNodeMetadata(connection="https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3050")),
-        LineageNode(id="rc18_sta_cadip_doc3040", label="STA/CADIP: Doc 3040", type="external_output", layer="output", system="BACEN STA/CADIP", system_type="OTHER", metadata=LineageNodeMetadata()),
-        LineageNode(id="rc18_sta_cadip_doc3050", label="STA/CADIP: Doc 3050", type="external_output", layer="output", system="BACEN STA/CADIP", system_type="OTHER", metadata=LineageNodeMetadata()),
-    ]
-    edges = [
-        # Origin → Oracle/DB2
-        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_operacoes_credito", type="external_lineage", label="aprovacao credito",
-                    column_mappings=[ColumnMapping(source="NR_PROPOSTA", target="NR_CONTRATO"), ColumnMapping(source="VLR_APROVADO", target="VLR_CONTABIL_BRL"), ColumnMapping(source="CD_PRODUTO", target="CD_MODALIDADE")]),
-        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_garantias",    type="external_lineage", label="registro garantia",
-                    column_mappings=[ColumnMapping(source="CD_TIPO_GARANTIA", target="CD_TIPO_GARANTIA"), ColumnMapping(source="VLR_GARANTIA", target="VLR_GARANTIA")]),
-        LineageEdge(source="rc18_los_originacao_credito", target="rc18_oracle_tb_cessoes_fidc", type="external_lineage", label="cessao FIDC"),
-        LineageEdge(source="rc18_crm_cadastro_clientes",  target="rc18_oracle_tb_contratantes", type="external_lineage", label="sync cadastro",
-                    column_mappings=[ColumnMapping(source="CD_CNPJ_CPF", target="CD_CNPJ_CPF"), ColumnMapping(source="NM_CLIENTE", target="NM_CLIENTE"), ColumnMapping(source="CD_SEG_PORTE", target="CD_SEG_PORTE")]),
-        LineageEdge(source="rc18_crm_cadastro_clientes",  target="rc18_db2_clientes_credito",   type="external_lineage", label="replica mainframe"),
-        # Oracle/DB2 → ETL
-        LineageEdge(source="rc18_oracle_tb_operacoes_credito", target="rc18_etl_scr3040_extractor", type="external_lineage", label="CDC extract",
-                    column_mappings=[ColumnMapping(source="CD_CNPJ_IF", target="cnpj_if"), ColumnMapping(source="CD_IPOC", target="ipoc"), ColumnMapping(source="VLR_CONTABIL_BRL", target="vlr_contabil")]),
-        LineageEdge(source="rc18_oracle_tb_garantias",    target="rc18_etl_scr3040_extractor",  type="external_lineage", label="JOIN via IPOC"),
-        LineageEdge(source="rc18_oracle_tb_contratantes", target="rc18_etl_scr3040_extractor",  type="external_lineage", label="lookup contratante"),
-        LineageEdge(source="rc18_oracle_tb_cessoes_fidc", target="rc18_etl_scr3040_extractor",  type="external_lineage", label="LEFT JOIN cessoes"),
-        LineageEdge(source="rc18_db2_clientes_credito",   target="rc18_etl_scr3040_extractor",  type="external_lineage", label="DRDA lookup"),
-        LineageEdge(source="rc18_db2_historico_scr",      target="rc18_etl_scr3050_aggregator", type="external_lineage", label="agregacao mensal"),
-        LineageEdge(source="rc18_db2_plano_contas_cosif", target="rc18_etl_scr3050_aggregator", type="external_lineage", label="lookup COSIF"),
-        LineageEdge(source="rc18_etl_scr3040_extractor",  target=f"{catalog}.bronze.raw_3040_doc", type="external_lineage", label="XML -> Auto Loader",
-                    column_mappings=[ColumnMapping(source="ipoc", target="header.CD_IPOC"), ColumnMapping(source="vlr_contabil", target="operacoes[0].VLR_CONTABIL")]),
-        LineageEdge(source="rc18_etl_scr3050_aggregator", target=f"{catalog}.bronze.raw_3050_doc", type="external_lineage", label="TXB/XML -> Auto Loader"),
-        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.scr3040_operacoes", type="uc_automatic", label="DLT silver pipeline"),
-        LineageEdge(source=f"{catalog}.bronze.raw_3040_doc", target=f"{catalog}.silver.scr3040_clientes",  type="uc_automatic", label="DLT silver pipeline"),
-        LineageEdge(source=f"{catalog}.silver.scr3040_operacoes", target=f"{catalog}.gold.posicao_3040", type="uc_automatic", label="DLT gold pipeline"),
-        LineageEdge(source=f"{catalog}.bronze.raw_3050_doc",        target=f"{catalog}.gold.posicao_3050",        type="uc_automatic", label="DLT gold pipeline"),
-        LineageEdge(source=f"{catalog}.silver.quality_scorecard",   target=f"{catalog}.gold.posicao_3040", type="uc_automatic", label="quality gate"),
-        LineageEdge(source=f"{catalog}.gold.posicao_3040", target="rc18_bacen_validador_scr3040", type="external_lineage", label="export XML"),
-        LineageEdge(source=f"{catalog}.gold.posicao_3050",         target="rc18_bacen_validador_scr3050", type="external_lineage", label="export TXB/XML"),
-        LineageEdge(source="rc18_bacen_validador_scr3040", target="rc18_sta_cadip_doc3040", type="external_lineage", label="SFTP transmissao"),
-        LineageEdge(source="rc18_bacen_validador_scr3050", target="rc18_sta_cadip_doc3050", type="external_lineage", label="SFTP transmissao"),
-    ]
-    return LineageGraphResponse(nodes=nodes, edges=edges)
+    nodes: dict[str, LineageNode] = {}
+    edges: list[LineageEdge] = []
+
+    # External metadata objects (customer-managed, from the store)
+    for obj in store.list_metadata(catalog):
+        nodes[obj.name] = _ext_object_to_node(obj)
+
+    # External lineage relationships (BYOL edges) + their UC table endpoints
+    for rel in store.list_relationships(catalog):
+        edge = _rel_to_edge(rel)
+        if not edge:
+            continue
+        for ep in (rel.source, rel.target):
+            if ep.table_name and ep.table_name not in nodes:
+                nodes[ep.table_name] = _uc_node(ep.table_name, catalog)
+        edges.append(edge)
+
+    # Internal medallion (UC automatic) — synthesized for the demo story
+    uc_nodes, uc_edges = _mock_uc_automatic(catalog)
+    for un in uc_nodes:
+        nodes.setdefault(un.id, un)
+    edges.extend(uc_edges)
+
+    return LineageGraphResponse(nodes=list(nodes.values()), edges=edges)
 
 
 # ---------------------------------------------------------------------------
@@ -162,144 +161,212 @@ def _build_mock(catalog: str) -> LineageGraphResponse:
 
 async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
     from databricks.sdk import WorkspaceClient
-    from databricks.sdk.service.catalog import (
-        ExternalLineageObject, ExternalLineageTable,
-        ExternalLineageExternalMetadata, LineageDirection,
-    )
     from db import execute_query_or_empty as execute_query
 
     w = WorkspaceClient()
     nodes: dict[str, LineageNode] = {}
     edges: list[LineageEdge] = []
-    seen_rel_ids: set[str] = set()
-
-    # 1. Load all rc18_* external metadata objects
-    try:
-        all_meta = list(w.external_metadata.list_external_metadata())
-        rc18_meta = {m.name: m for m in all_meta if m.name and m.name.startswith("rc18_")}
-        for name, m in rc18_meta.items():
-            info = _EXT_META.get(name, {})
-            etype = m.entity_type or "TABLE"
-            nodes[name] = LineageNode(
-                id=name,
-                label=info.get("label", name),
-                type="etl_process" if etype == "PROCESS" else ("external_output" if etype == "DATASET" else "external_source"),
-                layer=info.get("layer", "source"),
-                system=info.get("system", m.system_type.value if m.system_type else "OTHER"),
-                system_type=info.get("system_type", "OTHER"),
-                metadata=LineageNodeMetadata(
-                    connection=m.url,
-                    update_frequency=(m.properties or {}).get("update_mode"),
-                ),
-            )
-    except Exception as e:
-        logger.warning("Could not load external metadata: %s", e)
-        rc18_meta = {}
 
     def _ensure_uc_node(fqn: str) -> None:
         if fqn not in nodes:
-            nodes[fqn] = LineageNode(
-                id=fqn, label=_short_label(fqn), type="table",
-                layer=_uc_layer(fqn),
-                catalog=fqn.split(".")[0] if "." in fqn else None,
-                metadata=LineageNodeMetadata(),
-            )
+            nodes[fqn] = _uc_node(fqn, catalog)
+
+    # 1 + 2. BYOL external metadata + relationships (namespaced to rc18_*).
+    #    Isolated so ANY failure here (e.g. an older databricks-sdk without the
+    #    external-lineage endpoints, or missing privileges) NEVER blocks the UC
+    #    CADOC lineage below — that was the bug that left the graph blank. All
+    #    calls go through the REST api_client, so there is no SDK-version symbol
+    #    dependency.
+    try:
+        _add_byol_from_rest(w, nodes, edges)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("BYOL external lineage unavailable (skipping): %s", e)
+
+    # 3. UC automatic lineage, ANCHORED on the CADOC-linked tables.
+    #
+    #    The tables shown must be the ones bound to a CADOC in the "Vínculo de
+    #    Regras" module (governance.cadoc_tabelas), then their medallion
+    #    neighbors (bronze upstream, gold downstream). We expand from those
+    #    anchors via the REST table-lineage API instead of
+    #    ``system.access.table_lineage`` because the system table requires a
+    #    special grant only account admins hold (the app SP can't read it, so the
+    #    query returned empty → blank graph). The REST API only needs SELECT on
+    #    the table, which the app SP already has.
+    anchor_tables = await _cadoc_anchor_tables(catalog, execute_query)
+    for fqn in anchor_tables:
+        _ensure_uc_node(fqn)
+
+    seen_uc_edges: set[tuple[str, str]] = set()
+    # One hop up and down from each anchor covers bronze -> silver -> gold.
+    for fqn in list(anchor_tables):
+        for direction in ("upstream", "downstream"):
+            for neighbor in _rest_table_lineage(w, fqn, direction):
+                if not _is_relevant_uc_table(neighbor, catalog):
+                    continue
+                if neighbor == fqn:
+                    continue  # REST API can list a table as its own neighbor
+                src, tgt = (neighbor, fqn) if direction == "upstream" else (fqn, neighbor)
+                if (src, tgt) in seen_uc_edges:
+                    continue
+                seen_uc_edges.add((src, tgt))
+                _ensure_uc_node(src)
+                _ensure_uc_node(tgt)
+                edges.append(LineageEdge(source=src, target=tgt, type="uc_automatic", label="pipeline"))
+
+    return LineageGraphResponse(nodes=list(nodes.values()), edges=edges)
+
+
+# ---------------------------------------------------------------------------
+# UC lineage helpers (real mode) — anchor on CADOC tables + REST table-lineage
+# ---------------------------------------------------------------------------
+
+# External Metadata / External Lineage REST endpoints. Used directly (not the
+# typed SDK) so the code works regardless of the installed databricks-sdk
+# version — older SDKs lack the ExternalLineage* dataclasses, and importing them
+# at call time raised ImportError that blanked the whole graph.
+_EM_PATH = "/api/2.0/lineage-tracking/external-metadata"
+_EL_PATH = "/api/2.0/lineage-tracking/external-lineage"
+
+
+def _table_info_fqn(ti: dict) -> str | None:
+    """Reconstruct a full ``catalog.schema.table`` FQN from a table_info object.
+
+    The external-lineage API returns the table as SEPARATE fields
+    (``catalog_name``/``schema_name``/``name``) — ``name`` alone is just the
+    table. Using ``name`` as the node id created a DUPLICATE node (`raw_3040_doc`
+    vs `rc18_catalog.bronze.raw_3040_doc`) disconnected from the medallion graph.
+    Rebuild the FQN so BYOL edges land on the SAME node the CADOC lineage uses."""
+    if not ti:
+        return None
+    cat, sch, name = ti.get("catalog_name"), ti.get("schema_name"), ti.get("name")
+    if cat and sch and name:
+        return f"{cat}.{sch}.{name}"
+    return name  # fallback: at least return whatever we have
+
+
+def _add_byol_from_rest(w, nodes: dict, edges: list) -> None:
+    """Add BYOL nodes/edges from External Metadata + External Lineage, scoped to
+    the rc18_* namespace, via the REST api_client. Best-effort — the caller wraps
+    this so a failure never blocks the CADOC UC lineage."""
+    # 1. rc18_* external metadata objects → nodes
+    resp = w.api_client.do("GET", _EM_PATH)
+    meta_names: list[str] = []
+    for d in (resp or {}).get("external_metadata", []) or []:
+        name = d.get("name")
+        if not name or not name.startswith(LINEAGE_OBJECT_PREFIX):
+            continue
+        obj = ExternalMetadataObject(
+            name=name,
+            system_type=d.get("system_type") or "OTHER",
+            entity_type=d.get("entity_type") or "TABLE",
+            description=d.get("description"),
+            url=d.get("url"),
+            columns=list(d.get("columns") or []),
+            properties=dict(d.get("properties") or {}),
+        )
+        nodes[name] = _ext_object_to_node(obj)
+        meta_names.append(name)
 
     def _ensure_ext_node(name: str) -> None:
         if name not in nodes:
-            mo = rc18_meta.get(name)
-            if mo:
-                info = _EXT_META.get(name, {})
-                etype = mo.entity_type or "TABLE"
-                nodes[name] = LineageNode(
-                    id=name,
-                    label=info.get("label", name),
-                    type="etl_process" if etype == "PROCESS" else ("external_output" if etype == "DATASET" else "external_source"),
-                    layer=info.get("layer", "source"),
-                    system=info.get("system", "OTHER"),
-                    system_type=info.get("system_type", "OTHER"),
-                    metadata=LineageNodeMetadata(connection=mo.url),
-                )
-            else:
-                nodes[name] = LineageNode(id=name, label=_short_label(name), type="external_source", layer="source", metadata=LineageNodeMetadata())
+            nodes[name] = LineageNode(
+                id=name, label=_short_label(name), type="external_source",
+                layer="source", system_type="OTHER", metadata=LineageNodeMetadata(),
+            )
 
-    # 2. BYOL relationships for Bronze/Gold boundary tables
-    for cat, schema, table in [
-        (catalog, "bronze", "raw_3040_doc"),
-        (catalog, "bronze", "raw_3050_doc"),
-        (catalog, "gold",   "posicao_3040"),
-        (catalog, "gold",   "posicao_3050"),
-    ]:
-        fqn = f"{cat}.{schema}.{table}"
-        _ensure_uc_node(fqn)
-        uc_ref = ExternalLineageObject(table=ExternalLineageTable(name=fqn))
-        for direction in [LineageDirection.UPSTREAM, LineageDirection.DOWNSTREAM]:
+    # 2. Relationships from each rc18_* object, both directions.
+    seen_rel: set[str] = set()
+    for name in meta_names:
+        for direction in ("UPSTREAM", "DOWNSTREAM"):
             try:
-                for info in w.external_lineage.list_external_lineage_relationships(uc_ref, direction):
-                    rel = info.external_lineage_info
-                    if not rel or rel.id in seen_rel_ids:
-                        continue
-                    seen_rel_ids.add(rel.id)
-                    if info.external_metadata_info:
-                        neighbor = info.external_metadata_info.name
-                        _ensure_ext_node(neighbor)
-                    elif info.table_info:
-                        neighbor = info.table_info.name
-                        _ensure_uc_node(neighbor)
-                    else:
-                        continue
-                    src, tgt = (neighbor, fqn) if direction == LineageDirection.UPSTREAM else (fqn, neighbor)
-                    col_maps = [ColumnMapping(source=c.source, target=c.target) for c in (rel.columns or []) if c.source and c.target]
-                    props = rel.properties or {}
-                    label = props.get("mechanism") or props.get("transform") or "BYOL"
-                    edges.append(LineageEdge(source=src, target=tgt, type="external_lineage", label=label, column_mappings=col_maps))
-            except Exception as e:
-                logger.warning("BYOL query failed %s %s: %s", fqn, direction.value, e)
-
-    # 3. External-to-external BYOL edges (sources->ETL, validator->STA/CADIP)
-    for name in list(rc18_meta.keys()):
-        ext_ref = ExternalLineageObject(external_metadata=ExternalLineageExternalMetadata(name=name))
-        try:
-            for info in w.external_lineage.list_external_lineage_relationships(ext_ref, LineageDirection.DOWNSTREAM):
-                rel = info.external_lineage_info
-                if not rel or rel.id in seen_rel_ids:
+                rel_resp = w.api_client.do(
+                    "GET", _EL_PATH,
+                    query={"object_info.external_metadata.name": name, "lineage_direction": direction},
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("BYOL rel query failed %s %s: %s", name, direction, e)
+                continue
+            for info in (rel_resp or {}).get("external_lineage_relationships", []) or []:
+                rel = info.get("external_lineage_info") or {}
+                rid = rel.get("id")
+                if rid and rid in seen_rel:
                     continue
-                seen_rel_ids.add(rel.id)
-                if info.external_metadata_info:
-                    neighbor = info.external_metadata_info.name
+                if rid:
+                    seen_rel.add(rid)
+                em = info.get("external_metadata_info")
+                ti = info.get("table_info")
+                if em and em.get("name"):
+                    neighbor = em["name"]
                     _ensure_ext_node(neighbor)
-                elif info.table_info:
-                    neighbor = info.table_info.name
-                    _ensure_uc_node(neighbor)
+                elif ti and _table_info_fqn(ti):
+                    neighbor = _table_info_fqn(ti)   # full FQN — matches CADOC-lineage node ids
+                    if neighbor not in nodes:
+                        nodes[neighbor] = _uc_node(neighbor, neighbor.split(".")[0])
                 else:
                     continue
-                col_maps = [ColumnMapping(source=c.source, target=c.target) for c in (rel.columns or []) if c.source and c.target]
-                props = rel.properties or {}
-                label = props.get("transform") or props.get("mechanism") or "BYOL"
-                edges.append(LineageEdge(source=name, target=neighbor, type="external_lineage", label=label, column_mappings=col_maps))
-        except Exception as e:
-            logger.debug("ext-ext BYOL query failed for %s: %s", name, e)
+                src, tgt = (name, neighbor) if direction == "DOWNSTREAM" else (neighbor, name)
+                cols = [ColumnMapping(source=c["source"], target=c["target"])
+                        for c in (rel.get("columns") or []) if c.get("source") and c.get("target")]
+                props = rel.get("properties") or {}
+                label = props.get("mechanism") or props.get("transform") or "BYOL"
+                edges.append(LineageEdge(source=src, target=tgt, type="external_lineage",
+                                         label=label, column_mappings=cols or None))
 
-    # 4. UC automatic lineage (DLT Bronze -> Silver -> Gold)
+
+# Schemas whose tables are noise in the CADOC lineage view: DQX Studio's own
+# storage + its per-run temp views. They are lineage neighbors of the silver
+# tables (DQX reads them) but are not part of the RC18 medallion story.
+_NOISE_SCHEMA_MARKERS = ("dqx_studio", "_tmp", "information_schema")
+
+
+def _is_relevant_uc_table(fqn: str | None, catalog: str) -> bool:
+    """Keep only real RC18-catalog medallion tables; drop DQX temp/quarantine
+    and cross-catalog neighbors."""
+    if not fqn or "." not in fqn:
+        return False
+    parts = fqn.split(".")
+    if len(parts) < 3 or parts[0] != catalog:
+        return False
+    schema = parts[1].lower()
+    return not any(marker in schema for marker in _NOISE_SCHEMA_MARKERS)
+
+
+async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
+    """The tables bound to a CADOC (governance.cadoc_tabelas) — the set the
+    Lineage graph must show. Falls back to empty (→ empty-state) if the table
+    isn't seeded yet."""
     try:
         rows = await execute_query(
-            "SELECT DISTINCT source_table_full_name, target_table_full_name "
-            "FROM system.access.table_lineage "
-            "WHERE (target_table_catalog = :catalog OR source_table_catalog = :catalog) "
-            "  AND event_time > CURRENT_TIMESTAMP() - INTERVAL 30 DAYS "
-            "  AND source_table_full_name IS NOT NULL "
-            "  AND target_table_full_name IS NOT NULL",
-            {"catalog": catalog},
+            f"SELECT DISTINCT table_fqn FROM {catalog}.governance.cadoc_tabelas "
+            "WHERE is_ativo AND table_fqn IS NOT NULL",
+            {},
         )
-        for r in rows:
-            src, tgt = r["source_table_full_name"], r["target_table_full_name"]
-            _ensure_uc_node(src)
-            _ensure_uc_node(tgt)
-            edges.append(LineageEdge(source=src, target=tgt, type="uc_automatic", label="DLT pipeline"))
-    except Exception as e:
-        logger.warning("UC system table lineage query failed: %s", e)
+        return [r["table_fqn"] for r in rows if r.get("table_fqn")]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not read cadoc_tabelas anchors: %s", e)
+        return []
 
-    return LineageGraphResponse(nodes=list(nodes.values()), edges=edges)
+
+def _rest_table_lineage(w, table_fqn: str, direction: str) -> list[str]:
+    """Return neighbor table FQNs via the REST table-lineage API
+    (``GET /api/2.0/lineage-tracking/table-lineage``). Uses only SELECT on the
+    table (no ``system.access`` grant needed). ``direction`` ∈ upstream|downstream."""
+    key = "upstreams" if direction == "upstream" else "downstreams"
+    try:
+        resp = w.api_client.do(
+            "GET", "/api/2.0/lineage-tracking/table-lineage",
+            query={"table_name": table_fqn, "include_entity_lineage": False},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("REST table-lineage failed for %s (%s): %s", table_fqn, direction, e)
+        return []
+    out: list[str] = []
+    for item in (resp or {}).get(key, []) or []:
+        ti = item.get("tableInfo") or {}
+        cat, sch, name = ti.get("catalog_name"), ti.get("schema_name"), ti.get("name")
+        if cat and sch and name:
+            out.append(f"{cat}.{sch}.{name}")
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,19 @@ logger = logging.getLogger(__name__)
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "true").lower() == "true"
 CATALOG = os.getenv("DATABRICKS_CATALOG", "rc18_catalog")
+
+# Namespace prefix scoping which External Metadata objects the app lists/manages.
+# UC external metadata is metastore-wide: sem prefixo, a página de Linhagem puxaria
+# objetos de outros projetos no mesmo metastore e falharia no delete/edit (o SP do
+# app não é owner). Derivado do catálogo do deployment (`<base>_catalog` → `<base>_`)
+# para ser multi-tenant sem configuração. Override: LINEAGE_OBJECT_PREFIX.
+def _derive_lineage_prefix(catalog: str) -> str:
+    base = catalog[:-len("_catalog")] if catalog.endswith("_catalog") else catalog
+    base = base.strip("_") or "rc18"
+    return f"{base}_"
+
+
+LINEAGE_OBJECT_PREFIX = os.getenv("LINEAGE_OBJECT_PREFIX") or _derive_lineage_prefix(CATALOG)
 SCHEMA_BRONZE = os.getenv("SCHEMA_BRONZE", "bronze")
 SCHEMA_GOLD = os.getenv("SCHEMA_GOLD", "gold")
 SCHEMA_SILVER = os.getenv("SCHEMA_SILVER", "silver")

@@ -1,8 +1,20 @@
 <script>
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
-  import { getLineageGraph, getColumnLineage } from '$lib/api.js';
+  import {
+    getLineageGraph, getColumnLineage,
+    getSystemTypes, getUcTables, listExternalMetadata,
+    deleteExternalMetadata, getNodeMetadata,
+    listExternalLineage, deleteExternalLineage
+  } from '$lib/api.js';
   import { layerColors, systemColors } from '$lib/theme.js';
+  import SystemTypeIcon from '$lib/components/domain/SystemTypeIcon.svelte';
+  import ExternalMetadataForm from '$lib/components/domain/ExternalMetadataForm.svelte';
+  import ExternalLineageForm from '$lib/components/domain/ExternalLineageForm.svelte';
+  import ZoneBand from '$lib/components/domain/ZoneBand.svelte';
+
+  // Custom node type for the background zone bands (external vs Databricks).
+  const nodeTypes = { zoneBand: ZoneBand };
 
   let SvelteFlow, MiniMap, Controls, Background, SvelteFlowProvider;
   let flowLoaded = $state(false);
@@ -10,23 +22,65 @@
   let selectedNode = $state(null);
   let selectedEdge = $state(null);
   let columnLineage = $state(null);
+  let nodeMeta = $state(null);        // full metadata for the selected node (async-loaded)
+  let nodeRels = $state([]);          // lineage relationships of the selected external node
+
+  // ---- BYOL management state ----
+  let systemTypes = $state([]);          // dropdown options (value+label+icon)
+  let externalObjects = $state([]);      // registered external metadata objects
+  let ucTables = $state([]);             // UC tables for the target picker
+  let showMetaForm = $state(false);
+  let showRelForm = $state(false);
+  let editingObject = $state(null);
+  let showManager = $state(false);
+  let mgmtError = $state('');
+
+  // Map a system_type enum value → its icon slug (for node/panel rendering).
+  const iconByType = $derived(Object.fromEntries(systemTypes.map(t => [t.value, t.icon])));
+  function iconForSystemType(st) { return iconByType[st] || 'custom'; }
 
   // Layer X positions (px) — left to right: origin → external sources → ETL → Databricks medallion → validators → BCB
   const LAYER_ORDER = ['origin', 'source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
-  const LAYER_X     = { origin: 40, source: 290, etl: 540, bronze: 790, silver: 1040, gold: 1290, validator: 1540, output: 1790 };
   const NODE_W = 200;
   const NODE_H = 44;
   const NODE_GAP = 24;
+  const COL_GAP = 200;          // horizontal gap between adjacent (packed) layer columns —
+                                //   wide enough to spread the medallion edges and fill the canvas
+  const COL_GAP_BOUNDARY = 70;  // tighter gap at the external→Databricks crossing
 
-  // Resolve node color — system-type takes priority over layer
+  // Environment zones — the three vertical bands separating the external world
+  // (pre-ingestion sources + post-processing delivery) from the Databricks
+  // medallion. Each lists the layers it spans; the band is drawn only if at
+  // least one of its layers has a node (stays consistent with the dynamic legend).
+  const ZONES = [
+    { id: 'zone-ext-in',  labelKey: 'lineageMgmt.zoneExternalIn',  layers: ['origin', 'source', 'etl'],
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A', icon: 'external-source' },
+    { id: 'zone-dbx',     labelKey: 'lineageMgmt.zoneDatabricks',  layers: ['bronze', 'silver', 'gold'],
+      bg: 'rgba(255,54,33,0.05)',   border: '#F4A79B', text: '#C4321F', icon: 'databricks' },
+    { id: 'zone-ext-out', labelKey: 'lineageMgmt.zoneExternalOut', layers: ['validator', 'output'],
+      bg: 'rgba(122,122,138,0.06)', border: '#B8B8C4', text: '#5A5A6A', icon: 'external-output' },
+  ];
+  const ZONE_PAD = 16;          // horizontal padding around a zone's node columns
+  const ZONE_TOP = 4;           // top offset of a band
+  const ZONE_MIN_WIDTH = 260;   // min band width so the icon+label header fits
+  const ZONE_HEIGHT = 760;      // fixed band height (graph canvas is ~860 tall)
+
+  // Resolve node color. Validators/outputs keep their layer identity; otherwise
+  // the layer color drives the node (system identity is carried by the inline
+  // SVG icon, so we no longer overload color with brittle name-substring rules).
   function nodeColors(data) {
+    const st = (data.system_type || '').toUpperCase();
     const sys = (data.system || '').toLowerCase();
-    if (sys.includes('oracle'))      return systemColors.ORACLE;
-    if (sys.includes('db2') || sys.includes('mainframe')) return systemColors.DB2;
-    if (sys.includes('informatica')) return systemColors.INFORMATICA;
-    if (sys.includes('validador') || data.layer === 'validator') return systemColors.BACEN;
-    if (sys.includes('sta') || sys.includes('cadip'))            return systemColors.STA;
+    if (data.layer === 'validator' || sys.includes('validador')) return systemColors.BACEN;
+    if (data.layer === 'output' || sys.includes('sta') || sys.includes('cadip')) return systemColors.STA;
+    if (st === 'ORACLE') return systemColors.ORACLE;
     return layerColors[data.layer] || layerColors.source;
+  }
+
+  // Human label for the ingestion mode badge on a boundary source node.
+  function ingestionLabel(mode) {
+    if (!mode) return '';
+    try { return $_(`lineageMgmt.ingestion_${mode}`); } catch { return mode; }
   }
 
   function nodeStyle(data) {
@@ -36,27 +90,103 @@
       `box-shadow:0 2px 6px rgba(0,0,0,0.10);min-width:${NODE_W}px;text-align:center;`;
   }
 
+  // Normalize any backend layer to one of the 8 rendered columns. UC schemas
+  // like `reference`/`landing`/`quality`/`unknown` are valid layers on the API
+  // but have no column of their own. Crucially, this must be TYPE-AWARE: a UC
+  // table (type 'table') in reference/landing/quality is INTERNAL to Databricks
+  // and must stay in the Databricks zone — NOT be misfiled as an external source
+  // (the old blanket `return 'source'` put reference lookups like
+  // modalidades_equivalencia in the "Fonte Externa" column, which is wrong).
+  // Only genuine external objects (BYOL, non-'table' type) with an unknown layer
+  // fall back to the external `source` column.
+  function normalizeLayer(node) {
+    const l = node?.layer || 'source';
+    if (LAYER_ORDER.includes(l)) return l;
+    if (node?.type === 'table') {
+      // Internal UC table in a non-medallion schema → keep inside Databricks.
+      if (l === 'quality') return 'silver';
+      return 'bronze';   // reference/landing/unknown lookups sit on the input side
+    }
+    return 'source';     // external BYOL object with an unknown layer
+  }
+
+  // First layer of the Databricks medallion — the external→Databricks boundary
+  // crossing lands here and uses a TIGHTER gap than the intra-medallion columns.
+  const DBX_LAYERS = ['bronze', 'silver', 'gold'];
+
+  // Assign a contiguous X to each PRESENT layer (packed, no gaps). An empty
+  // intermediate layer (e.g. no `etl`) must NOT reserve a column. The gap BEFORE
+  // a column varies: a normal COL_GAP inside a zone, but a smaller
+  // COL_GAP_BOUNDARY when crossing from the external zone into Databricks (so the
+  // two zones sit close together) — while intra-Databricks columns stay wide to
+  // spread the medallion edges. Returns { layer: x }.
+  function packLayerX(byLayer) {
+    const layerX = {};
+    let x = 40;
+    let prevLayer = null;
+    for (const l of LAYER_ORDER) {
+      if (!(byLayer[l] || []).length) continue;
+      if (prevLayer !== null) {
+        const crossingIntoDbx = DBX_LAYERS.includes(l) && !DBX_LAYERS.includes(prevLayer);
+        x += NODE_W + (crossingIntoDbx ? COL_GAP_BOUNDARY : COL_GAP);
+      }
+      layerX[l] = x;
+      prevLayer = l;
+    }
+    return layerX;
+  }
+
+  // Compute background zone bands from the ACTUAL packed X of each layer.
+  function buildZoneNodes(layerX) {
+    const zones = [];
+    for (const z of ZONES) {
+      const cols = z.layers.filter(l => l in layerX);
+      if (!cols.length) continue;
+      const xs = cols.map(l => layerX[l]);
+      const x = Math.min(...xs) - ZONE_PAD;
+      // Min width so a single-column zone still fits its icon + label header.
+      const width = Math.max(
+        (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2,
+        ZONE_MIN_WIDTH,
+      );
+      zones.push({
+        id: z.id,
+        type: 'zoneBand',
+        position: { x, y: ZONE_TOP },
+        data: { label: $_(z.labelKey), width, height: ZONE_HEIGHT, bg: z.bg, border: z.border, text: z.text, icon: z.icon },
+        draggable: false, selectable: false, connectable: false, focusable: false,
+        zIndex: -1,
+        style: 'pointer-events: none;'
+      });
+    }
+    return zones;
+  }
+
   // Build Svelte-Flow node/edge arrays from the API response format
   function buildFlowGraph(apiNodes, apiEdges) {
     // Group by layer for Y distribution
     const byLayer = {};
     LAYER_ORDER.forEach(l => byLayer[l] = []);
     apiNodes.forEach(n => {
-      const l = n.layer || 'source';
-      if (!byLayer[l]) byLayer[l] = [];
+      const l = normalizeLayer(n);
       byLayer[l].push(n);
     });
 
-    const flowNodes = [];
+    const layerX = packLayerX(byLayer);
+    // Zone bands FIRST so they render behind the real nodes.
+    const flowNodes = buildZoneNodes(layerX);
+
     LAYER_ORDER.forEach(layer => {
       const group = byLayer[layer] || [];
+      if (!group.length) return;
       const totalH = group.length * (NODE_H + NODE_GAP) - NODE_GAP;
-      const startY = Math.max(40, 380 - totalH / 2); // vertically center around y=380
+      const startY = Math.max(60, 400 - totalH / 2); // vertically center
       group.forEach((n, i) => {
         flowNodes.push({
           id: n.id,
-          position: { x: LAYER_X[layer] ?? 40, y: startY + i * (NODE_H + NODE_GAP) },
-          data: { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type, metadata: n.metadata },
+          position: { x: layerX[layer], y: startY + i * (NODE_H + NODE_GAP) },
+          data: { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type,
+                  ingestion_mode: n.ingestion_mode, properties: n.properties, metadata: n.metadata },
           type: 'default',
           style: nodeStyle({ layer, system: n.system })
         });
@@ -85,100 +215,131 @@
     return { flowNodes, flowEdges };
   }
 
-  // ---- Initial mock data (matches backend _build_mock topology) ----
+  // The graph is ALWAYS driven by the API (GET /lineage/graph). No embedded
+  // fictional topology — in real mode an empty graph must render as an empty
+  // state, not as stale mock data. `graphLoaded` distinguishes "still loading"
+  // from "loaded and genuinely empty".
   const CATALOG = 'rc18_catalog';
 
-  const initialApiNodes = [
-    // Origin systems
-    { id: 'rc18_los_originacao_credito', label: 'LOS: Originacao de Credito', type: 'external_source', layer: 'origin', system: 'Loan Origination System', metadata: { connection: 'https://los-prod.bancorp.internal/api/v2', update_frequency: 'Tempo real — evento de aprovacao de credito' } },
-    { id: 'rc18_crm_cadastro_clientes',  label: 'CRM: Cadastro de Clientes',  type: 'external_source', layer: 'origin', system: 'CRM / MDM Clientes',      metadata: { connection: 'https://crm.bancorp.internal/sfdc',            update_frequency: 'Batch diario 01h00 + tempo real' } },
-    { id: 'rc18_oracle_tb_operacoes_credito', label: 'Oracle: TB_OPERACOES_CREDITO', type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { connection: 'jdbc:oracle:thin:@core-banking-prod:1521/CREDITO', update_frequency: 'CDC via ROWSCN 15 min' } },
-    { id: 'rc18_oracle_tb_garantias',         label: 'Oracle: TB_GARANTIAS',          type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { update_frequency: 'CDC via ROWSCN' } },
-    { id: 'rc18_oracle_tb_contratantes',      label: 'Oracle: TB_CONTRATANTES',       type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { update_frequency: 'Batch 02h00' } },
-    { id: 'rc18_oracle_tb_cessoes_fidc',      label: 'Oracle: TB_CESSOES_FIDC',       type: 'external_source', layer: 'source', system: 'Oracle Core Banking', metadata: { update_frequency: 'Batch mensal D-1' } },
-    { id: 'rc18_db2_clientes_credito',        label: 'DB2: CLIENTES_CREDITO',         type: 'external_source', layer: 'source', system: 'IBM DB2 Mainframe',   metadata: { connection: 'jdbc:db2://mainframe:50000/CLICRED', update_frequency: 'Batch 00h30' } },
-    { id: 'rc18_db2_historico_scr',           label: 'DB2: HISTORICO_SCR',            type: 'external_source', layer: 'source', system: 'IBM DB2 Mainframe',   metadata: { update_frequency: 'Pos-envio BCB' } },
-    { id: 'rc18_db2_plano_contas_cosif',      label: 'DB2: PLANO_CONTAS_COSIF',       type: 'external_source', layer: 'source', system: 'IBM DB2 Mainframe',   metadata: { update_frequency: 'Por publicacao BACEN' } },
-    { id: 'rc18_etl_scr3040_extractor',       label: 'Informatica ETL: SCR3040',      type: 'etl_process',     layer: 'etl',    system: 'Informatica PowerCenter', metadata: { update_frequency: 'Diario 22h00', connection: 'RC18_SCR3040_EXTRACT' } },
-    { id: 'rc18_etl_scr3050_aggregator',      label: 'Informatica ETL: SCR3050',      type: 'etl_process',     layer: 'etl',    system: 'Informatica PowerCenter', metadata: { update_frequency: 'Semanal/Mensal 23h00', connection: 'RC18_SCR3050_AGG' } },
-    { id: `${CATALOG}.bronze.raw_3040_doc`,   label: 'raw_3040_doc',                  type: 'table',           layer: 'bronze', metadata: { row_count: 1, last_updated: '2026-03-31T23:15:00Z' } },
-    { id: `${CATALOG}.bronze.raw_3050_doc`,   label: 'raw_3050_doc',                  type: 'table',           layer: 'bronze', metadata: { row_count: 1, last_updated: '2026-03-31T23:15:00Z' } },
-    { id: `${CATALOG}.silver.scr3040_operacoes`, label: 'scr3040_operacoes',           type: 'table',           layer: 'silver', metadata: { row_count: 1, last_updated: '2026-03-31T01:30:00Z', expectations_pass_rate: 99.9 } },
-    { id: `${CATALOG}.silver.scr3040_clientes`,  label: 'scr3040_clientes',            type: 'table',           layer: 'silver', metadata: { row_count: 1, last_updated: '2026-03-31T01:30:00Z' } },
-    { id: `${CATALOG}.silver.quality_scorecard`,   label: 'quality_scorecard',         type: 'table',           layer: 'silver', metadata: { row_count: 15, last_updated: '2026-03-31T02:00:00Z' } },
-    { id: `${CATALOG}.gold.posicao_3040`,           label: 'posicao_3040',              type: 'table',           layer: 'gold',   metadata: { row_count: 0, last_updated: '2026-03-31T04:00:00Z' } },
-    { id: `${CATALOG}.gold.posicao_3050`,          label: 'posicao_3050',              type: 'table',           layer: 'gold',   metadata: { row_count: 0, last_updated: '2026-03-31T04:00:00Z' } },
-    { id: 'rc18_bacen_validador_scr3040',     label: 'Validador BCB: Doc 3040',        type: 'validator',       layer: 'validator', system: 'BACEN Validador3040', metadata: {} },
-    { id: 'rc18_bacen_validador_scr3050',     label: 'Validador BCB: Doc 3050',        type: 'validator',       layer: 'validator', system: 'BACEN ValidadorMDR',  metadata: {} },
-    { id: 'rc18_sta_cadip_doc3040',           label: 'STA/CADIP: Doc 3040',            type: 'external_output', layer: 'output',    system: 'BACEN STA/CADIP',     metadata: {} },
-    { id: 'rc18_sta_cadip_doc3050',           label: 'STA/CADIP: Doc 3050',            type: 'external_output', layer: 'output',    system: 'BACEN STA/CADIP',     metadata: {} }
-  ];
+  let nodes = $state([]);
+  let edges = $state([]);
+  let graphLoaded = $state(false);
 
-  const initialApiEdges = [
-    // Origin → Oracle/DB2
-    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_operacoes_credito', type: 'external_lineage', label: 'aprovacao credito', column_mappings: [{source:'NR_PROPOSTA',target:'NR_CONTRATO'},{source:'VLR_APROVADO',target:'VLR_CONTABIL_BRL'},{source:'CD_PRODUTO',target:'CD_MODALIDADE'}] },
-    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_garantias',         type: 'external_lineage', label: 'registro garantia', column_mappings: [{source:'CD_TIPO_GARANTIA',target:'CD_TIPO_GARANTIA'},{source:'VLR_GARANTIA',target:'VLR_GARANTIA'}] },
-    { source: 'rc18_los_originacao_credito', target: 'rc18_oracle_tb_cessoes_fidc',      type: 'external_lineage', label: 'cessao FIDC' },
-    { source: 'rc18_crm_cadastro_clientes',  target: 'rc18_oracle_tb_contratantes',      type: 'external_lineage', label: 'sync cadastro',    column_mappings: [{source:'CD_CNPJ_CPF',target:'CD_CNPJ_CPF'},{source:'NM_CLIENTE',target:'NM_CLIENTE'},{source:'CD_SEG_PORTE',target:'CD_SEG_PORTE'}] },
-    { source: 'rc18_crm_cadastro_clientes',  target: 'rc18_db2_clientes_credito',        type: 'external_lineage', label: 'replica mainframe' },
-    // Oracle/DB2 → ETL
-    { source: 'rc18_oracle_tb_operacoes_credito', target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'CDC extract', column_mappings: [{source:'CD_CNPJ_IF',target:'cnpj_if'},{source:'CD_IPOC',target:'ipoc'},{source:'VLR_CONTABIL_BRL',target:'vlr_contabil'}] },
-    { source: 'rc18_oracle_tb_garantias',         target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'JOIN via IPOC' },
-    { source: 'rc18_oracle_tb_contratantes',      target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'lookup contratante' },
-    { source: 'rc18_oracle_tb_cessoes_fidc',      target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'LEFT JOIN cessoes' },
-    { source: 'rc18_db2_clientes_credito',        target: 'rc18_etl_scr3040_extractor',         type: 'external_lineage', label: 'DRDA lookup' },
-    { source: 'rc18_db2_historico_scr',           target: 'rc18_etl_scr3050_aggregator',        type: 'external_lineage', label: 'agregacao mensal' },
-    { source: 'rc18_db2_plano_contas_cosif',      target: 'rc18_etl_scr3050_aggregator',        type: 'external_lineage', label: 'lookup COSIF' },
-    { source: 'rc18_etl_scr3040_extractor',       target: `${CATALOG}.bronze.raw_3040_doc`,     type: 'external_lineage', label: 'XML → Auto Loader', column_mappings: [{source:'ipoc',target:'header.CD_IPOC'},{source:'vlr_contabil',target:'operacoes[0].VLR_CONTABIL'}] },
-    { source: 'rc18_etl_scr3050_aggregator',      target: `${CATALOG}.bronze.raw_3050_doc`,     type: 'external_lineage', label: 'TXB/XML → Auto Loader' },
-    { source: `${CATALOG}.bronze.raw_3040_doc`,   target: `${CATALOG}.silver.scr3040_operacoes`,   type: 'uc_automatic', label: 'DLT silver' },
-    { source: `${CATALOG}.bronze.raw_3040_doc`,   target: `${CATALOG}.silver.scr3040_clientes`,    type: 'uc_automatic', label: 'DLT silver' },
-    { source: `${CATALOG}.silver.scr3040_operacoes`,   target: `${CATALOG}.gold.posicao_3040`,         type: 'uc_automatic', label: 'DLT gold' },
-    { source: `${CATALOG}.bronze.raw_3050_doc`,        target: `${CATALOG}.gold.posicao_3050`,         type: 'uc_automatic', label: 'DLT gold' },
-    { source: `${CATALOG}.silver.quality_scorecard`,   target: `${CATALOG}.gold.posicao_3040`,         type: 'uc_automatic', label: 'quality gate' },
-    { source: `${CATALOG}.gold.posicao_3040`,         target: 'rc18_bacen_validador_scr3040', type: 'external_lineage', label: 'export XML' },
-    { source: `${CATALOG}.gold.posicao_3050`,         target: 'rc18_bacen_validador_scr3050', type: 'external_lineage', label: 'export TXB/XML' },
-    { source: 'rc18_bacen_validador_scr3040', target: 'rc18_sta_cadip_doc3040', type: 'external_lineage', label: 'SFTP transmissao' },
-    { source: 'rc18_bacen_validador_scr3050', target: 'rc18_sta_cadip_doc3050', type: 'external_lineage', label: 'SFTP transmissao' }
-  ];
+  // Generic label per layer (no hardcoded system names like "Informatica" —
+  // those don't necessarily exist in the customer's real graph).
+  const LAYER_LEGEND_LABEL = $derived.by(() => ({
+    origin: $_('lineage.layerOrigin'), source: $_('lineage.layerSource'), etl: $_('lineage.layerEtl'),
+    bronze: 'Bronze', silver: 'Silver', gold: 'Gold',
+    validator: $_('lineage.legendValidator'), output: $_('lineage.layerOutput')
+  }));
 
-  let { flowNodes: initNodes, flowEdges: initEdges } = buildFlowGraph(initialApiNodes, initialApiEdges);
+  // Legend layers = ONLY the layers actually present among the current nodes,
+  // in canonical order. So a graph with no validator/output nodes won't show
+  // those swatches.
+  const legendLayers = $derived.by(() => {
+    const present = new Set(nodes.map(n => n.data?.layer));
+    return LAYER_ORDER.filter(l => present.has(l)).map(l => [l, LAYER_LEGEND_LABEL[l] || l]);
+  });
 
-  let nodes = $state(initNodes);
-  let edges = $state(initEdges);
+  // Which edge kinds exist — drives the BYOL / UC legend entries.
+  const hasByolEdges = $derived(edges.some(e => e.data?.type === 'external_lineage'));
+  const hasUcEdges = $derived(edges.some(e => e.data?.type === 'uc_automatic'));
 
-  // Legend layer entries — descriptive captions translated; system/layer proper-names stay literal
-  const legendLayers = $derived.by(() => [
-    ['origin', 'LOS/CRM'], ['source', 'Oracle/DB2'], ['etl', 'Informatica ETL'],
-    ['bronze', 'Bronze'], ['silver', 'Silver'], ['gold', 'Gold'],
-    ['validator', $_('lineage.legendValidator')], ['output', 'STA/CADIP']
-  ]);
+  // Real (packed) X of each present layer, read back from the laid-out nodes.
+  // Both the SVG zone bands and the viewBox width derive from this, so the
+  // fallback stays in sync with the flow layout (no fixed LAYER_X gaps).
+  const layerXFromNodes = $derived.by(() => {
+    const m = {};
+    for (const n of nodes) {
+      if (n.type === 'zoneBand') continue;
+      const l = n.data?.layer;
+      if (l && !(l in m)) m[l] = n.position.x;
+    }
+    return m;
+  });
 
-  // SVG fallback layer headers — descriptive captions translated; layer proper-names stay literal
-  const svgLayerHeaders = $derived.by(() => [
-    ['origin', $_('lineage.svgHeaderOrigin'), 40], ['source', 'Oracle/DB2', 290],
-    ['etl', 'ETL', 540], ['bronze', 'Bronze', 790], ['silver', 'Silver', 1040],
-    ['gold', 'Gold', 1290], ['validator', $_('lineage.svgHeaderValidators'), 1540],
-    ['output', 'BCB STA', 1790]
-  ]);
+  // SVG-fallback zone bands — same zones as the flow view, from real node X.
+  const svgZones = $derived.by(() => {
+    const layerX = layerXFromNodes;
+    const out = [];
+    for (const z of ZONES) {
+      const cols = z.layers.filter(l => l in layerX);
+      if (!cols.length) continue;
+      const xs = cols.map(l => layerX[l]);
+      const x = Math.min(...xs) - ZONE_PAD;
+      const width = Math.max(
+        (Math.max(...xs) + NODE_W) - Math.min(...xs) + ZONE_PAD * 2,
+        ZONE_MIN_WIDTH,
+      );
+      out.push({ x, width, label: $_(z.labelKey), bg: z.bg, border: z.border, text: z.text, icon: z.icon });
+    }
+    return out;
+  });
 
-  const mockColumns = ['ipoc', 'modalidade', 'tipo_cliente', 'cnpj_if', 'dt_contr', 'vlr_contabil', 'dt_venc_op'];
+  // SVG viewBox width — fit to the rightmost node so the fallback doesn't leave
+  // a huge empty canvas when few columns are present.
+  const svgWidth = $derived.by(() => {
+    const xs = nodes.filter(n => n.type !== 'zoneBand').map(n => n.position.x + NODE_W);
+    return Math.max(600, (xs.length ? Math.max(...xs) : 0) + ZONE_PAD + 20);
+  });
 
-  function handleNodeClick(event) {
-    const node = event.detail?.node || event.node;
-    if (node) {
-      selectedNode = node;
-      selectedEdge = null;
-      columnLineage = null;
+
+  // Select a node and load its full metadata (columns/owner/row count/CADOCs for
+  // UC tables; system_type/url/properties for external objects).
+  async function selectNode(node) {
+    if (!node) return;
+    if (node.type === 'zoneBand') return;   // background band — not selectable
+    selectedNode = node;
+    selectedEdge = null;
+    columnLineage = null;
+    nodeMeta = { loading: true };
+    nodeRels = [];
+    try {
+      nodeMeta = { loading: false, ...(await getNodeMetadata(node.id)) };
+    } catch {
+      nodeMeta = { loading: false, error: true };
+    }
+    // For a registered external object, also load its relationships so they can
+    // be managed (deleted) from the panel.
+    if (node.data?.type !== 'table') {
+      try {
+        const r = await listExternalLineage(node.id);
+        nodeRels = r?.relationships || [];
+      } catch { nodeRels = []; }
     }
   }
 
-  function handleEdgeClick(event) {
-    const edge = event.detail?.edge || event.edge;
+  // Endpoint → short display label for a relationship row.
+  function epLabel(ep) {
+    return ep?.external_metadata_name || ep?.table_name?.split('.').slice(-1)[0] || ep?.table_name || '?';
+  }
+
+  async function removeRelationship(rel) {
+    try {
+      await deleteExternalLineage({ source: rel.source, target: rel.target });
+      nodeRels = nodeRels.filter(r => r !== rel);
+      await refreshGraph();
+    } catch (e) {
+      mgmtError = e?.message || String(e);
+    }
+  }
+
+  // @xyflow/svelte v1 (Svelte 5) delivers events as callback props with a
+  // `{ node, event }` / `{ edge, event }` payload — NOT a CustomEvent. (The old
+  // `on:nodeclick` + `event.detail` sintaxe is silently ignored on v1, which is
+  // why clicks did nothing.) Handle both shapes to stay robust.
+  function handleNodeClick(payload) {
+    selectNode(payload?.node || payload?.detail?.node);
+  }
+
+  function handleEdgeClick(payload) {
+    const edge = payload?.edge || payload?.detail?.edge;
     if (edge) {
       selectedEdge = edge;
       selectedNode = null;
       columnLineage = null;
+      nodeMeta = null;
+      nodeRels = [];
     }
   }
 
@@ -196,6 +357,89 @@
     }
   }
 
+  // Re-fetch the graph from the API and re-lay it out. Called on mount and after
+  // any create/edit/delete. ALWAYS applies the API result — including an empty
+  // graph — so a fresh (unpopulated) workspace shows the empty state instead of
+  // stale data. On network error we keep whatever is on screen.
+  async function refreshGraph() {
+    try {
+      const data = await getLineageGraph();
+      const { flowNodes, flowEdges } = buildFlowGraph(data?.nodes || [], data?.edges || []);
+      nodes = flowNodes;
+      edges = flowEdges;
+      selectedNode = null;
+      selectedEdge = null;
+      graphLoaded = true;
+    } catch { /* keep current graph on transient failure */ }
+  }
+
+  // Refresh the management data (registered objects, dropdown options, UC tables).
+  async function refreshManagement() {
+    try {
+      const [types, objs, tbls] = await Promise.all([
+        getSystemTypes(), listExternalMetadata(), getUcTables()
+      ]);
+      systemTypes = types || [];
+      // Attach the icon slug to each object for the relationship picker.
+      const iconMap = Object.fromEntries((types || []).map(t => [t.value, t.icon]));
+      externalObjects = (objs?.objects || []).map(o => ({ ...o, system_type_icon: iconMap[o.system_type] || 'custom' }));
+      ucTables = tbls?.tables || [];
+    } catch { /* leave as-is */ }
+  }
+
+  async function onSaved() {
+    showMetaForm = false;
+    showRelForm = false;
+    editingObject = null;
+    await Promise.all([refreshManagement(), refreshGraph()]);
+  }
+
+  function openNewObject() { editingObject = null; showMetaForm = true; }
+  function openEditObject(obj) { editingObject = obj; showMetaForm = true; showManager = false; }
+
+  async function removeObject(name) {
+    mgmtError = '';
+    try {
+      await deleteExternalMetadata(name);
+      await Promise.all([refreshManagement(), refreshGraph()]);
+      return true;
+    } catch (e) {
+      mgmtError = e?.message || String(e);
+      return false;
+    }
+  }
+
+  // Build the object shape the form's `editing` prop expects from the loaded
+  // node metadata (side panel → "Editar").
+  function nodeMetaAsObject() {
+    return {
+      name: nodeMeta.id,
+      system_type: nodeMeta.system_type,
+      entity_type: nodeMeta.entity_type,
+      url: nodeMeta.url,
+      description: nodeMeta.comment,
+      columns: (nodeMeta.columns || []).map(c => c.name),
+      properties: nodeMeta.properties || {},
+    };
+  }
+
+  // Delete an external object from the graph (side panel "Excluir"). Confirms
+  // first because it also drops the object's lineage relationships. Only close
+  // the panel on SUCCESS — otherwise keep it open so the error stays visible
+  // (closing it would hide mgmtError and make a failed delete look like a no-op).
+  async function confirmDeleteObject(name) {
+    if (!confirm($_('lineageMgmt.confirmDeleteObject', { values: { name } }))) return;
+    const ok = await removeObject(name);
+    if (ok) {
+      selectedNode = null;
+      nodeMeta = null;
+      nodeRels = [];
+    } else {
+      // Surface the failure inside the still-open node panel.
+      nodeMeta = { ...nodeMeta, deleteError: mgmtError };
+    }
+  }
+
   onMount(async () => {
     // Load Svelte Flow
     try {
@@ -210,15 +454,7 @@
       console.warn('Svelte Flow not available, using SVG fallback:', err);
     }
 
-    // Fetch real lineage from API
-    try {
-      const data = await getLineageGraph();
-      if (data?.nodes?.length) {
-        const { flowNodes, flowEdges } = buildFlowGraph(data.nodes, data.edges || []);
-        nodes = flowNodes;
-        edges = flowEdges;
-      }
-    } catch { /* keep mock */ }
+    await Promise.all([refreshGraph(), refreshManagement()]);
   });
 
   // Side panel: derive layer label
@@ -234,8 +470,12 @@
   <div class="legend-bar">
     <span class="legend-title">{$_('lineage.legendTitle')}</span>
     <div class="legend-items">
-      <span class="legend-item"><span class="leg-line byol"></span> {$_('lineage.legendByol')}</span>
-      <span class="legend-item"><span class="leg-line uc"></span> {$_('lineage.legendUc')}</span>
+      {#if hasByolEdges}
+        <span class="legend-item"><span class="leg-line byol"></span> {$_('lineage.legendByol')}</span>
+      {/if}
+      {#if hasUcEdges}
+        <span class="legend-item"><span class="leg-line uc"></span> {$_('lineage.legendUc')}</span>
+      {/if}
       {#each legendLayers as [l, lbl]}
         {@const c = layerColors[l]}
         <span class="legend-item">
@@ -246,13 +486,77 @@
     </div>
   </div>
 
+  <!-- Toolbar: BYOL management actions -->
+  <div class="toolbar">
+    <div class="toolbar-title">{$_('lineageMgmt.toolbarTitle')}</div>
+    <div class="toolbar-actions">
+      <button class="tbtn ghost" onclick={() => showManager = !showManager}>
+        {$_('lineageMgmt.manageObjects')} ({externalObjects.length})
+      </button>
+      <button class="tbtn" onclick={() => (showRelForm = true)} disabled={externalObjects.length === 0}>
+        + {$_('lineageMgmt.newRelationship')}
+      </button>
+      <button class="tbtn primary" onclick={openNewObject}>
+        + {$_('lineageMgmt.newObject')}
+      </button>
+    </div>
+  </div>
+
+  {#if showManager}
+    <div class="manager">
+      {#if mgmtError}<div class="mgmt-error">{mgmtError}</div>{/if}
+      {#if externalObjects.length === 0}
+        <p class="mgmt-empty">{$_('lineageMgmt.noObjects')}</p>
+      {:else}
+        <table class="mgmt-table">
+          <thead>
+            <tr>
+              <th>{$_('lineageMgmt.colSystem')}</th>
+              <th>{$_('lineageMgmt.fieldName')}</th>
+              <th>{$_('lineageMgmt.colLayer')}</th>
+              <th>{$_('lineageMgmt.colEntity')}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each externalObjects as o (o.name)}
+              <tr>
+                <td>
+                  <span class="sys-cell">
+                    <SystemTypeIcon icon={o.system_type_icon} label={o.system_type} size={16} />
+                    {o.properties?.sistema || o.system_type}
+                  </span>
+                </td>
+                <td class="mono">{o.name}</td>
+                <td>{o.properties?.camada || '—'}</td>
+                <td>{o.entity_type}</td>
+                <td class="row-actions">
+                  <button class="link-btn" onclick={() => openEditObject(o)}>{$_('common.edit')}</button>
+                  <button class="link-btn danger" onclick={() => removeObject(o.name)}>{$_('common.delete')}</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    </div>
+  {/if}
+
   <div class="lineage-content">
     <!-- Graph Area -->
     <div class="graph-area">
-      {#if flowLoaded && SvelteFlow}
-        <svelte:component this={SvelteFlow} {nodes} {edges} fitView
-          on:nodeclick={handleNodeClick}
-          on:edgeclick={handleEdgeClick}>
+      {#if graphLoaded && nodes.length === 0}
+        <!-- Loaded, but no lineage yet — real workspace with nothing registered. -->
+        <div class="graph-empty">
+          <div class="graph-empty-icon">⬡</div>
+          <h3>{$_('lineageMgmt.graphEmptyTitle')}</h3>
+          <p>{$_('lineageMgmt.graphEmptyBody')}</p>
+          <button class="tbtn primary" onclick={openNewObject}>+ {$_('lineageMgmt.newObject')}</button>
+        </div>
+      {:else if flowLoaded && SvelteFlow}
+        <svelte:component this={SvelteFlow} {nodes} {edges} {nodeTypes} fitView
+          onnodeclick={handleNodeClick}
+          onedgeclick={handleEdgeClick}>
           <svelte:component this={Controls} position="bottom-right" />
           <svelte:component this={MiniMap} position="bottom-left" nodeBorderRadius={8} />
           <svelte:component this={Background} variant="dots" gap={24} size={1} />
@@ -260,7 +564,7 @@
       {:else}
         <!-- SVG fallback -->
         <div class="graph-fallback">
-          <svg viewBox="0 0 2060 860" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 {svgWidth} 820" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <marker id="arrow-uc"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="#005CA9" />
@@ -269,6 +573,35 @@
                 <path d="M0,0 L0,6 L8,3 z" fill="#7A7A8A" />
               </marker>
             </defs>
+
+            <!-- Environment zone bands (behind everything) -->
+            {#each svgZones as z}
+              <rect x={z.x} y={ZONE_TOP} width={z.width} height={ZONE_HEIGHT} rx="12"
+                fill={z.bg} stroke={z.border} stroke-width="1.5" stroke-dasharray="6 4" />
+              {#if z.icon}
+                <rect x={z.x + 10} y={ZONE_TOP + 6} width="22" height="22" rx="5" fill="#fff" />
+                <g transform="translate({z.x + 13},{ZONE_TOP + 9}) scale(0.75)">
+                  {#if z.icon === 'databricks'}
+                    <path fill="#FF3621" d="M.95 14.184L12 20.403l9.919-5.55v2.21L12 22.662l-10.484-5.96-.565.308v.77L12 24l11.05-6.218v-4.317l-.515-.309L12 19.118l-9.867-5.653v-2.21L12 16.805l11.05-6.218V6.32l-.515-.308L12 11.974 2.647 6.681 12 1.388l7.76 4.368.668-.411v-.566L12 0 .95 6.27v.72L12 13.207l9.919-5.55v2.26L12 15.52 1.516 9.56l-.565.308Z"/>
+                  {:else if z.icon === 'external-source'}
+                    <g fill="none" stroke={z.text} stroke-width="1.8" stroke-linejoin="round">
+                      <ellipse cx="12" cy="5" rx="7" ry="2.6" />
+                      <path d="M5 5 v6 c0 1.44 3.13 2.6 7 2.6 s7-1.16 7-2.6 V5" />
+                      <path d="M5 11 v6 c0 1.44 3.13 2.6 7 2.6 s7-1.16 7-2.6 v-6" />
+                    </g>
+                  {:else if z.icon === 'external-output'}
+                    <g fill="none" stroke={z.text} stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 15 V4" />
+                      <path d="M7.5 8.5 L12 4 l4.5 4.5" />
+                      <path d="M4 15 v3.5 c0 .8.7 1.5 1.5 1.5 h13 c.8 0 1.5-.7 1.5-1.5 V15" />
+                    </g>
+                  {/if}
+                </g>
+              {/if}
+              <text x={z.x + (z.icon ? 36 : 12)} y={ZONE_TOP + 22} fill={z.text}
+                font-size="12" font-weight="700" font-family="var(--font-primary)"
+                style="text-transform:uppercase;letter-spacing:0.06em;opacity:0.85;">{z.label}</text>
+            {/each}
 
             <!-- Edges -->
             {#each edges as edge}
@@ -300,19 +633,12 @@
               {/if}
             {/each}
 
-            <!-- Layer headers -->
-            {#each svgLayerHeaders as [l, lbl, lx]}
-              {@const c = layerColors[l]}
-              <rect x={lx} y="8" width={NODE_W} height="22" rx="4" fill={c.bg} stroke={c.border} />
-              <text x={lx + NODE_W/2} y="23" text-anchor="middle" fill={c.text} font-size="10" font-weight="700" font-family="var(--font-primary)">{lbl}</text>
-            {/each}
-
             <!-- Nodes -->
             {#each nodes as node}
               {@const c = nodeColors(node.data)}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <g class="lineage-node" transform="translate({node.position.x},{node.position.y})"
-                onclick={() => { selectedNode = node; selectedEdge = null; columnLineage = null; }}>
+                onclick={() => selectNode(node)}>
                 <rect width={NODE_W} height={NODE_H} rx="6" fill={c.bg} stroke={c.border} stroke-width="2"
                   class:selected={selectedNode?.id === node.id} />
                 <text x={NODE_W/2} y={NODE_H/2 + 4} text-anchor="middle" fill={c.text}
@@ -333,7 +659,12 @@
         {@const lc = nodeColors(selectedNode.data)}
         <div class="panel-header" style="background:{lc.bg};border-bottom:2px solid {lc.border};">
           <div class="panel-layer-badge" style="color:{lc.text};">{LAYER_LABELS[selectedNode.data.layer] || selectedNode.data.layer}</div>
-          <h3 class="panel-title" style="color:{lc.text};">{selectedNode.data.label}</h3>
+          <div class="panel-title-row">
+            {#if selectedNode.data.type !== 'table'}
+              <SystemTypeIcon icon={iconForSystemType(selectedNode.data.system_type)} label={selectedNode.data.system} size={20} />
+            {/if}
+            <h3 class="panel-title" style="color:{lc.text};">{selectedNode.data.label}</h3>
+          </div>
           {#if selectedNode.data.system}
             <div class="panel-system">{selectedNode.data.system}</div>
           {/if}
@@ -357,6 +688,12 @@
               <div class="panel-value">{selectedNode.data.metadata.update_frequency}</div>
             </div>
           {/if}
+          {#if selectedNode.data.ingestion_mode}
+            <div class="panel-section">
+              <div class="panel-label">{$_('lineageMgmt.ingestionMode')}</div>
+              <div class="panel-value"><span class="ingestion-badge">{ingestionLabel(selectedNode.data.ingestion_mode)}</span></div>
+            </div>
+          {/if}
           {#if selectedNode.data.metadata?.row_count != null}
             <div class="panel-section">
               <div class="panel-label">{$_('lineage.rows')}</div>
@@ -376,16 +713,109 @@
             </div>
           {/if}
 
-          {#if selectedNode.data.type === 'table'}
-            <div class="panel-section">
-              <div class="panel-label">{$_('lineage.columnLineage')}</div>
-              <div class="column-list">
-                {#each mockColumns as col}
-                  <button class="col-btn" class:active={columnLineage?.column === col}
-                    onclick={() => handleColumnClick(col)}>{col}</button>
+          <!-- Full node metadata (async-loaded on click) -->
+          {#if nodeMeta?.loading}
+            <div class="panel-section"><div class="panel-value" style="color:var(--gray-500);">{$_('common.loading')}…</div></div>
+          {:else if nodeMeta && !nodeMeta.error}
+            {#if nodeMeta.comment}
+              <div class="panel-section">
+                <div class="panel-label">{$_('lineageMgmt.metaComment')}</div>
+                <div class="panel-value">{nodeMeta.comment}</div>
+              </div>
+            {/if}
+            {#if nodeMeta.cadocs?.length}
+              <div class="panel-section">
+                <div class="panel-label">CADOCs</div>
+                <div class="chip-row">{#each nodeMeta.cadocs as d}<span class="chip">{d}</span>{/each}</div>
+              </div>
+            {/if}
+            {#if nodeMeta.kind === 'external'}
+              {#if nodeMeta.system_type}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineageMgmt.fieldSystemType')}</div>
+                  <div class="panel-value">{nodeMeta.system_type}{nodeMeta.entity_type ? ` · ${nodeMeta.entity_type}` : ''}</div>
+                </div>
+              {/if}
+              {#if nodeMeta.url}
+                <div class="panel-section">
+                  <div class="panel-label">URL</div>
+                  <div class="panel-value mono small">{nodeMeta.url}</div>
+                </div>
+              {/if}
+              {#if Object.keys(nodeMeta.properties || {}).length}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineageMgmt.fieldProperties')}</div>
+                  <table class="meta-table">
+                    <tbody>
+                      {#each Object.entries(nodeMeta.properties) as [k, v]}
+                        <tr><td class="mono meta-k">{k}</td><td>{v}</td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            {:else}
+              {#if nodeMeta.owner}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineageMgmt.metaOwner')}</div>
+                  <div class="panel-value">{nodeMeta.owner}</div>
+                </div>
+              {/if}
+              {#if nodeMeta.row_count != null}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineage.rows')}</div>
+                  <div class="panel-value">{nodeMeta.row_count?.toLocaleString('pt-BR')}</div>
+                </div>
+              {/if}
+              {#if nodeMeta.table_type}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineageMgmt.metaTableType')}</div>
+                  <div class="panel-value">{nodeMeta.table_type}</div>
+                </div>
+              {/if}
+              {#if nodeMeta.updated_at}
+                <div class="panel-section">
+                  <div class="panel-label">{$_('lineage.updated')}</div>
+                  <div class="panel-value">{nodeMeta.updated_at.slice(0,16).replace('T',' ')}</div>
+                </div>
+              {/if}
+            {/if}
+            {#if nodeMeta.columns?.length}
+              <div class="panel-section">
+                <div class="panel-label">{$_('lineageMgmt.metaColumns')} ({nodeMeta.columns.length})</div>
+                <table class="meta-table cols">
+                  <tbody>
+                    {#each nodeMeta.columns as col}
+                      <tr>
+                        <td class="mono meta-col-name">
+                          {#if nodeMeta.kind === 'uc_table'}
+                            <button class="col-link" class:active={columnLineage?.column === col.name}
+                              onclick={() => handleColumnClick(col.name)}>{col.name}</button>
+                          {:else}{col.name}{/if}
+                        </td>
+                        <td class="meta-col-type">{col.type || ''}</td>
+                      </tr>
+                      {#if col.comment}
+                        <tr><td colspan="2" class="meta-col-comment">{col.comment}</td></tr>
+                      {/if}
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+
+            <!-- Relationships of this external object (manageable) -->
+            {#if nodeMeta.kind === 'external' && nodeRels.length}
+              <div class="panel-section">
+                <div class="panel-label">{$_('lineageMgmt.nodeRelationships')} ({nodeRels.length})</div>
+                {#each nodeRels as rel}
+                  <div class="rel-row">
+                    <span class="rel-text mono">{epLabel(rel.source)} → {epLabel(rel.target)}</span>
+                    <button class="rel-del" title={$_('common.delete')} onclick={() => removeRelationship(rel)}>×</button>
+                  </div>
                 {/each}
               </div>
-            </div>
+            {/if}
           {/if}
 
           {#if columnLineage && !columnLineage.loading}
@@ -411,6 +841,17 @@
                   </div>
                 {/each}
               {/if}
+            </div>
+          {/if}
+
+          <!-- Actions for a registered external object (edit/delete) -->
+          {#if nodeMeta?.kind === 'external'}
+            {#if nodeMeta.deleteError}
+              <div class="panel-section"><div class="mgmt-error">{nodeMeta.deleteError}</div></div>
+            {/if}
+            <div class="panel-actions">
+              <button class="pa-btn" onclick={() => openEditObject(nodeMetaAsObject())}>{$_('common.edit')}</button>
+              <button class="pa-btn danger" onclick={() => confirmDeleteObject(selectedNode.id)}>{$_('lineageMgmt.deleteObject')}</button>
             </div>
           {/if}
         </div>
@@ -463,6 +904,24 @@
   </div>
 </div>
 
+<!-- BYOL management modals -->
+<ExternalMetadataForm
+  open={showMetaForm}
+  {systemTypes}
+  {externalObjects}
+  {ucTables}
+  editing={editingObject}
+  onclose={() => { showMetaForm = false; editingObject = null; }}
+  onsaved={onSaved}
+/>
+<ExternalLineageForm
+  open={showRelForm}
+  {externalObjects}
+  {ucTables}
+  onclose={() => (showRelForm = false)}
+  onsaved={onSaved}
+/>
+
 <style>
   .lineage-page {
     display: flex;
@@ -499,6 +958,48 @@
   }
   .leg-node { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; }
 
+  /* ---- Toolbar (BYOL management) ---- */
+  .toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-2) var(--space-4); background: var(--white);
+    border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    flex-shrink: 0;
+  }
+  .toolbar-title { font-size: var(--font-size-sm); font-weight: 700; color: var(--gray-700); }
+  .toolbar-actions { display: flex; gap: var(--space-2); }
+  .tbtn {
+    padding: 6px 12px; border-radius: var(--radius-md); font-size: var(--font-size-xs); font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border-color); background: var(--white); color: var(--gray-700);
+  }
+  .tbtn:hover:not(:disabled) { background: var(--gray-100); }
+  .tbtn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .tbtn.primary:hover { background: var(--blue-700, #004A8A); }
+  .tbtn.ghost { background: none; }
+  .tbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ---- Manager panel ---- */
+  .manager {
+    background: var(--white); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    padding: var(--space-3); flex-shrink: 0; max-height: 240px; overflow-y: auto;
+  }
+  .mgmt-error { background: #FDECEA; color: #B71C1C; border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--font-size-xs); margin-bottom: 8px; }
+  .mgmt-empty { font-size: var(--font-size-sm); color: var(--gray-500); text-align: center; padding: var(--space-4); }
+  .mgmt-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-xs); }
+  .mgmt-table th { text-align: left; font-size: 10px; color: var(--gray-500); text-transform: uppercase; padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
+  .mgmt-table td { padding: 6px 8px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+  .mgmt-table td.mono { font-family: var(--font-mono); color: var(--gray-800); }
+  .sys-cell { display: flex; align-items: center; gap: 8px; }
+  .row-actions { text-align: right; white-space: nowrap; }
+  .link-btn { background: none; border: none; color: var(--primary); font-size: var(--font-size-xs); font-weight: 600; cursor: pointer; padding: 2px 6px; }
+  .link-btn.danger { color: #C62828; }
+  .link-btn:hover { text-decoration: underline; }
+
+  .panel-title-row { display: flex; align-items: center; gap: 8px; }
+  .ingestion-badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+    background: var(--blue-100, #E5F0F8); color: var(--blue-800, #003D73); border-radius: 10px;
+  }
+
   /* ---- Layout ---- */
   .lineage-content { display: flex; flex: 1; gap: 0; min-height: 0; }
 
@@ -518,6 +1019,14 @@
     align-items: center; justify-content: center;
     padding: var(--space-4); overflow: auto;
   }
+  .graph-empty {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--space-3); text-align: center; padding: var(--space-8); color: var(--gray-500);
+  }
+  .graph-empty-icon { font-size: 48px; opacity: 0.3; }
+  .graph-empty h3 { margin: 0; color: var(--gray-700); font-size: var(--font-size-lg); }
+  .graph-empty p { margin: 0; max-width: 420px; font-size: var(--font-size-sm); }
   .lineage-svg { width: 100%; max-height: 95%; }
   .lineage-node { cursor: pointer; }
   .lineage-node:hover rect { filter: brightness(0.93); }
@@ -583,4 +1092,40 @@
   .mapping-table th { text-align: left; font-size: 10px; color: var(--gray-500); text-transform: uppercase; padding: 4px 8px; background: var(--gray-50); }
   .mapping-table td { padding: 4px 8px; border-top: 1px solid var(--gray-100); }
   .mapping-table .mono { font-family: var(--font-mono); color: var(--gray-800); }
+
+  /* Node metadata panel */
+  .chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    display: inline-block; font-size: 11px; font-weight: 700; font-family: var(--font-mono);
+    background: var(--blue-100, #E5F0F8); color: var(--blue-800, #003D73);
+    border-radius: 10px; padding: 2px 10px;
+  }
+  .meta-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-xs); margin-top: 4px; }
+  .meta-table td { padding: 3px 6px; border-top: 1px solid var(--gray-100); vertical-align: top; }
+  .meta-table .mono, .meta-table .meta-k { font-family: var(--font-mono); color: var(--gray-700); }
+  .meta-table .meta-k { white-space: nowrap; color: var(--gray-500); }
+  .meta-table.cols .meta-col-name { font-family: var(--font-mono); }
+  .meta-table.cols .meta-col-type { text-align: right; color: var(--gray-500); font-family: var(--font-mono); white-space: nowrap; }
+  .meta-col-comment { font-size: 10px; color: var(--gray-500); padding-top: 0 !important; border-top: none !important; padding-left: 6px; }
+  .col-link {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--primary); font-weight: 600;
+  }
+  .col-link:hover { text-decoration: underline; }
+  .col-link.active { background: var(--primary); color: #fff; border-radius: 3px; padding: 0 4px; }
+
+  .rel-row { display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 4px 6px; border-bottom: 1px solid var(--gray-100); }
+  .rel-text { font-size: 11px; color: var(--gray-700); word-break: break-all; }
+  .rel-del { background: none; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+    width: 22px; height: 22px; flex-shrink: 0; cursor: pointer; color: var(--gray-500); font-size: 14px; line-height: 1; }
+  .rel-del:hover { color: #C62828; border-color: #C62828; }
+
+  .panel-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4);
+    padding-top: var(--space-3); border-top: 1px solid var(--gray-100); }
+  .pa-btn { flex: 1; padding: 7px 10px; border-radius: var(--radius-md); font-size: var(--font-size-xs);
+    font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: var(--white); color: var(--gray-700); }
+  .pa-btn:hover { background: var(--gray-100); }
+  .pa-btn.danger { color: #C62828; border-color: #F5C6C0; }
+  .pa-btn.danger:hover { background: #FDECEA; }
 </style>

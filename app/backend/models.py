@@ -274,6 +274,16 @@ class LineageNode(BaseModel):
     system_type: str | None = None
     catalog: str | None = None
     schema_name: str | None = Field(None, alias="schema")
+    # ``ingestion_mode`` reflects HOW an external source crosses the Databricks
+    # boundary (mixed-integration reality): ``file_autoloader`` (COBOL/mainframe
+    # file drop → Auto Loader), ``federation`` (Lakehouse Federation foreign
+    # catalog), ``lakeflow_connect`` (managed ingestion connector), or None for
+    # nodes that are not a boundary source. Drives the crossing-edge style/legend.
+    ingestion_mode: str | None = None
+    # Free-form properties mirrored from the UC external metadata object
+    # (``camada``, ``sistema``, ``data_owner``, …). Kept so the side panel can
+    # surface whatever the customer registered, without a fixed schema.
+    properties: dict[str, str] | None = None
     metadata: LineageNodeMetadata | None = None
 
     model_config = {"populate_by_name": True}
@@ -297,6 +307,136 @@ class LineageEdge(BaseModel):
 class LineageGraphResponse(BaseModel):
     nodes: list[LineageNode]
     edges: list[LineageEdge]
+
+
+# --- External Metadata / External Lineage (BYOL) management ---
+#
+# Read/write surface over the Unity Catalog External Metadata + External
+# Lineage APIs (``/api/2.0/lineage-tracking/{external-metadata,external-lineage}``).
+# Field names mirror the REST bodies so the router can pass them through with
+# minimal remapping. See routers/external_metadata.py.
+
+class ExternalMetadataObject(BaseModel):
+    """A UC external metadata securable — an entity living in an external system
+    (COBOL job, DB2 table, Oracle table, Power BI dashboard, BACEN validator…)."""
+
+    name: str
+    system_type: str = "OTHER"          # enum value, e.g. ORACLE / MICROSOFT_SQL_SERVER / OTHER
+    entity_type: str = "TABLE"          # free-form: TABLE / JOB / PROCESS / DATASET / APPLICATION / FILE …
+    description: str | None = None
+    url: str | None = None
+    owner: str | None = None
+    columns: list[str] = []
+    properties: dict[str, str] = {}
+    # Read-only fields populated by the API on read (ignored on create).
+    id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class ExternalMetadataListResponse(BaseModel):
+    objects: list[ExternalMetadataObject]
+
+
+class SystemTypeOption(BaseModel):
+    """One entry of the System type dropdown (mirrors the native Catalog
+    Explorer picker). ``icon`` is a stable slug the frontend maps to an inline
+    SVG; ``label`` is the human-readable name."""
+
+    value: str
+    label: str
+    icon: str
+
+
+class ExternalLineageEndpoint(BaseModel):
+    """One side (source or target) of a lineage relationship. Exactly one of
+    ``external_metadata_name`` / ``table_name`` is set."""
+
+    external_metadata_name: str | None = None
+    table_name: str | None = None
+
+
+class ExternalLineageRelationshipRequest(BaseModel):
+    source: ExternalLineageEndpoint
+    target: ExternalLineageEndpoint
+    columns: list[ColumnMapping] = []
+    properties: dict[str, str] = {}
+
+
+class ExternalLineageRelationship(BaseModel):
+    id: str | None = None
+    source: ExternalLineageEndpoint
+    target: ExternalLineageEndpoint
+    columns: list[ColumnMapping] = []
+    properties: dict[str, str] = {}
+
+
+class ExternalLineageListResponse(BaseModel):
+    relationships: list[ExternalLineageRelationship]
+
+
+class ExternalObjectWithLineageRequest(BaseModel):
+    """Atomic create: register an external metadata object AND wire one lineage
+    relationship in a single call. ``connect_direction`` says whether the new
+    object is the ``source`` (feeds the connected node) or ``target`` (is fed by
+    it); ``connect_to`` is the other endpoint (a UC table or another external
+    object). This is the unified "Novo metadado externo" flow."""
+
+    object: ExternalMetadataObject
+    connect_direction: str            # "source" | "target"
+    connect_to: ExternalLineageEndpoint
+    columns: list[ColumnMapping] = []
+    relationship_properties: dict[str, str] = {}
+
+
+class UcTableOption(BaseModel):
+    """A Unity Catalog table usable as a relationship endpoint (target picker)."""
+
+    full_name: str
+    schema_name: str
+    table_name: str
+
+
+class UcTablesResponse(BaseModel):
+    tables: list[UcTableOption]
+
+
+# --- Node metadata (clicking a graph node) ---
+
+class TableColumn(BaseModel):
+    name: str
+    type: str | None = None
+    comment: str | None = None
+
+
+class NodeMetadataResponse(BaseModel):
+    """Full metadata for a clicked lineage node.
+
+    ``kind`` distinguishes a Unity Catalog table (``uc_table``) from a registered
+    external metadata object (``external``). Fields not applicable to a kind stay
+    null."""
+
+    id: str
+    kind: str                          # "uc_table" | "external"
+    label: str
+    # UC table fields
+    catalog: str | None = None
+    schema_name: str | None = None
+    table_name: str | None = None
+    table_type: str | None = None
+    comment: str | None = None
+    owner: str | None = None
+    row_count: int | None = None
+    size_bytes: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    columns: list[TableColumn] = []
+    # External object fields
+    system_type: str | None = None
+    entity_type: str | None = None
+    url: str | None = None
+    properties: dict[str, str] = {}
+    cadocs: list[str] = []             # CADOCs this table is bound to (uc_table only)
 
 
 class UpstreamColumn(BaseModel):
