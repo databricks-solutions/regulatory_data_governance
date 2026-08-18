@@ -221,6 +221,18 @@ databricks bundle run silver                    # bronze → silver
 databricks bundle run gold                      # posições curadas
 ```
 
+No modo clássico cada camada tem **uma task por CADOC**, então dá para reprocessar
+um documento isolado:
+
+```bash
+databricks bundle run gold --only posicao_2011              # só a posição do DDR
+databricks bundle run rc18_end_to_end --only silver_2011+   # DDR de silver a gold
+```
+
+Tasks de gold: `posicao_{3040,3050,4010,4016,2011}`, `criticas_ddr_2011`,
+`reconciliacao_cosif`, `processing_state` (no `rc18_end_to_end` levam o prefixo
+`gold_`). No modo SDP/DLT a seleção por tabela é feita no refresh da pipeline.
+
 Se o código Svelte mudou, rebuilde o frontend antes do deploy:
 
 ```bash

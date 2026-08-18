@@ -1,4 +1,8 @@
 # Gold curation pipeline — produces position tables.
+#
+# Um notebook por artefato (espelha as tasks de resources/classical/gold.yml).
+# Todos no MESMO pipeline: `dlt.read` só resolve dentro de um, e `processing_state`
+# depende disso. Remover uma posição do `libraries:` quebra a resolução do grafo.
 resources:
   pipelines:
     gold:
@@ -18,4 +22,18 @@ resources:
         reference_schema: "${resources.schemas.reference.name}"
       libraries:
         - notebook:
-            path: ../../pipelines/gold/transformations/posicao_mensal.py
+            path: ../../pipelines/gold/transformations/posicao_3040.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/posicao_3050.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/posicao_4010.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/posicao_4016.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/posicao_2011.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/criticas_ddr_2011.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/reconciliacao_cosif.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/processing_state.py

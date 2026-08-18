@@ -13,15 +13,20 @@
 #
 #   setup_reference  ┬→ setup_reference_2011 ─┐
 #                    │                        │
-#                    ├─→  load_sample_xmls  ─┬┴→ bronze_3040 → silver_3040 ─┐
-#                    │                       ├→ bronze_3050 → silver_3050 ──┤
-#                    │                       ├→ bronze_4010 → silver_4010 ──┤→ gold
-#                    │                       ├→ bronze_4016 → silver_4016 ──┤
-#                    │                       └→ bronze_2011 → silver_2011 ──┘
-#                    └─→  grant_warehouse_perms (paralelo)
+#                    ├─→ load_sample_xmls ──┬─┴→ bronze_3040 → silver_3040 → gold_3040 ─┐
+#                    │                      ├→ bronze_3050 → silver_3050 → gold_3050 ───┤
+#                    │                      ├→ bronze_4010 → silver_4010 → gold_4010 ───┼→ gold_processing_state
+#                    │                      ├→ bronze_4016 → silver_4016 → gold_4016    │
+#                    │                      └→ bronze_2011 → silver_2011 ┬→ gold_2011 ──┘
+#                    │                                                   └→ gold_criticas_2011
+#                    └─→ grant_warehouse_perms (paralelo)
 #
-# Uma trilha bronze→silver POR CADOC, independentes entre si: cada documento tem
-# tabela e checkpoint próprios, então falha em um não bloqueia os outros.
+#   gold_reconciliacao_cosif  ←  silver_3040 + silver_4010   (batimento N01)
+#
+# Uma trilha bronze→silver→gold POR CADOC: falha em um não bloqueia os outros, e
+# `--only <task>` reprocessa um documento isolado ponta a ponta. Só os dois
+# artefatos cross-CADOC têm fan-in — `gold_reconciliacao_cosif` (3040 × 4010) e
+# `gold_processing_state` (4 posições MENSAIS; o 4016 é semestral e fica fora).
 #
 # bronze/silver/gold aqui são TASKS DE NOTEBOOK (não pipeline_task): rodam os
 # notebooks clássicos em pipelines/classical/**. Cada step espera o predecessor.
@@ -212,22 +217,100 @@ resources:
               bronze_schema: ${resources.schemas.bronze_schema.name}
               silver_schema: ${resources.schemas.silver_schema.name}
 
-        # ── Gold (clássico) ── posições + batimento COSIF + processing_state.
-        # Espera TODOS os silver (o batimento cruza 3040 × 4010; posicao_4016 vem
-        # do silver_4016; posicao_2011 + criticas_ddr_2011 vêm do silver_2011, e o
-        # processing_state reduz as datas-base de 3040/3050/4010/2011 ao mês vigente).
-        - task_key: "gold"
+        # ── Gold (clássico) ── uma task por artefato; cada posição espera SÓ o
+        # silver do seu documento ─────────────────────────────────────────────
+        - task_key: "gold_3040"
           depends_on:
             - task_key: "silver_3040"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_3040.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        - task_key: "gold_3050"
+          depends_on:
             - task_key: "silver_3050"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_3050.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        - task_key: "gold_4010"
+          depends_on:
             - task_key: "silver_4010"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        - task_key: "gold_4016"
+          depends_on:
             - task_key: "silver_4016"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_4016.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        - task_key: "gold_2011"
+          depends_on:
             - task_key: "silver_2011"
           environment_key: serverless_env
           notebook_task:
-            notebook_path: ../../pipelines/classical/gold/posicao_mensal.py
+            notebook_path: ../../pipelines/classical/gold/posicao_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        # Lê a silver do 2011 (não a posição) → paralelo a gold_2011.
+        - task_key: "gold_criticas_2011"
+          depends_on:
+            - task_key: "silver_2011"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/criticas_ddr_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
+        # Batimento N01. Silver ausente (CADOC fora do deployment) → o notebook
+        # sai avisando, sem falhar a run.
+        - task_key: "gold_reconciliacao_cosif"
+          depends_on:
+            - task_key: "silver_3040"
+            - task_key: "silver_4010"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/reconciliacao_cosif.py
             base_parameters:
               catalog: ${var.catalog}
               silver_schema: ${resources.schemas.silver_schema.name}
               gold_schema: ${resources.schemas.gold_schema.name}
               reference_schema: ${resources.schemas.reference.name}
+
+        # Seletor de Data-Base do app. Tolera posição ausente.
+        - task_key: "gold_processing_state"
+          depends_on:
+            - task_key: "gold_3040"
+            - task_key: "gold_3050"
+            - task_key: "gold_4010"
+            - task_key: "gold_2011"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/processing_state.py
+            base_parameters:
+              catalog: ${var.catalog}
+              gold_schema: ${resources.schemas.gold_schema.name}

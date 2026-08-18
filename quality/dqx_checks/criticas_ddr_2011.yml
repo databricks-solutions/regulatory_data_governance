@@ -48,9 +48,3 @@
     critica_id: "4751"
     descricao: "Combinação (conta, país, moeda, posição) sem repetição."
     nivel_verificacao: "2"
-
-# NÃO adicione um check "nenhuma bloqueante" sem filtro de `critica_id`: o
-# conjunto de linhas dele é a união dos checks acima, com a mesma expression, e
-# uma única violação passaria a contar duas vezes — pior, na dimensão dele (8) e
-# não na da crítica que falhou (a 4751 é dimensão 1). Uma crítica nova no gold
-# ganha seu próprio check aqui.
