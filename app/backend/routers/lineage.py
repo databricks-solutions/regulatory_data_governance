@@ -184,10 +184,10 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
 
     # 3. UC automatic lineage, ANCHORED on the CADOC-linked tables.
     #
-    #    The tables shown must be the ones bound to a CADOC in the "Vínculo de
-    #    Regras" module (governance.cadoc_tabelas), then their medallion
-    #    neighbors (bronze upstream, gold downstream). We expand from those
-    #    anchors via the REST table-lineage API instead of
+    #    The tables shown are the ones bound to a CADOC in the "Vínculo de
+    #    Regras" module (governance.cadoc_tabelas) AND that exist, then their
+    #    medallion neighbors (bronze upstream, gold downstream). We expand from
+    #    those anchors via the REST table-lineage API instead of
     #    ``system.access.table_lineage`` because the system table requires a
     #    special grant only account admins hold (the app SP can't read it, so the
     #    query returned empty → blank graph). The REST API only needs SELECT on
@@ -332,19 +332,57 @@ def _is_relevant_uc_table(fqn: str | None, catalog: str) -> bool:
 
 
 async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
-    """The tables bound to a CADOC (governance.cadoc_tabelas) — the set the
-    Lineage graph must show. Falls back to empty (→ empty-state) if the table
-    isn't seeded yet."""
+    """The tables bound to a CADOC (governance.cadoc_tabelas) that EXIST.
+
+    `cadoc_tabelas` is seeded with all 12 vínculos, so a declared-but-missing
+    table means that document's pipeline never ran here — and its node was
+    indistinguishable from a materialized one. `information_schema.tables` is
+    already privilege-filtered.
+
+    Empty → empty-state. If the filter would wipe a non-empty declared list we
+    keep the declared one: likelier a privilege/metadata issue than every table
+    being gone, and a blank graph is the worse failure.
+    """
     try:
-        rows = await execute_query(
+        declared_rows = await execute_query(
             f"SELECT DISTINCT table_fqn FROM {catalog}.governance.cadoc_tabelas "
             "WHERE is_ativo AND table_fqn IS NOT NULL",
             {},
         )
-        return [r["table_fqn"] for r in rows if r.get("table_fqn")]
     except Exception as e:  # noqa: BLE001
         logger.warning("Could not read cadoc_tabelas anchors: %s", e)
         return []
+
+    declared = [r["table_fqn"] for r in declared_rows if r.get("table_fqn")]
+    if not declared:
+        return []
+
+    try:
+        existing_rows = await execute_query(
+            "SELECT lower(table_catalog || '.' || table_schema || '.' || table_name) AS fqn "
+            f"FROM {catalog}.information_schema.tables",
+            {},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("information_schema unreadable, keeping declared anchors: %s", e)
+        return declared
+
+    existing = {r["fqn"] for r in existing_rows if r.get("fqn")}
+    anchors = [fqn for fqn in declared if fqn.lower() in existing]
+    if not anchors:
+        logger.warning(
+            "None of the %d declared CADOC tables found in %s.information_schema — "
+            "keeping the declared list (probable privilege/metadata issue).",
+            len(declared), catalog,
+        )
+        return declared
+
+    if len(anchors) < len(declared):
+        logger.info(
+            "Lineage: %d of %d declared CADOC table(s) not materialized yet — hidden.",
+            len(declared) - len(anchors), len(declared),
+        )
+    return anchors
 
 
 def _rest_table_lineage(w, table_fqn: str, direction: str) -> list[str]:
