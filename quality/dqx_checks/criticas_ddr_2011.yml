@@ -49,17 +49,8 @@
     descricao: "Combinação (conta, país, moeda, posição) sem repetição."
     nivel_verificacao: "2"
 
-# Nenhuma crítica intra-DDR bloqueante no mês corrente.
-- name: criticas_ddr_nenhuma_bloqueante
-  criticality: error
-  filter: "data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.gold.criticas_ddr_2011)"
-  check:
-    function: sql_expression
-    arguments:
-      expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
-      msg: "Crítica intra-DDR em status BLOQUEADO."
-  user_metadata:
-    dimensao_r18: "8"
-    critica_id: "DDR-CRIT-STATUS"
-    descricao: "Nenhuma crítica intra-DDR pode estar BLOQUEADA."
-    nivel_verificacao: "2"
+# NÃO adicione um check "nenhuma bloqueante" sem filtro de `critica_id`: o
+# conjunto de linhas dele é a união dos checks acima, com a mesma expression, e
+# uma única violação passaria a contar duas vezes — pior, na dimensão dele (8) e
+# não na da crítica que falhou (a 4751 é dimensão 1). Uma crítica nova no gold
+# ganha seu próprio check aqui.
