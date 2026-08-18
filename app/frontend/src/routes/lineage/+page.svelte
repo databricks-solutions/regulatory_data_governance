@@ -85,9 +85,13 @@
 
   function nodeStyle(data) {
     const c = nodeColors(data);
+    // max-width + ellipsis: o nome do objeto externo é escolhido pelo cliente e
+    // pode ser longo. Sem o teto, a caixa cresce até invadir a faixa vizinha.
     return `background:${c.bg};border:2px solid ${c.border};color:${c.text};` +
       `border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;` +
-      `box-shadow:0 2px 6px rgba(0,0,0,0.10);min-width:${NODE_W}px;text-align:center;`;
+      `box-shadow:0 2px 6px rgba(0,0,0,0.10);text-align:center;` +
+      `min-width:${NODE_W}px;max-width:${NODE_W}px;` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
   }
 
   // Normalize any backend layer to one of the 8 rendered columns. UC schemas
@@ -309,9 +313,15 @@
     }
   }
 
-  // Endpoint → short display label for a relationship row.
+  // Endpoint → short display label for a relationship row. Reaproveita o label
+  // do nó do grafo (já sem o prefixo do deployment) para o painel não mostrar o
+  // nome longo que a caixa do grafo encurtou.
   function epLabel(ep) {
-    return ep?.external_metadata_name || ep?.table_name?.split('.').slice(-1)[0] || ep?.table_name || '?';
+    const id = ep?.external_metadata_name || ep?.table_name;
+    if (!id) return '?';
+    const hit = nodes.find(n => n.id === id);
+    if (hit?.data?.label) return hit.data.label;
+    return ep?.table_name ? ep.table_name.split('.').slice(-1)[0] : id;
   }
 
   async function removeRelationship(rel) {

@@ -47,6 +47,20 @@ def _short_label(full_name: str) -> str:
     return full_name.split(".")[-1]
 
 
+def _ext_label(name: str) -> str:
+    """External object name without the deployment prefix.
+
+    Object names carry `LINEAGE_OBJECT_PREFIX` so several deployments can share a
+    metastore, but that prefix is IDENTICAL on every node — in the graph it only
+    crowds the box and pushes the part that actually distinguishes the node out of
+    view. The full name stays as the node `id` (and is shown in the side panel),
+    so CRUD and edge matching are unaffected. `properties.label` still wins.
+    """
+    if name.startswith(LINEAGE_OBJECT_PREFIX):
+        return name[len(LINEAGE_OBJECT_PREFIX):] or name
+    return name
+
+
 # ---------------------------------------------------------------------------
 # External object → LineageNode. Layer/system/ingestion are DERIVED FROM the
 # object's own ``properties`` (customer-editable via the app form), not from a
@@ -58,7 +72,7 @@ def _ext_object_to_node(obj: ExternalMetadataObject) -> LineageNode:
     layer = store.derive_layer(props, obj.entity_type)
     return LineageNode(
         id=obj.name,
-        label=props.get("label") or obj.name,
+        label=props.get("label") or _ext_label(obj.name),
         type=store.derive_node_type(layer, obj.entity_type),
         layer=layer,
         system=props.get("sistema") or props.get("source_system") or obj.system_type,

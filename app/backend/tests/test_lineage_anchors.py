@@ -1,15 +1,17 @@
-"""Tests for the Lineage graph's anchor selection.
+"""Tests for how the Lineage graph picks and labels its nodes.
 
-`governance.cadoc_tabelas` is seeded with the vínculos of ALL CADOCs, so a
-deployment that ran only one document's pipeline rendered nodes for tables that
-don't exist — visually indistinguishable from materialized ones. The anchors are
-now intersected with `information_schema.tables`.
+  1. Anchor selection — `governance.cadoc_tabelas` is seeded with the vínculos of
+     ALL CADOCs, so a deployment that ran only one document's pipeline rendered
+     nodes for tables that don't exist, visually indistinguishable from
+     materialized ones. Anchors are intersected with `information_schema.tables`.
+  2. External-object labels — the deployment prefix is identical on every node,
+     so it only crowds the box; it is stripped from the label but kept as the id.
 """
 
 import asyncio
 import unittest
 
-from app.backend.routers.lineage import _cadoc_anchor_tables
+from app.backend.routers.lineage import _cadoc_anchor_tables, _ext_label
 
 CAT = "rc18_catalog_02"
 
@@ -99,6 +101,23 @@ class CadocAnchorTablesTest(unittest.TestCase):
             [f"{CAT}.Silver.SCR2011_Contas"], [f"{CAT}.silver.scr2011_contas"]
         )
         self.assertEqual(anchors, [f"{CAT}.Silver.SCR2011_Contas"])
+
+
+class ExtLabelTest(unittest.TestCase):
+    """Prefix comes from the catalog (`rc18_catalog` → `rc18_`) in this env."""
+
+    def test_strips_the_deployment_prefix(self):
+        self.assertEqual(_ext_label("rc18_ddr2011_pgm_iexp0174"), "ddr2011_pgm_iexp0174")
+
+    def test_leaves_unprefixed_names_alone(self):
+        """Objects the customer created without the prefix must not be mangled."""
+        self.assertEqual(_ext_label("mainframe_batch_ddr"), "mainframe_batch_ddr")
+
+    def test_name_equal_to_the_prefix_is_not_emptied(self):
+        self.assertEqual(_ext_label("rc18_"), "rc18_")
+
+    def test_strips_only_the_leading_occurrence(self):
+        self.assertEqual(_ext_label("rc18_db2_rc18_hist"), "db2_rc18_hist")
 
 
 if __name__ == "__main__":
