@@ -14,6 +14,7 @@ from i18n import get_locale
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for
+from dqx_rules import build_index, scope_clause as rule_scope_clause
 from rc18_links import scope_table_clause
 from models import (
     Alert,
@@ -237,23 +238,16 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         )
         metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
-        # Cache user_metadata for the rules (used for dimensao_r18 tag).
+        # Cache do `user_metadata` das regras (fonte da tag dimensao_r18).
+        # Escopado ao catálogo e indexado por (tabela, check) — ver dqx_rules.
+        rule_scope_pred, rule_scope_params = await rule_scope_clause()
         rule_rows = await execute_query(
-            f"SELECT CAST(check AS STRING) AS checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
-            {},
+            "SELECT table_fqn, CAST(check AS STRING) AS checks "
+            f"FROM {DQX_CHECKS_TABLE} "
+            f"WHERE status IN ('active','approved') AND {rule_scope_pred}",
+            rule_scope_params,
         )
-        rule_um_by_name: dict[str, dict] = {}
-        for r in rule_rows:
-            try:
-                parsed = json.loads(r["checks"]) if isinstance(r.get("checks"), str) else (r.get("checks") or [])
-            except (json.JSONDecodeError, TypeError):
-                continue
-            items = parsed if isinstance(parsed, list) else [parsed]
-            for chk in items:
-                if isinstance(chk, dict):
-                    name = chk.get("name") or ((chk.get("check") or {}).get("arguments") or {}).get("name")
-                    if name:
-                        rule_um_by_name[name] = chk.get("user_metadata") or {}
+        rule_um = build_index(rule_rows)
 
         for r in runs:
             total = int(r.get("total_rows") or 0)
@@ -277,9 +271,9 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
                 # (validation.py:_fetch_studio_results). Sem isso, o dashboard
                 # contava check_metrics de regras stale (ex: source='ui' já
                 # apagadas) e divergia das Críticas SCR.
-                if check_name not in rule_um_by_name:
+                um = rule_um.get(table_fqn, check_name)
+                if um is None:
                     continue
-                um = rule_um_by_name[check_name]
                 meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
                 err = int(cmrow.get("error_count") or 0)
                 warn = int(cmrow.get("warning_count") or 0)

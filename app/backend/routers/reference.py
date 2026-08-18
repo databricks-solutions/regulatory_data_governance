@@ -12,6 +12,7 @@ from i18n import get_locale
 # results when reference tables haven't been seeded yet (setup_job not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for, resolve_meta
+from dqx_rules import scope_clause as rule_scope_clause
 from rc18_links import load_vinculos
 from models import (
     CalendarioDay,
@@ -230,12 +231,18 @@ async def get_criticas(
     # `checks` — o parser aceita tanto objeto único quanto array (ver
     # _parse_dq_quality_rules_rows). Studio considera "active" tanto
     # status='active' quanto 'approved'; demais estados ficam fora.
+    # Escopo por catálogo: a Studio pode ser compartilhada com outros projetos e
+    # `dq_quality_rules` é metastore-wide. Sem este predicado, regras de outro
+    # deployment entram nas Críticas (o `_doc_from_table_fqn` casa em
+    # `scr3040`/`scr3050` sem olhar o catálogo).
+    scope_pred, scope_params = await rule_scope_clause()
     rows = await execute_query(
         "SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks, status, version, source, updated_at "
         f"FROM {DQX_CHECKS_TABLE} "
         "WHERE status IN ('active', 'approved') "
+        f"  AND {scope_pred} "
         "ORDER BY table_fqn, rule_id",
-        {},
+        scope_params,
     )
     vinc_by_pair, vinc_by_rule = await load_vinculos()
     rules = _parse_dq_quality_rules_rows(rows, vinc_by_pair, vinc_by_rule)

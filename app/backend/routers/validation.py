@@ -29,6 +29,7 @@ from i18n import get_locale
 # results when silver tables haven't been populated yet (pipeline not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for, resolve_meta
+from dqx_rules import RuleIndex, build_index, scope_clause as rule_scope_clause
 from rc18_links import load_cadoc_tables, load_vinculos
 from models import (
     Pagination,
@@ -375,35 +376,29 @@ _DOC_TO_TABLE_PREFIX = {
 }
 
 
-async def _load_active_rules() -> dict[str, dict]:
-    """Return {check_name: full_check_dict} for every ACTIVE/APPROVED rule.
+async def _load_active_rules() -> RuleIndex:
+    """Definições das regras ACTIVE/APPROVED, indexadas por (tabela, check).
 
-    `full_check_dict` is the DQX check definition from the row's `check`
-    VARIANT column (Studio stores one check object per row; we CAST it to a
-    JSON string and the parser also tolerates a legacy array shape).
+    O valor é a definição DQX da coluna `check` (VARIANT) acrescida de
+    `rule_id`/`_row_table_fqn` da linha. Escopado ao catálogo do deployment e
+    indexado pelo PAR — `check_name` sozinho não é único em
+    `dq_quality_rules`. Ver `dqx_rules`.
     """
+    scope_pred, scope_params = await rule_scope_clause()
     rows = await execute_query(
-        f"SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
+        "SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
         f"FROM {DQX_CHECKS_TABLE} "
-        "WHERE status IN ('active', 'approved')",
-        {},
+        f"WHERE status IN ('active', 'approved') AND {scope_pred}",
+        scope_params,
     )
-    out: dict[str, dict] = {}
-    for r in rows:
-        chk_raw = r.get("checks")
-        try:
-            parsed = json.loads(chk_raw) if isinstance(chk_raw, str) else (chk_raw or [])
-        except (json.JSONDecodeError, TypeError):
-            continue
-        items = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
-        for chk in items:
-            if not isinstance(chk, dict):
-                continue
-            args = (chk.get("check") or {}).get("arguments") or {}
-            name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None)
-            if name:
-                out[name] = {**chk, "_row_table_fqn": r.get("table_fqn") or ""}
-    return out
+    return build_index(
+        rows,
+        value_of=lambda row, chk: {
+            **chk,
+            "rule_id": row.get("rule_id"),
+            "_row_table_fqn": row.get("table_fqn") or "",
+        },
+    )
 
 
 async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], str | None, str | None]:
@@ -466,8 +461,8 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
     metrics_rows = await execute_query(metrics_sql, {k: r["run_id"] for k, r in zip(rk, runs)})
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
-    # Step 3: active rules (check_name → check definition).
-    rules_by_name = await _load_active_rules()
+    # Step 3: definições ativas, indexadas por (tabela, check).
+    rules_index = await _load_active_rules()
 
     results: list[ValidationResult] = []
     latest_run_id: str | None = None
@@ -497,10 +492,10 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
             check_name = cmrow.get("check_name")
             if not check_name:
                 continue
-            rule = rules_by_name.get(check_name)
+            rule = rules_index.get(source_table, check_name)
             # Link-aware recovery: a rule authored without an explicit `name`
             # produces a runtime check_name (e.g. `parte_not_in_range`) that has
-            # no matching definition in `rules_by_name`. If the /linking screen
+            # no matching definition in `rules_index`. If the /linking screen
             # linked (source_table, check_name), surface it anyway using the
             # link's metadata instead of dropping it silently.
             link = vinc_by_pair.get((source_table, check_name))

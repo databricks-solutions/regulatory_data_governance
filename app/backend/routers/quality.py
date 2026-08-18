@@ -26,6 +26,7 @@ from models import (
     Violation,
 )
 from rc18_rule_meta import meta_for, resolve_meta
+from dqx_rules import RuleIndex, build_index, scope_clause as rule_scope_clause
 from rc18_links import load_vinculos, scope_table_clause
 
 router = APIRouter()
@@ -268,33 +269,22 @@ async def get_quality_dimensions(
     return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
 
-async def _load_rule_user_metadata() -> dict[str, dict]:
-    """Return {check_name: user_metadata_dict} for ALL active/approved rules.
+async def _load_rule_user_metadata() -> RuleIndex:
+    """`user_metadata` das regras active/approved, indexado por (tabela, check).
 
-    Used by `_aggregate_by_dimension` to honor the authoritative
-    `dimensao_r18` tag authored in DQX Studio (falling back to
-    `RC18_RULE_META` only if the tag is missing).
+    Honra a tag `dimensao_r18` autorada na DQX Studio (o fallback
+    `RC18_RULE_META` só entra quando a tag falta). Escopado ao catálogo do
+    deployment e indexado pelo PAR — `check_name` sozinho não é único em
+    `dq_quality_rules`. Ver `dqx_rules`.
     """
+    scope_pred, scope_params = await rule_scope_clause()
     rows = await execute_query(
-        f"SELECT CAST(check AS STRING) AS checks FROM {DQX_CHECKS_TABLE} WHERE status IN ('active','approved')",
-        {},
+        "SELECT table_fqn, CAST(check AS STRING) AS checks "
+        f"FROM {DQX_CHECKS_TABLE} "
+        f"WHERE status IN ('active','approved') AND {scope_pred}",
+        scope_params,
     )
-    out: dict[str, dict] = {}
-    for r in rows:
-        raw = r.get("checks")
-        try:
-            parsed = json.loads(raw) if isinstance(raw, str) else (raw or [])
-        except (json.JSONDecodeError, TypeError):
-            continue
-        items = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
-        for chk in items:
-            if not isinstance(chk, dict):
-                continue
-            args = (chk.get("check") or {}).get("arguments") or {}
-            name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None)
-            if name:
-                out[name] = chk.get("user_metadata") or {}
-    return out
+    return build_index(rows)
 
 
 async def _aggregate_by_dimension() -> dict[int, dict]:
@@ -361,9 +351,10 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             # /linking, a regra conta mesmo sem entrada em dq_quality_rules
             # (regra criada sem `name` explícito).
             link = vinc_by_pair.get((source_table, check_name))
-            if check_name not in rule_meta_cache and not link:
+            um = rule_meta_cache.get(source_table, check_name)
+            if um is None and not link:
                 continue
-            um = rule_meta_cache.get(check_name, {})
+            um = um or {}
             meta = resolve_meta(
                 check_name,
                 table_fqn=source_table,
@@ -450,9 +441,10 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
             if not check_name:
                 continue
             link = vinc_by_pair.get((source_table, check_name))
-            if check_name not in rule_meta_cache and not link:
+            um = rule_meta_cache.get(source_table, check_name)
+            if um is None and not link:
                 continue
-            um = rule_meta_cache.get(check_name, {})
+            um = um or {}
             meta = resolve_meta(
                 check_name,
                 table_fqn=source_table,
