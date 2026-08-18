@@ -6,6 +6,9 @@ meta_prompt.md
 .mcp.json
 cadocs_4010_4016/
 
+notebooks/setup/setup_byol_lineage_ddr2011.py
+scripts/cobol_lineage_extract.py
+
 # Local secrets / environment overrides — never commit
 .env
 .env.local
