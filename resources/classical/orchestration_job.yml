@@ -88,6 +88,9 @@ resources:
             base_parameters:
               app_name: ${resources.apps.r18_compliance_app.name}
               warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
+              # Catálogo DESTE deployment — obrigatório. Sem ele, um segundo
+              # deployment no mesmo workspace grantaria no catálogo do primeiro.
+              catalog: ${var.catalog}
               dqx_checks_table: ${var.dqx_checks_table}
               dqx_studio_sp: ${var.dqx_studio_sp}
 
