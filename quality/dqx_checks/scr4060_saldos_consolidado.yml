@@ -1,0 +1,197 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr4060_saldos_consolidado
+#
+# CADOC 4060 — Balancete Patrimonial Analítico do Conglomerado Prudencial
+# (MENSAL). Esta tabela cobre os blocos CONSOLIDADOS: 1 (`consolidadoPais`),
+# 2 (`consolidadoExterior`), 3 (`consolidadoPaisExterior`, obrigatório) e
+# 5 (`consolidadoPrudencial`, obrigatório) — os três valores do leiaute
+# (`saldoAglutinado`, `valorEliminacoes`, `saldoConsolidado`).
+#
+# Só grão de LINHA. As críticas AGREGADAS vivem em `reference.criticas_cosif` e
+# são avaliadas por `gold.criticas_cosif_4060`.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL, com "All rows" (sample_size=0). Ver quality/README.md.
+#
+# ℹ️ `expression` de UMA linha e SEM literal string; comparação com LETRA via
+#    código ASCII (`67` = `'C'`). Domínios vêm de views em `reference.*`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: conta_cosif_formato_10_digitos
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
+      msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-FMT-CONTA"
+    descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
+    nivel_verificacao: "1"
+
+- name: conta_cosif_digito_verificador
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
+      msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-DV-CONTA"
+    descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
+    nivel_verificacao: "1"
+
+# Crítica **E3** da Tabela de Críticas COSIF — *Total da linha difere das
+# parcelas*. O leiaute define `saldoConsolidado` como "a diferença entre o saldo
+# aglutinado e as eliminações", então a silver materializa
+# `diferenca_formacao = saldo_consolidado - (saldo_aglutinado - valor_eliminacoes)`
+# e o check só confere que é zero. Calcular na silver é o que permite o check ser
+# linha a linha, sem subquery.
+- name: formacao_do_saldo_consolidado
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "diferenca_formacao IS NOT NULL AND abs(diferenca_formacao) <= 0.01"
+      msg: "Crítica E3 — saldoConsolidado difere de saldoAglutinado menos valorEliminacoes."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "E3"
+    descricao: "O saldo consolidado deve corresponder à diferença entre o saldo aglutinado e as eliminações."
+    nivel_verificacao: "1"
+
+- name: saldo_aglutinado_informado
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo_aglutinado IS NOT NULL"
+      msg: "Conta de bloco consolidado sem saldoAglutinado informado."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-AGLUT-NULO"
+    descricao: "Toda conta dos blocos consolidados deve trazer o saldo aglutinado."
+    nivel_verificacao: "1"
+
+- name: saldo_consolidado_informado
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo_consolidado IS NOT NULL"
+      msg: "Conta de bloco consolidado sem saldoConsolidado informado."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-CONS-NULO"
+    descricao: "Toda conta dos blocos consolidados deve trazer o saldo consolidado."
+    nivel_verificacao: "1"
+
+# O leiaute exige `valorEliminacoes` nos blocos consolidados; zero é valor
+# válido (ausência de eliminação), NULL não é.
+- name: eliminacoes_informadas
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "valor_eliminacoes IS NOT NULL"
+      msg: "Conta de bloco consolidado sem valorEliminacoes (zero é válido, ausente não)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-ELIM-NULO"
+    descricao: "O valor das eliminações é obrigatório nos blocos consolidados; informe zero quando não houver."
+    nivel_verificacao: "1"
+
+- name: saldos_dentro_da_escala_do_leiaute
+  criticality: warn
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "(saldo_aglutinado IS NULL OR abs(saldo_aglutinado) < 10000000000000000) AND (saldo_consolidado IS NULL OR abs(saldo_consolidado) < 10000000000000000)"
+      msg: "Saldo acima da escala do leiaute (18 posições, 2 decimais)."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-SLD-ESCALA"
+    descricao: "Os saldos devem caber em 18 posições com 2 decimais."
+    nivel_verificacao: "1"
+
+# O bloco tem de ser um dos quatro consolidados do leiaute. Uma linha com bloco
+# de entidade nesta tabela indica erro de roteamento na silver.
+- name: bloco_consolidado_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "bloco IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4060_bloco_consolidado)"
+      msg: "Bloco fora do domínio dos blocos consolidados do leiaute (1, 2, 3 e 5)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-BLOCO"
+    descricao: "Esta tabela cobre apenas os blocos consolidados: consolidadoPais, consolidadoExterior, consolidadoPaisExterior e consolidadoPrudencial."
+    nivel_verificacao: "1"
+
+- name: tipo_remessa_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4060_tiporemessa)"
+      msg: "tipoRemessa fora do domínio do leiaute (I = inclusão, S = substituição)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-REMESSA"
+    descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição de documento já validado)."
+    nivel_verificacao: "1"
+
+- name: data_base_primeiro_dia_do_mes
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "day(dt_base) = 1"
+      msg: "Data-base do 4060 deve representar o mês (dia 1), conforme o padrão AAAA-MM do leiaute."
+  user_metadata:
+    dimensao_r18: "12"
+    critica_id: "COSIF-4060-DTBASE"
+    descricao: "A data-base do documento é mensal e no leiaute vem como AAAA-MM."
+    nivel_verificacao: "1"
+
+- name: documento_e_4060
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "cast(documento as int) = 4060"
+      msg: "Documento diferente de 4060 na pasta do 4060 (provável arquivo do 4066 depositado por engano)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-DOC"
+    descricao: "O pipeline do 4060 só deve receber documentos com codigoDocumento = 4060."
+    nivel_verificacao: "1"
+
+- name: codigo_conglomerado_no_formato
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_consolidado)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conglomerado) = 8 AND ascii(substring(codigo_conglomerado,1,1)) = 67 AND cast(substring(codigo_conglomerado,2,7) as bigint) IS NOT NULL"
+      msg: "codigoConglomerado fora do formato do leiaute (C + 7 dígitos, conforme cadastro no Unicad)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-4060-CONGL"
+    descricao: "O código do Conglomerado Prudencial tem 8 posições, iniciando por C, conforme o módulo Conglomerados do Unicad."
+    nivel_verificacao: "1"

@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Copies the canonical sample files from the deployed bundle's workspace
 # MAGIC files into `${catalog}.${landing_schema}.scr_xml`, one subdirectory per
-# MAGIC CADOC (`3040/`, `3050/`, `4010/`, `4016/`, `2011/`). The bronze pipelines
+# MAGIC CADOC (`3040/`, `3050/`, `4010/`, `4016/`, `4060/`, `2011/`). The bronze pipelines
 # MAGIC pick them up via Auto Loader (`pathGlobFilter Doc<cadoc>_*.xml`).
 # MAGIC
 # MAGIC | CADOC | Documento | Formato | Datas-base do sample |
@@ -13,6 +13,7 @@
 # MAGIC | 3050 | Estoque mensal agregado (TXB V11) | XML | 2026-03 |
 # MAGIC | 4010 | Balancete Patrimonial Analítico (mensal) | XML + posicional legado | 2026-03, 2026-04 (+ 2024-12 `.txt`) |
 # MAGIC | 4016 | Balanço Patrimonial Analítico (semestral) | XML | 2025-06, 2025-12 |
+# MAGIC | 4060 | Balancete do Conglomerado Prudencial (mensal) | XML | 2026-05, 2026-06 |
 # MAGIC | 2011 | DDR — parcelas de requerimento de capital e limites operacionais (**diário**) | XML | 2026-03-27/30/31, 2026-04-01/02 |
 # MAGIC
 # MAGIC Idempotent — overwrites the destination files on every run, so the
@@ -56,20 +57,22 @@ DEST_4016 = f"{VOLUME_ROOT}/4016"
 # CADOC 2011 (DDR) — o único documento DIÁRIO do acelerador, por isso o sample
 # tem vários arquivos por mês (`Doc2011_<cnpj>_<AAAA-MM-DD>.xml`).
 DEST_2011 = f"{VOLUME_ROOT}/2011"
+DEST_4060 = f"{VOLUME_ROOT}/4060"
 
 print(f"Catalog:        {CATALOG}")
 print(f"Landing schema: {LANDING}")
 print(f"Source dir:     {SOURCE_DIR}")
 for _label, _dest in (("3040", DEST_3040), ("3050", DEST_3050),
                       ("4010", DEST_4010), ("4016", DEST_4016),
-                      ("2011", DEST_2011)):
+                      ("2011", DEST_2011), ("4060", DEST_4060)):
     print(f"Dest {_label}:      {_dest}")
 
 # COMMAND ----------
 
 # Volume already declared by the bundle (resources/uc_assets.yml -> volumes.scr_xml),
-# but the 3040/ 3050/ 4010/ 4016/ 2011/ subdirectories are runtime artifacts. Create via FUSE.
-for _dest in (DEST_3040, DEST_3050, DEST_4010, DEST_4016, DEST_2011):
+# but the 3040/ 3050/ 4010/ 4016/ 2011/ 4060/ subdirectories are runtime artifacts. Create via FUSE.
+for _dest in (DEST_3040, DEST_3050, DEST_4010, DEST_4016, DEST_2011,
+              DEST_4060):
     os.makedirs(_dest, exist_ok=True)
 
 # COMMAND ----------
@@ -110,6 +113,11 @@ copy_pattern("Doc4016_*.xml", DEST_4016, "4016")
 print("Copying Doc 2011 samples (Doc2011_*.xml)…")
 copy_pattern("Doc2011_*.xml", DEST_2011, "2011")
 
+# CADOC 4060 (Conglomerado Prudencial) — duas data-bases: as críticas de variação
+# comparam a corrente com a anterior.
+print("Copying Doc 4060 samples (Doc4060_*.xml)…")
+copy_pattern("Doc4060_*.xml", DEST_4060, "4060")
+
 # … e o posicional legado (data-base < jan/2025), quando houver.
 print("Copying legacy positional COSIF samples (Doc4010_*.txt / Doc4016_*.txt)…")
 copy_pattern("Doc4010_*.txt", DEST_4010, "4010-legado")
@@ -119,7 +127,7 @@ copy_pattern("Doc4016_*.txt", DEST_4016, "4016-legado")
 
 print("Sample files ready under:")
 for sub, label in ((DEST_3040, "3040"), (DEST_3050, "3050"),
-                   (DEST_4010, "4010"), (DEST_4016, "4016"),
+                   (DEST_4010, "4010"), (DEST_4016, "4016"), (DEST_4060, "4060"),
                    (DEST_2011, "2011")):
     print(f"  {label}: {sub}")
     for f in sorted(os.listdir(sub)):

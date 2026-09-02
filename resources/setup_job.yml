@@ -54,6 +54,17 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
 
+        # Críticas do CADOC 4060 (complemento COSIF) como DADOS — 2 de exemplo.
+        - task_key: "setup_reference_4060"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_reference_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              reference_schema: ${resources.schemas.reference.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
         - task_key: "load_sample_xmls"
           depends_on:
             - task_key: "setup_reference"

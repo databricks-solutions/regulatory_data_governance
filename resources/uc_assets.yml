@@ -61,7 +61,7 @@ resources:
       schema_name: landing
       name: scr_xml
       volume_type: MANAGED
-      comment: "Inbox for submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.xml (COSIF Balancete, mensal) under scr_xml/4010/, Doc4016_*.xml (COSIF Balanco, semestral) under scr_xml/4016/, Doc2011_*.xml (DDR, diario — um arquivo por data-base) under scr_xml/2011/. Legacy positional Doc40*.txt (data-base < jan/2025) live in the same COSIF subfolders. The bronze pipeline auto-loads from here."
+      comment: "Inbox for submissions — Doc3040_*.xml under scr_xml/3040/, Doc3050_*.xml under scr_xml/3050/, Doc4010_*.xml (COSIF Balancete, mensal) under scr_xml/4010/, Doc4016_*.xml (COSIF Balanco, semestral) under scr_xml/4016/, Doc4060_*.xml (COSIF complemento) under scr_xml/4060/, Doc2011_*.xml (DDR, diario — um arquivo por data-base) under scr_xml/2011/. Legacy positional Doc40*.txt (data-base < jan/2025) live in the same COSIF subfolders. The bronze pipeline auto-loads from here."
 
     checkpoints:
       catalog_name: ${var.catalog}

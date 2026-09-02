@@ -9,6 +9,7 @@
 # from a fresh deploy to populated gold tables:
 #
 #   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#                    ├─→  setup_reference_4060 ──────────────────────┘
 #                    └─→  grant_warehouse_perms (paralelo)
 #
 # Cada step espera o predecessor concluir com sucesso. As DLT pipelines são
@@ -43,6 +44,19 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
+
+        # Semeia `reference.criticas_cosif` (2 críticas de exemplo do CADOC 4060) e
+        # `reference.cosif_anexo_i_res352`. Sem este seed, `criticas_cosif_4060`
+        # não encontra crítica ativa.
+        - task_key: "setup_reference_4060"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              reference_schema: ${resources.schemas.reference.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
 
         - task_key: "load_sample_xmls"
           depends_on:
@@ -87,5 +101,6 @@ resources:
         - task_key: "gold"
           depends_on:
             - task_key: "silver"
+            - task_key: "setup_reference_4060"
           pipeline_task:
             pipeline_id: ${resources.pipelines.gold.id}

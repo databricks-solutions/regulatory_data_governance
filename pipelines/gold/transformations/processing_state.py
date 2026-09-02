@@ -19,7 +19,7 @@ from pyspark.sql import functions as F
 
 @dlt.table(
     name="processing_state",
-    comment="Estado de processamento do pipeline gold — data-base do ultimo CADOC processado. O mes vigente e o MAX do mes observado em 3040/3050/4010/2011 e current_data_base e o MAX dt_base DENTRO desse mes. Consumido pelo app para o seletor de Data-Base.",
+    comment="Estado de processamento do pipeline gold — data-base do ultimo CADOC processado. O mes vigente e o MAX do mes observado em 3040/3050/4010/4060/2011 e current_data_base e o MAX dt_base DENTRO desse mes. Consumido pelo app para o seletor de Data-Base.",
     table_properties={"quality": "gold"},
 )
 def processing_state():
@@ -35,6 +35,8 @@ def processing_state():
         dlt.read("posicao_3040").select("dt_base")
         .unionByName(dlt.read("posicao_3050").select("dt_base"))
         .unionByName(dlt.read("posicao_4010").select("dt_base"))
+        # O 4060 (Conglomerado Prudencial) é MENSAL, então contribui.
+        .unionByName(dlt.read("posicao_4060").select("dt_base"))
         .unionByName(dlt.read("posicao_2011").select("dt_base"))
         .withColumn("_mes", F.trunc(F.col("dt_base"), "month"))
     )

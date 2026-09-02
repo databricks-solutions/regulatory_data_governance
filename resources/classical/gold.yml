@@ -46,6 +46,14 @@ resources:
               silver_schema: ${resources.schemas.silver_schema.name}
               gold_schema: ${resources.schemas.gold_schema.name}
 
+        - task_key: "posicao_4060"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
         - task_key: "posicao_2011"
           notebook_task:
             notebook_path: ../../pipelines/classical/gold/posicao_2011.py
@@ -73,11 +81,22 @@ resources:
               gold_schema: ${resources.schemas.gold_schema.name}
               reference_schema: ${resources.schemas.reference.name}
 
+        # Críticas COSIF 4060 — lê a silver do 4060 e reference.criticas_cosif.
+        - task_key: "criticas_cosif_4060"
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/criticas_cosif_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
+
         - task_key: "processing_state"
           depends_on:
             - task_key: "posicao_3040"
             - task_key: "posicao_3050"
             - task_key: "posicao_4010"
+            - task_key: "posicao_4060"
             - task_key: "posicao_2011"
           notebook_task:
             notebook_path: ../../pipelines/classical/gold/processing_state.py

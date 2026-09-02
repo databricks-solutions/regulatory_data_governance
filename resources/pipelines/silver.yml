@@ -28,6 +28,9 @@ resources:
             path: ../../pipelines/silver/transformations/scr4010.py
         - notebook:
             path: ../../pipelines/silver/transformations/scr4016.py
+        # CADOC 4060 (complemento COSIF) — um notebook por documento.
+        - notebook:
+            path: ../../pipelines/silver/transformations/scr4060.py
         # CADOC 2011 (DDR, diário) — três tabelas num único notebook
         # (scr2011_contas, scr2011_detalhamentos, scr2011_parametros), uma por
         # grão do leiaute. Todas no mesmo schema: um pipeline DLT escreve num

@@ -12,7 +12,7 @@ The repo is organized around two distinct scenarios, with **physical separation*
 
 | Scenario | Who | Bundle | What gets deployed |
 |----------|-----|--------|---------------------|
-| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads the `sample/` CADOC files — `Doc3040*.xml`, `Doc3050*.xml`, `Doc4010*.xml`, `Doc4016*.xml`, `Doc2011*.xml` — into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. DQX Studio is a mandatory external prerequisite and is not provisioned by this bundle. Apart from DQX, the bundle provisions its own dependencies. Customers with an existing catalog/warehouse set `catalog` / `warehouse_id` in `target.yml` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
+| **Implementation (own-environment adoption)** | Anyone using this as the base for their own RC18 platform | `rc18-starter-kit` (root `databricks.yml`) | App (`USE_MOCK_BACKEND=false`) + catalog (`rc18_catalog`) + serverless 2X-Small warehouse + bronze/silver/gold pipelines + 2 dashboards + setup job (seeds `reference` + uploads the `sample/` CADOC files — `Doc3040*.xml`, `Doc3050*.xml`, `Doc4010*.xml`, `Doc4016*.xml`, `Doc2011*.xml`, `Doc4060*.xml` — into the landing volume) + `landing`/`reference` schemas + Auto Loader volumes. DQX Studio is a mandatory external prerequisite and is not provisioned by this bundle. Apart from DQX, the bundle provisions its own dependencies. Customers with an existing catalog/warehouse set `catalog` / `warehouse_id` in `target.yml` and comment out `resources/catalog.yml` / `resources/warehouse.yml`. |
 | **Demo mode** | Anyone wanting a quick hands-on with the app in mock mode and synthetic XML generation | `rc18-demo` (`demo/databricks.yml`) | App (`USE_MOCK_BACKEND=true`) + 3 jobs only: `r18-synthetic-data-loader`, `rc18-scr3040-generator`, `rc18-scr3050-generator` + dedicated catalog (`rc18_demo_catalog`) + `bronze`/`reference` schemas. **No DLT pipelines, no dashboards, no Genie.** |
 
 Critical invariants:
@@ -66,11 +66,12 @@ regulatory-data-governance/
 │
 ├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
 │   ├── bronze/transformations/    # SDP/DLT mode: @dlt.table notebooks
-│   │                              #   raw_3040 · raw_3050 · raw_4010 · raw_4016 · raw_2011
+│   │                              #   raw_3040 · raw_3050 · raw_4010 · raw_4016 · raw_2011 · raw_4060
 │   ├── silver/transformations/    #   Pure ELT — no quality logic (lives in DQX Studio)
 │   │                              #   scr3040 · scr3050 · scr4010 · scr4016 · scr2011
 │   ├── gold/transformations/      #   ONE notebook per gold artifact:
-│   │                              #   posicao_{3040,3050,4010,4016,2011} · criticas_ddr_2011
+│   │                              #   posicao_{3040,3050,4010,4016,2011,4060}
+│   │                              #   · criticas_ddr_2011 · criticas_cosif_4060
 │   │                              #   · reconciliacao_cosif · processing_state
 │   └── classical/                 # CLASSICAL mode (default): plain PySpark notebooks,
 │       ├── bronze/                #   no `import dlt`. Same tables/contract as the DLT path.
@@ -80,6 +81,8 @@ regulatory-data-governance/
 ├── notebooks/                     # Accelerator utility notebooks
 │   └── setup/
 │       ├── setup_reference_tables.py   # Loads BACEN domains/criticas/calendar (NOT synthetic)
+│       ├── setup_reference_4060.py     # 2 críticas de EXEMPLO do 4060 como DADOS
+│       │                               #   + Anexo I da Res. BCB 352 (vazio)
 │       └── setup_reference_2011.py     # GERADO — domínios dos 7 anexos do DDR 2011
 │                                       #   (551 valores) + views v_dom_2011_*.
 │                                       #   Regenerar: scripts/gen_ddr2011_reference_seed.py
@@ -92,6 +95,10 @@ regulatory-data-governance/
 │                                  #   Doc4010_*.xml (mensal 2026-03/04) + Doc4016_*.xml
 │                                  #   (semestral 2025-06/12) — leiaute XML oficial;
 │                                  #   Doc4010_*_2024-12.txt = posicional legado
+│                                  #   Doc4060_*.xml (Conglomerado Prudencial, mensal:
+│                                  #   2026-05/06) — sintético, 56 contas, gerado por
+│                                  #   scripts/gen_cadoc4060_sample.py com invariantes
+│                                  #   E3/E4/E5/G100 garantidos por construção;
 │                                  #   Doc2011_*.xml (DDR, DIÁRIO: 2026-03-27/30/31 +
 │                                  #   2026-04-01/02) — gerado por
 │                                  #   scripts/gen_ddr2011_sample.py, validado no XSD
@@ -100,7 +107,8 @@ regulatory-data-governance/
 │   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
 │   ├── catalog.yml                # ${var.catalog} (default rc18_catalog)
 │   ├── warehouse.yml              # Serverless 2X-Small warehouse, default for ${var.warehouse_id}
-│   ├── setup_job.yml              # 4 tasks: setup_reference + setup_reference_2011
+│   ├── setup_job.yml              # 5 tasks: setup_reference + setup_reference_2011
+│   │                              #   + setup_reference_4060
 │   │                              #   + load_sample_xmls + setup_byol_lineage
 │   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
 │   ├── classical/                 # CLASSICAL mode (default, included): jobs bronze/silver/gold
@@ -113,6 +121,9 @@ regulatory-data-governance/
 ├── docs/                          # Specs, BACEN references, regulatory docs
 │   ├── cosif/                     # Leiaute oficial 4010/4016 (PDF do BCB) + README com
 │   │                              #   tabelas de campos, DV da conta e base normativa
+│   ├── cadoc4060/                  # Leiaute oficial 4060/4066 (PDF do BCB) + Tabela de
+│   │                              #   Críticas COSIF + README com o catálogo de
+│   │                              #   catálogo de críticas e as pendências
 │   └── ddr2011/                    # Leiaute oficial 2011/DDR (XLS v5 + XSD + exemplo XML +
 │                                  #   críticas + instruções PDF) + README com as 92 contas
 │                                  #   do Anexo 4 e as 11 críticas vigentes
@@ -195,6 +206,12 @@ databricks bundle run rc18_end_to_end                                           
 # NOTE: these run commands are IDENTICAL in classical (default) and SDP mode —
 # both modes reuse the same resource keys (bronze/silver/gold/rc18_end_to_end).
 
+# === CADOC 4060: regenerar o sample sintético do acelerador ===
+# Duas data-bases consecutivas por causa das críticas que comparam a data-base
+# corrente com a anterior. Sem dado de cliente; versionado. Grava em sample/
+# direto — o glob de load_sample_xmls não é recursivo.
+python scripts/gen_cadoc4060_sample.py                                               # → sample/Doc4060_C0000001_2026-{05,06}.xml
+
 # === Switch pipeline mode: classical (default) → SDP/DLT ===
 # 1. In target.yml set `pipeline_mode: sdp` (documentation/telemetry).
 # 2. In databricks.yml `include:`, comment `resources/classical/*.yml` and
@@ -246,10 +263,10 @@ local-dev overrides.
 | Schema | Tables | Purpose |
 |--------|--------|---------|
 | `landing` | 0 + volumes | Raw inbox (volumes: scr_xml, _checkpoints) — one subfolder per CADOC: `scr_xml/{3040,3050,4010,4016,2011}/` |
-| `bronze` | 5 | Parsed XML docs, one row per file (`raw_3040_doc`, `raw_3050_doc`, `raw_2011_doc`) + COSIF balances, one row per account, **one table per document** (`raw_4010_saldos`, `raw_4016_saldos`) |
-| `silver` | 11 | Normalized tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050` + `scr4010_saldos` (Balancete, mensal) e `scr4016_saldos` (Balanço, semestral) + `scr2011_contas`/`scr2011_detalhamentos`/`scr2011_parametros` (DDR, **diário** — uma tabela por grão do leiaute). Written by the silver DLT pipeline (DLT writes to a single schema). |
-| `gold` | 8 | Curated (`posicao_3040`, `posicao_3050`, `posicao_4010`, `posicao_4016`, `posicao_2011`) + `reconciliacao_cosif` (batimento 3040×4010) + `criticas_ddr_2011` (críticas intra-DDR 4693/4751) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at`; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`. Cada CADOC contribui com o **mês** da sua data-base — 3040/3050/**4010**/**2011** — e `current_data_base` é o MAX dt_base DENTRO do mês vigente. `posicao_4016` fica FORA de propósito — é semestral e empurraria o seletor mensal) |
-| `reference` | 7 | Domains (inclui os 551 valores dos 7 anexos do DDR 2011 + views `v_dom_2011_*`), criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions, `cosif_contas` (mapa de batimento COSIF) |
+| `bronze` | 6 | Parsed XML docs, one row per file (`raw_3040_doc`, `raw_3050_doc`, `raw_2011_doc`) + COSIF balances, one row per account, **one table per document** (`raw_4010_saldos`, `raw_4016_saldos`) + `raw_4060_saldos` (uma linha por bloco×entidade×conta — o 4060 tem 7 blocos) |
+| `silver` | 13 | Normalized tables (pure ELT, no quality columns) — naming pattern `scr<CADOC>_<entidade>`: `scr3040_operacoes`, `scr3040_clientes`, `scr3040_garantias`, `scr3040_vencimentos`, `scr3040_cont_4966` + unified `scr3050` + `scr4010_saldos` (Balancete, mensal) e `scr4016_saldos` (Balanço, semestral) + `scr2011_contas`/`scr2011_detalhamentos`/`scr2011_parametros` (DDR, **diário** — uma tabela por grão do leiaute) + `scr4060_saldos_entidade`/`scr4060_saldos_consolidado` (Conglomerado Prudencial, mensal — também uma tabela por grão). Written by the silver DLT pipeline (DLT writes to a single schema). |
+| `gold` | 10 | Curated (`posicao_3040`, `posicao_3050`, `posicao_4010`, `posicao_4016`, `posicao_2011`, `posicao_4060`) + `reconciliacao_cosif` (batimento 3040×4010) + `criticas_ddr_2011` (críticas intra-DDR 4693/4751) + `criticas_cosif_4060` (as ~260 críticas do 4060, avaliadas por um motor genérico sobre `reference.criticas_cosif`) + `processing_state` (1-row: `current_data_base`/`data_base_month`/`updated_at`; alimenta o seletor de Data-Base do app via `GET /dashboard/data-bases`. Cada CADOC contribui com o **mês** da sua data-base — 3040/3050/**4010**/**4060**/**2011** — e `current_data_base` é o MAX dt_base DENTRO do mês vigente. `posicao_4016` fica FORA de propósito — é semestral e empurraria o seletor mensal) |
+| `reference` | 9 | Domains (inclui os 551 valores dos 7 anexos do DDR 2011 + views `v_dom_2011_*`, e os anexos 1–3 do 4060 + views `v_dom_4060_*`), criticas rules, BCB calendar, equivalencia 3040↔3050, R.18 dimensions, leiaute versions, `cosif_contas` (mapa de batimento COSIF), `criticas_cosif` (as críticas do 4060 como DADOS de domínio: operador + contas de cada lado + comparador), `cosif_anexo_i_res352` (percentuais de perda esperada) |
 
 ## Key Links
 
@@ -258,6 +275,8 @@ local-dev overrides.
 - SCR Doc 3050: https://www.bcb.gov.br/estabilidadefinanceira/scrdoc3050
 - COSIF Doc 4010: https://www.bcb.gov.br/fis/info/doc4010.asp · Doc 4016: https://www.bcb.gov.br/fis/info/doc4016.asp
 - Leiaute COSIF 4010/4016 (um só p/ os dois): https://www.bcb.gov.br/estabilidadefinanceira/leiautecosif4010 — cópia + tabelas de campos em [docs/cosif/](docs/cosif/README.md)
+- COSIF Doc 4060: https://www.bcb.gov.br/fis/info/doc4060.asp · Leiaute 4060/4066 (um só p/ os dois): https://www.bcb.gov.br/estabilidadefinanceira/leiautecosif4060 — cópia + o catálogo de críticas em [docs/cadoc4060/](docs/cadoc4060/README.md)
+- Tabela de Críticas COSIF: https://www.bcb.gov.br/content/estabilidadefinanceira/cosif/criticas-cosif/criticascosif.pdf
 - Leiaute DDR 2011: https://www.bcb.gov.br/estabilidadefinanceira/leiautedocumentoDDR2011 — cópia (XLS v5 + XSD + exemplo + críticas + instruções) em [docs/ddr2011/](docs/ddr2011/README.md)
 - External Lineage (BYOL): https://docs.databricks.com/aws/en/data-governance/unity-catalog/external-lineage
 
@@ -270,6 +289,7 @@ See [docs/gdocs_notes.md](docs/gdocs_notes.md) for meeting notes and project con
 - **SCR 3040**: Detailed credit operation data — individual operations with 130+ fields, IPOC identification, cessao/FIDC complexity. Submitted as XML, validated before sending to BCB.
 - **SCR 3050**: Aggregated credit data in TXB/XML format. Versioned layouts (current: V11). Weekly/monthly periodicity with BCB business day calendar.
 - **COSIF 4010 / 4016**: the two accounting documents (doc 1 do COSIF) that carry the balance per COSIF account. **4010 = Balancete Patrimonial Analítico, monthly**, STA code `ACOS010`, due day 18 of the following month. **4016 = Balanço Patrimonial Analítico, semiannual (June and December only)**, STA code `ACOS016`, due the last business day of the following month; because it is the position *after* the year's result has been appropriated, accounts from groups 7 (Receitas) and 8 (Despesas) are NOT expected. Both share ONE layout — XML since data-base jan/2025 (IN BCB 469/2024), positional before that. Spec + field tables in [docs/cosif/README.md](docs/cosif/README.md); PDF in `docs/cosif/`. The 4010 is the accounting leg of the inter-CADOC reconciliation (crítica N01).
+- **COSIF 4060 / 4066**: o par contábil do **conglomerado prudencial** — **4060 = Balancete, MENSAL**; 4066 = Balanço, semestral. Remetido pela instituição **líder** do conglomerado (cadastro no módulo *Conglomerados* do Unicad), em **ordem sequencial obrigatória** (como o DDR 2011). ⚠️ **NÃO** compartilha leiaute com o 4010/4016: tem 1 cabeçalho + **7 blocos**, com a posição contábil no país, no exterior, país e exterior, o balancete individual de cada **entidade assemelhada**, o consolidado prudencial e as dependências e participações no exterior. A regra de formação do documento (`País e Exterior + Assemelhadas − Eliminações = Conglomerado Prudencial`) e `saldoConsolidado = saldoAglutinado − valorEliminacoes` são críticas aritméticas de graça. Spec, catálogo de críticas e pendências em [docs/cadoc4060/README.md](docs/cadoc4060/README.md).
 - **DDR 2011**: *Demonstrativo Diário de Acompanhamento das Parcelas de Requerimento de Capital e dos Limites Operacionais* — documento **prudencial** (não contábil) do projeto BCB "Limites Operacionais", periodicidade **diária**. Carrega exposição em ouro/moeda estrangeira/variação cambial e as parcelas de requerimento de capital para risco de mercado (RWACAM, RWAJUR1-4, RWACOM, RWAACS, RWAMPAD, RWAMINT, VPRM). Enviado pelo Sisbacen (transação `SLIM800`), **em ordem sequencial obrigatória**: sem a data-base anterior recepcionada, o BCB não aceita a subsequente. Leiaute v5 (a partir de 01/07/2023) com 7 anexos de domínio — 92 contas, 186 moedas, 248 países. Spec + as 92 contas + as 11 críticas vigentes em [docs/ddr2011/README.md](docs/ddr2011/README.md).
 - **Equivalencia**: Mapping between Doc 3040 and Doc 3050 modalities — exposed as `mod_3050_equiv` in silver for downstream consumers.
 - **Criticas**: Validation rules (syntactic + semantic + inter-document) that must pass before submission.
@@ -314,8 +334,8 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - **Classical bronze uses a DISTINCT Auto Loader checkpoint/schema path** (`_checkpoints/classical_bronze_3040_*` / `classical_bronze_3050_*`) from the DLT pipeline's paths. Auto Loader state is format- and pipeline-specific; sharing a path across modes corrupts state. Switching modes on an already-populated landing volume re-ingests from the classical checkpoints (independent of the DLT ones).
 - DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines. (Classical mode has no such limit — a single job task writes wherever `saveAsTable` points, which is why a classical silver notebook can cover several tables of the same CADOC: `scr3040.py` writes 5, `scr2011.py` writes 3.)
 - `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`. The classical notebooks use `spark.table` everywhere (no `dlt.read`); the gold `processing_state` same-pipeline dependency becomes a separate task that `spark.table`-reads the positions written by its predecessor tasks.
-- **Gold is ONE notebook per artifact, and the classical task keys are per document.** `pipelines/{classical/,}gold/` each hold 8 files (`posicao_{3040,3050,4010,4016,2011}` · `criticas_ddr_2011` · `reconciliacao_cosif` · `processing_state`), replacing a single `posicao_mensal.py`, so a CADOC goes bronze→silver→gold without waiting on the others. Three consequences:
-  - In `rc18_end_to_end` the task key `gold` is GONE — it became `gold_3040`/`gold_3050`/`gold_4010`/`gold_4016`/`gold_2011`/`gold_criticas_2011`/`gold_reconciliacao_cosif`/`gold_processing_state`. Update any `--only gold`. The resource keys are preserved, so `bundle run gold` / `bundle run rc18_end_to_end` are unchanged.
+- **Gold is ONE notebook per artifact, and the classical task keys are per document.** `pipelines/{classical/,}gold/` each hold 10 files (`posicao_{3040,3050,4010,4016,2011,4060}` · `criticas_ddr_2011` · `criticas_cosif_4060` · `reconciliacao_cosif` · `processing_state`), replacing a single `posicao_mensal.py`, so a CADOC goes bronze→silver→gold without waiting on the others. Three consequences:
+  - In `rc18_end_to_end` the task key `gold` is GONE — it became `gold_3040`/`gold_3050`/`gold_4010`/`gold_4016`/`gold_2011`/`gold_4060`/`gold_criticas_2011`/`gold_criticas_4060`/`gold_reconciliacao_cosif`/`gold_processing_state`. Update any `--only gold`. The resource keys are preserved, so `bundle run gold` / `bundle run rc18_end_to_end` are unchanged.
   - Only the two cross-CADOC artifacts fan in: `reconciliacao_cosif` on silver 3040 + 4010, `processing_state` on the 4 MONTHLY positions (4016 excluded — semiannual).
   - Classical `processing_state`/`reconciliacao_cosif` tolerate a missing source table (`spark.catalog.tableExists`): with a subset of CADOCs active, an absent table means "out of scope", not failure. `reconciliacao_cosif` exits instead of computing half a batimento — read that skip as "N01 was NOT evaluated". SDP can't express this (a `@dlt.table` must return a DataFrame; an empty one would wipe the table), so it stays all-or-nothing — the one deliberate behavioural difference between the modes.
 - **Bronze parser choice (3040 vs 3050)** —
@@ -324,6 +344,15 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
   - `lxml` is therefore declared under `environment.dependencies` for the 3050 path in BOTH modes — `resources/pipelines/bronze.yml` (SDP) and `resources/classical/bronze.yml` + `resources/classical/orchestration_job.yml` (classical `serverless_env`).
   - When migrating from `binaryFile` to native XML, use a NEW `cloudFiles.schemaLocation` path (e.g. `_checkpoints/bronze_3040_xml_native/`) — Auto Loader's checkpoint state is format-specific and reusing the old path crashes.
 - **COSIF 4010/4016 são UM leiaute, e o formato oficial é XML desde a data-base jan/2025.** A `IN BCB 469/2024` substituiu o arquivo posicional (71 posições) pelo XML — `<documento codigoDocumento cnpj dataBase tipoRemessa><contas><conta codigoConta saldo/></contas></documento>`, enviado no STA com `ACOS010` (4010) / `ACOS016` (4016). Apesar do leiaute ser um só, cada documento tem seu PRÓPRIO notebook e sua PRÓPRIA tabela (`raw_4010.py`→`bronze.raw_4010_saldos`, `raw_4016.py`→`bronze.raw_4016_saldos`, e o mesmo na silver) — os clientes operam 4010 e 4016 de forma independente, então cada um precisa de task, checkpoint e reprocessamento próprios, como já ocorre com 3040/3050. O preço é parse duplicado: **se mudar o parse de um, mude o do gêmeo** (as 4 combinações doc×modo devem ficar idênticas fora da prosa). A coluna `formato_origem` (`xml` | `posicional`) registra de qual leiaute a linha veio, e `documento` é gravada SEM filtro na silver de propósito: um arquivo do 4016 na pasta do 4010 tem de chegar na silver para o check DQX `documento_e_4010` acusar, em vez de desaparecer em silêncio. O leiaute XML **não tem campo de sinal** (o posicional tem, na posição 33), então `sinal` fica NULL nas linhas vindas de XML — `gold.reconciliacao_cosif` já usa `abs(saldo)`, então não é afetado. Tabelas de campos e base normativa em [docs/cosif/README.md](docs/cosif/README.md).
+- **O CADOC 4060 NÃO compartilha o leiaute do 4010/4016.** São todos COSIF, mas o 4010/4016 é uma lista plana de contas e o 4060 tem **1 cabeçalho + 7 blocos**, com a posição de cada entidade do conglomerado. Consequências no modelo: bronze é UMA tabela larga com a coluna `bloco` como discriminador e colunas de valor nuláveis (os blocos têm formas diferentes — `saldoAglutinado`/`valorEliminacoes`/`saldoConsolidado` nos consolidados, `saldoContabil`/`saldoAte3Meses`/`saldoApos3Meses` nas assemelhadas, `saldo` nas dependências/participações); a silver separa em **2 tabelas por grão** (`scr4060_saldos_entidade` para os blocos 4/6/7, `scr4060_saldos_consolidado` para 1/2/3/5), mesmo critério do DDR 2011. Misturar entidade e consolidado numa tabela só obrigaria toda consulta a filtrar por bloco para não somar os dois. `gold.posicao_4060` é o bloco 5 (`consolidadoPrudencial`) — o número que representa o conglomerado — com `saldo` apelidado de `saldo_consolidado` para ficar comparável a `posicao_4010`.
+- **As críticas do 4060 são DADOS DE DOMÍNIO; o acelerador versiona só 2 de EXEMPLO.** `reference.criticas_cosif` guarda uma linha por crítica — `operador`, contas de cada lado com peso, `comparador`, tolerância — sem expressão SQL embutida. `gold.criticas_cosif_4060` é um avaliador genérico que não sabe quantas regras existem, então carregar o catálogo de uma instituição é `INSERT`, nunca código. O seed traz `COS00584` (lado único, soma fecha em zero) e `COS00802` (lado duplo com comparador). As 2 citam contas COSIF reais, ausentes do sample sintético, então nele dão `INDETERMINADO` (conta citada que não veio ⇒ nunca zero) — o `OK` do primeiro deploy vem da estrutural `SOMA_PRUDENCIAL`.
+  Os cinco operadores são batizados com o NOME que o BCB dá à crítica arquetípica de cada família (Tabela de Críticas COSIF), para o vocabulário ser reconhecível por quem lê as tabelas do regulador: `TOTAL_DIFERE_DAS_PARCELAS` (crítica **E3**) · `CONTRAPARTIDA_AUSENTE` (*"Contrapartida Ativo Passivo"*) · `SALDO_INFERIOR_AO_ESPERADO` (*"não pode ser inferior a"*) · `SALDO_INDEVIDO` (*"não podem registrar saldos"*) · `DIVERGENCIA_ACIMA_DA_TOLERANCIA`. ⚠️ O BCB **não** publica taxonomia de operador — os códigos (`A7`, `E3`, `COS00802`) identificam críticas individuais. O recorte em famílias é do acelerador; os rótulos são do BCB.
+  `tipo_critica` guarda o `E`/`I` do BCB (Erro reprova o documento · Indício é sinalizado no CRD), como já se faz em `gold.criticas_ddr_2011`; `criticality` (o que o DQX consome) é derivada dele — `E → error`, `I → warn` — e gravada como coluna no seed. Mude a coluna se a instituição quiser tratar indício como bloqueante.
+  `modulo_esquerda`/`modulo_direita` existem porque `|a| + |b| ≠ |a + b|` e o avaliador distingue os dois casos; `simetrico` cobre a forma em que a crítica só aprova quando os DOIS lados têm saldo.
+- **O `filter` de um check DQX não tolera literal string, por isso existe `critica_seq`.** O round-trip de `parse_json` da Studio corrompe aspas, então o recorte por crítica usa a chave NUMÉRICA `critica_seq` (única e rastreável), nunca `critica_id`. É a mesma razão pela qual os checks do DDR 2011 usam `cast(critica_id as int) = 4693`. A crítica estrutural calculada pelo próprio gold (`SOMA_PRUDENCIAL`) usa `seq` reservado (`900001`) para nunca colidir. Um check por crítica, nunca um guarda-chuva (o repo já removeu o guarda-chuva do DDR justamente por perder a rastreabilidade por crítica).
+- **`INDETERMINADO` é status de primeira classe em `gold.criticas_cosif_4060`.** Perna ausente que NÃO tolera ausência ⇒ `INDETERMINADO` e veredito nulo, em vez de assumir zero e devolver um "ok" que o BCB não daria. A view `v_crit_4060_status_bloqueante` inclui `INDETERMINADO`, então crítica inavaliável não passa em silêncio.
+- **18 críticas do 4060 comparam com a data-base ANTERIOR, e isso muda o que a landing precisa ter.** O sample sintético traz DUAS data-bases (`2026-05` e `2026-06`) por esse motivo; com um mês só essas regras ficam permanentemente indeterminadas. Os checks dessas 18 são gerados como `warn`, não `error`: na primeira data-base a falha é estrutural (falta histórico), não de dado.
+- **`gold.posicao_4060` ENTRA em `processing_state`** — o 4060 é mensal. O contraste é com `posicao_4016`, que fica fora por ser semestral. Mesma lógica do 4010.
 - **Conta COSIF: o grupo é o 1º dígito SIGNIFICATIVO, nunca `substring(codigo_conta, 1, 1)`.** O campo tem 10 dígitos, mas as contas representativas deste repo (e as de qualquer extração legada) vêm na forma antiga — 8 dígitos + DV preenchidos à esquerda com zeros (`0031000000` = grupo 3) — enquanto a forma oficial de jan/2025 começa já no grupo (`1000000009` = grupo 1). Usar o 1º caractere retorna `0` para toda conta legada e faz o check "4016 não pode ter grupos 7/8" NUNCA acusar violação (falso-negativo silencioso). A derivação correta, usada em `scr4010.py`/`scr4016.py`, é `substring(cast(codigo_conta as bigint) as string, 1, 1)`.
 - **O DV da conta COSIF é verificável e vale a pena checar**: pesos 3-7-1 repetidos da direita para a esquerda sobre os 9 dígitos de hierarquia, `DV = 10 - (soma mod 10)` (0 se o resto for 0). Confirmado contra os quatro códigos do exemplo oficial do BCB (§4 do leiaute). Implementado no check DQX `conta_cosif_digito_verificador` e em `dv_cosif()` no gerador do demo.
 - **`gold.posicao_4016` NÃO entra em `processing_state`.** O 4016 é semestral (só junho/dezembro), então um Balanço de 30/06 entraria no `MAX(dt_base)` e empurraria o seletor de Data-Base do app para um mês em que 3040/3050/4010 ainda não têm posição. O seletor acompanha o ciclo MENSAL — `processing_state` cobre apenas `posicao_3040`/`3050`/`4010`.

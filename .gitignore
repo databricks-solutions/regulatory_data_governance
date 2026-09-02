@@ -6,6 +6,10 @@ meta_prompt.md
 .mcp.json
 cadocs_4010_4016/
 
+# Pacote recortado do CADOC 4060 para compartilhamento.
+CADOC_4060/
+CADOC_4060.zip
+
 notebooks/setup/setup_byol_lineage_ddr2011.py
 scripts/cobol_lineage_extract.py
 
@@ -55,3 +59,16 @@ target.yml
 .playwright-mcp/
 screenshot_*.png
 .DS_Store
+
+# Ferramental específico do piloto CADOC 4060 — USO ÚNICO. 
+scripts/lib/
+scripts/extract_cadoc4060_rules.py
+scripts/validate_4060_replay.py
+scripts/gen_cosif4060_reference_seed.py
+scripts/gen_dqx_checks_4060.py
+scripts/xlsx_to_cadoc4060.py
+quality/dqx_checks/criticas_cosif_4060/
+
+# Cenário de piloto do CADOC 4060. 
+sample/Doc4060_C0009999_*
+sample/*_analitico.parquet

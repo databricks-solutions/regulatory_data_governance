@@ -12,11 +12,14 @@
 # tabelas gold populadas:
 #
 #   setup_reference  ┬→ setup_reference_2011 ─┐
+#                    ├→ setup_reference_4060 ─┤  (críticas do 4060 como dados)
 #                    │                        │
 #                    ├─→ load_sample_xmls ──┬─┴→ bronze_3040 → silver_3040 → gold_3040 ─┐
 #                    │                      ├→ bronze_3050 → silver_3050 → gold_3050 ───┤
 #                    │                      ├→ bronze_4010 → silver_4010 → gold_4010 ───┼→ gold_processing_state
 #                    │                      ├→ bronze_4016 → silver_4016 → gold_4016    │
+#                    │                      ├→ bronze_4060 → silver_4060 ┬→ gold_4060 ──┤
+#                    │                      │                            └→ gold_criticas_4060
 #                    │                      └→ bronze_2011 → silver_2011 ┬→ gold_2011 ──┘
 #                    │                                                   └→ gold_criticas_2011
 #                    └─→ grant_warehouse_perms (paralelo)
@@ -26,7 +29,7 @@
 # Uma trilha bronze→silver→gold POR CADOC: falha em um não bloqueia os outros, e
 # `--only <task>` reprocessa um documento isolado ponta a ponta. Só os dois
 # artefatos cross-CADOC têm fan-in — `gold_reconciliacao_cosif` (3040 × 4010) e
-# `gold_processing_state` (4 posições MENSAIS; o 4016 é semestral e fica fora).
+# `gold_processing_state` (5 posições MENSAIS; o 4016 é semestral e fica fora).
 #
 # bronze/silver/gold aqui são TASKS DE NOTEBOOK (não pipeline_task): rodam os
 # notebooks clássicos em pipelines/classical/**. Cada step espera o predecessor.
@@ -72,6 +75,19 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
+
+        # Semeia `reference.criticas_cosif` (2 críticas de exemplo do 4060) e
+        # `reference.cosif_anexo_i_res352`. Sem esta task, `gold_criticas_4060`
+        # não encontra crítica ativa e encerra sem avaliar nada.
+        - task_key: "setup_reference_4060"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              reference_schema: ${resources.schemas.reference.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
 
         - task_key: "load_sample_xmls"
           depends_on:
@@ -146,6 +162,18 @@ resources:
               landing_schema: ${resources.schemas.landing.name}
               bronze_schema: ${resources.schemas.bronze_schema.name}
 
+        # CADOC 4060 (complemento COSIF) — tabela e checkpoint próprios → paralelo.
+        - task_key: "bronze_4060"
+          depends_on:
+            - task_key: "load_sample_xmls"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
         # CADOC 2011 (DDR) — DIÁRIO. Tabela e checkpoint próprios → paralelo.
         - task_key: "bronze_2011"
           depends_on:
@@ -200,6 +228,17 @@ resources:
           environment_key: serverless_env
           notebook_task:
             notebook_path: ../../pipelines/classical/silver/scr4016.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+              silver_schema: ${resources.schemas.silver_schema.name}
+
+        - task_key: "silver_4060"
+          depends_on:
+            - task_key: "bronze_4060"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/silver/scr4060.py
             base_parameters:
               catalog: ${var.catalog}
               bronze_schema: ${resources.schemas.bronze_schema.name}
@@ -263,6 +302,17 @@ resources:
               silver_schema: ${resources.schemas.silver_schema.name}
               gold_schema: ${resources.schemas.gold_schema.name}
 
+        - task_key: "gold_4060"
+          depends_on:
+            - task_key: "silver_4060"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/posicao_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+
         - task_key: "gold_2011"
           depends_on:
             - task_key: "silver_2011"
@@ -301,12 +351,27 @@ resources:
               gold_schema: ${resources.schemas.gold_schema.name}
               reference_schema: ${resources.schemas.reference.name}
 
+        # Críticas COSIF 4060 — lê a silver do 4060 e reference.criticas_cosif.
+        - task_key: "gold_criticas_4060"
+          depends_on:
+            - task_key: "silver_4060"
+            - task_key: "setup_reference_4060"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/gold/criticas_cosif_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              silver_schema: ${resources.schemas.silver_schema.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
+              reference_schema: ${resources.schemas.reference.name}
+
         # Seletor de Data-Base do app. Tolera posição ausente.
         - task_key: "gold_processing_state"
           depends_on:
             - task_key: "gold_3040"
             - task_key: "gold_3050"
             - task_key: "gold_4010"
+            - task_key: "gold_4060"
             - task_key: "gold_2011"
           environment_key: serverless_env
           notebook_task:

@@ -30,7 +30,15 @@ CATALOG = dbutils.widgets.get("catalog")
 GOLD_SCHEMA = dbutils.widgets.get("gold_schema")
 
 # Posições que definem o ciclo MENSAL. `posicao_4016` não entra (ver o cabeçalho).
-_CADOCS_MENSAIS = ["posicao_3040", "posicao_3050", "posicao_4010", "posicao_2011"]
+_CADOCS_MENSAIS = [
+    "posicao_3040",
+    "posicao_3050",
+    "posicao_4010",
+    # O 4060 é MENSAL, então entra. O 4016 continua FORA: é semestral e
+    # empurraria o seletor para um mês sem posição dos demais CADOCs.
+    "posicao_4060",
+    "posicao_2011",
+]
 
 # COMMAND ----------
 

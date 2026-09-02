@@ -30,10 +30,14 @@ resources:
         - notebook:
             path: ../../pipelines/gold/transformations/posicao_4016.py
         - notebook:
+            path: ../../pipelines/gold/transformations/posicao_4060.py
+        - notebook:
             path: ../../pipelines/gold/transformations/posicao_2011.py
         - notebook:
             path: ../../pipelines/gold/transformations/criticas_ddr_2011.py
         - notebook:
             path: ../../pipelines/gold/transformations/reconciliacao_cosif.py
+        - notebook:
+            path: ../../pipelines/gold/transformations/criticas_cosif_4060.py
         - notebook:
             path: ../../pipelines/gold/transformations/processing_state.py
