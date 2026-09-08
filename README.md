@@ -160,6 +160,37 @@ Após o deploy, um **admin do workspace** faz isto **uma vez**:
 
 ---
 
+## Linhagem externa gravável (BYOL)
+
+A página **Linhagem** do app é read/write sobre as APIs `external-metadata` /
+`external-lineage` do Unity Catalog. A **leitura** do grafo funciona sem
+configuração; as **escritas** (criar objeto externo ou relacionamento) rodam como
+o service principal do app, que precisa de `CREATE EXTERNAL METADATA` no
+metastore.
+
+Este privilégio é de **metastore**, então nenhum job do bundle o concede — exige
+um **admin do metastore**. É uma configuração única por workspace:
+
+```bash
+./scripts/grant_byol_lineage.sh -p <perfil>      # aplica
+```
+
+O script descobre o SP do app, aplica os grants e verifica o resultado. É
+idempotente.
+
+**Sintoma sem os grants:** criar metadado externo ou relacionamento pela UI
+retorna 403 com `User does not have CREATE EXTERNAL METADATA on Metastore`.
+
+> **Atenção:** `bundle destroy` seguido de `deploy` recria o app com um service principal novo, e o
+> grant de metastore se perde. Rode o script de novo após um destroy/redeploy.
+
+> O `setup_byol_lineage` (task do job `r18-setup-${target}`) semeia a topologia
+> inicial de demonstração e **também** depende deste privilégio — mas ele roda
+> como o usuário do `run_as` do job, não como o SP do app. Conceder os grants
+> antes evita ter que descobrir isso na ordem errada.
+
+---
+
 ## Sala Genie (opcional)
 
 A sala Genie (NL→SQL sobre os dados R.18) utiliza um **bundle separado** em [`genie/`](genie/README.md), fora do deploy principal — a API do Genie valida na criação que todas as tabelas já existem, o que só ocorre depois de `rc18_end_to_end` rodar. Por isso o deploy principal sobe sem Genie e o app mostra um placeholder "disponível após deploy".
@@ -189,6 +220,18 @@ databricks bundle run bronze                    # ingere os XMLs
 databricks bundle run silver                    # bronze → silver
 databricks bundle run gold                      # posições curadas
 ```
+
+No modo clássico cada camada tem **uma task por CADOC**, então dá para reprocessar
+um documento isolado:
+
+```bash
+databricks bundle run gold --only posicao_2011              # só a posição do DDR
+databricks bundle run rc18_end_to_end --only silver_2011+   # DDR de silver a gold
+```
+
+Tasks de gold: `posicao_{3040,3050,4010,4016,2011}`, `criticas_ddr_2011`,
+`reconciliacao_cosif`, `processing_state` (no `rc18_end_to_end` levam o prefixo
+`gold_`). No modo SDP/DLT a seleção por tabela é feita no refresh da pipeline.
 
 Se o código Svelte mudou, rebuilde o frontend antes do deploy:
 
@@ -288,6 +331,7 @@ regulatory-data-governance/
 │   ├── {bronze,silver,gold}/ #   modo SDP/DLT (notebooks @dlt.table)
 │   └── classical/            #   modo clássico, padrão (notebooks PySpark, sem DLT)
 ├── notebooks/setup/          # Setup de reference tables, grants e lineage
+├── scripts/                  # Utilitários de linha de comando (grants BYOL, geradores)
 ├── dashboards/               # Definições Lakeview (AI/BI)
 ├── resources/                # DAB resources (app, catálogo, warehouse, jobs)
 │   ├── classical/            #   jobs do modo clássico (padrão, incluído)

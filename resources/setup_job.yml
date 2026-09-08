@@ -1,14 +1,25 @@
 # One-time setup job for a fresh deploy of the implementation bundle.
 #
-# Three tasks:
-#   1. setup_reference     — seeds reference schema with BCB domains, criticas,
-#                            calendar, equivalencia, R.18 dimensions. Idempotent.
-#   2. load_sample_xmls    — copies sample/Doc3040_*.xml and sample/Doc3050_*.xml
-#                            into landing.scr_xml/{3040,3050}/. Idempotent.
-#   3. setup_byol_lineage  — registers 13 external metadata objects (Oracle, DB2,
-#                            Informatica, BACEN validators, STA/CADIP) and 13
-#                            lineage relationships with the UC External Lineage API.
-#                            Requires CREATE EXTERNAL METADATA on the metastore.
+# Four tasks:
+#   1. setup_reference      — seeds reference schema with BCB domains, criticas,
+#                             calendar, equivalencia, R.18 dimensions. Idempotent.
+#   2. setup_reference_2011 — seeds the 551 domain values of the 7 annexes of the
+#                             CADOC 2011 (DDR) layout + the v_dom_2011_* views the
+#                             DQX checks read. GENERATED notebook (see
+#                             scripts/gen_ddr2011_reference_seed.py). Idempotent.
+#   3. load_sample_xmls     — copies sample/Doc{3040,3050,4010,4016,2011}_*.xml
+#                             (+ any legacy positional Doc40*.txt) into
+#                             landing.scr_xml/{3040,3050,4010,4016,2011}/. Idempotent.
+#   4. setup_byol_lineage   — DEMO SEED only. Registers a small mixed-integration
+#                            starting topology (COBOL→file/AutoLoader, Oracle→
+#                            Federation, SQL Server→Lakeflow Connect, BACEN
+#                            validator, STA/CADIP) so a fresh deploy shows an
+#                            end-to-end graph. The customer then MANAGES the real
+#                            topology from the app's Linhagem page (write-through
+#                            over the same External Metadata / Lineage APIs).
+#                            Requires CREATE EXTERNAL METADATA on the metastore
+#                            (grant also needed by the app SP — see
+#                            notebooks/setup/grant_dqx_studio_access.sql).
 #                            Idempotent (deletes rc18_* objects before recreating).
 #
 # Run order on a fresh deployment:
@@ -29,6 +40,30 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
+
+        # Domínios do CADOC 2011 (DDR) — 551 valores dos 7 anexos do leiaute +
+        # as views v_dom_2011_* consumidas pelos checks DQX. Notebook GERADO por
+        # scripts/gen_ddr2011_reference_seed.py. Depende do setup_reference, que
+        # cria a tabela reference.dominios.
+        - task_key: "setup_reference_2011"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_reference_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}
+
+        # Críticas do CADOC 4060 (complemento COSIF) como DADOS — 2 de exemplo.
+        - task_key: "setup_reference_4060"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../notebooks/setup/setup_reference_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              reference_schema: ${resources.schemas.reference.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
 
         - task_key: "load_sample_xmls"
           depends_on:

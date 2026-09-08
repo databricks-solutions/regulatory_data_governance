@@ -1,0 +1,272 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr4060_saldos_entidade
+#
+# CADOC 4060 — Balancete Patrimonial Analítico do Conglomerado Prudencial
+# (MENSAL; o gêmeo semestral é o 4066). Esta tabela cobre os blocos com grão de
+# ENTIDADE: 4 (`assemelhadas`), 6 (`dependenciasExterior`) e 7
+# (`participacoesExterior`).
+#
+# Checks derivados do leiaute oficial "Documentos 4060 e 4066 — Balancete/Balanço
+# Patrimonial Analítico Conglomerado Prudencial" (BCB) e da Tabela de Críticas
+# COSIF. Cópia e tabelas de campos em `docs/cadoc4060/README.md`.
+#
+# Só grão de LINHA. As críticas AGREGADAS vivem em `reference.criticas_cosif` e
+# são avaliadas por `gold.criticas_cosif_4060`.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL: cada check tem `filter` = só a data-base corrente
+#    (`dt_base = (SELECT max(dt_base) FROM esta_tabela)`). Execute com "All rows"
+#    (sample_size=0): o DQX amostra ANTES do filter. Ver quality/README.md.
+#
+# ℹ️ As `expression` são de UMA linha e SEM literais string (o DQX corrompe
+#    aspas no round-trip de `parse_json`). Onde o leiaute exige comparar com uma
+#    LETRA, comparamos o código ASCII — `ascii(...) = 67` é `'C'`, `65` é `'A'`,
+#    `90` é `'Z'`. Domínios vêm de views em `reference.*`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# §Atributos de Conta — "Conta Cosif pertencente ao Plano de Contas". Desde
+# jan/2025 o plano tem 6 níveis hierárquicos + 1 dígito verificador (INs 426 a
+# 433), totalizando 10 dígitos no arquivo.
+- name: conta_cosif_formato_10_digitos
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
+      msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-FMT-CONTA"
+    descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
+    nivel_verificacao: "1"
+
+# Dígito verificador da conta COSIF (10º dígito): pesos 3-7-1 repetidos da
+# direita para a esquerda sobre os 9 dígitos de hierarquia; DV = 10 - (soma mod
+# 10), com 0 quando o resto é 0. Conferido contra os quatro códigos do exemplo
+# oficial do BCB. Cobre a crítica **D1** (código indevido) na parte formal.
+- name: conta_cosif_digito_verificador
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
+      msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-DV-CONTA"
+    descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
+    nivel_verificacao: "1"
+
+# Toda conta informada precisa trazer saldo. Nos blocos de entidade o leiaute usa
+# `saldoContabil` (assemelhadas) ou `saldo` (dependências/participações); a
+# silver unifica os dois em `saldo`.
+- name: saldo_informado
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo IS NOT NULL"
+      msg: "Conta informada no bloco de entidade sem saldo (o leiaute exige uma linha por conta e seu saldo)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-SLD-NULO"
+    descricao: "Toda conta informada no documento deve trazer o saldo."
+    nivel_verificacao: "1"
+
+# O campo tem 18 posições, sendo 2 decimais. Guarda contra estouro de escala
+# vindo de conversão indevida na origem.
+- name: saldo_dentro_da_escala_do_leiaute
+  criticality: warn
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo IS NULL OR abs(saldo) < 10000000000000000"
+      msg: "Saldo acima da escala do leiaute (18 posições, 2 decimais)."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-SLD-ESCALA"
+    descricao: "O saldo deve caber em 18 posições com 2 decimais."
+    nivel_verificacao: "1"
+
+# Cabeçalho: `tipoRemessa` é I (inclusão) ou S (substituição).
+- name: tipo_remessa_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4060_tiporemessa)"
+      msg: "tipoRemessa fora do domínio do leiaute (I = inclusão, S = substituição)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-REMESSA"
+    descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição de documento já validado)."
+    nivel_verificacao: "1"
+
+# `dataBase` no padrão AAAA-MM; a silver a promove ao 1º dia do mês.
+- name: data_base_primeiro_dia_do_mes
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "day(dt_base) = 1"
+      msg: "Data-base do 4060 deve representar o mês (dia 1), conforme o padrão AAAA-MM do leiaute."
+  user_metadata:
+    dimensao_r18: "12"
+    critica_id: "COSIF-4060-DTBASE"
+    descricao: "A data-base do documento é mensal e no leiaute vem como AAAA-MM."
+    nivel_verificacao: "1"
+
+# `codigoDocumento` é 4060 (Balancete) ou 4066 (Balanço). Este pipeline é o do
+# 4060, e a coluna chega SEM filtro de propósito: um 4066 depositado por engano
+# na pasta do 4060 tem de acusar aqui, em vez de desaparecer em silêncio.
+- name: documento_e_4060
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "cast(documento as int) = 4060"
+      msg: "Documento diferente de 4060 na pasta do 4060 (provável arquivo do 4066 depositado por engano)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-DOC"
+    descricao: "O pipeline do 4060 só deve receber documentos com codigoDocumento = 4060."
+    nivel_verificacao: "1"
+
+# `codigoConglomerado`: A8, "Código do Conglomerado Prudencial com 8 posições
+# (C0099999)", iniciado por C maiúsculo. Comparamos o ASCII de C (67) para não
+# usar literal string na expressão.
+- name: codigo_conglomerado_no_formato
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conglomerado) = 8 AND ascii(substring(codigo_conglomerado,1,1)) = 67 AND cast(substring(codigo_conglomerado,2,7) as bigint) IS NOT NULL"
+      msg: "codigoConglomerado fora do formato do leiaute (C + 7 dígitos, conforme cadastro no Unicad)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-4060-CONGL"
+    descricao: "O código do Conglomerado Prudencial tem 8 posições, iniciando por C, conforme o módulo Conglomerados do Unicad."
+    nivel_verificacao: "1"
+
+# Toda linha de bloco de entidade tem de identificar a entidade
+# (`idAssemelhada` no bloco 4, `identificacao` nos blocos 6 e 7).
+- name: entidade_identificada
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "entidade_id IS NOT NULL AND length(trim(entidade_id)) > 0"
+      msg: "Linha de bloco de entidade sem identificação da entidade."
+  user_metadata:
+    dimensao_r18: "10"
+    critica_id: "COSIF-4060-ENT-ID"
+    descricao: "Cada balancete de entidade deve trazer a identificação da entidade (ID Bacen ou código da instalação)."
+    nivel_verificacao: "1"
+
+# O ID Bacen começa por Z (assemelhadas e participações no exterior) e o código
+# de instalação por A (dependências no exterior); o resto é numérico.
+# ⚠️ O leiaute declara `A9` para `identificacao` mas descreve "A seguido de 7
+# dígitos" (8 posições) — a inconsistência é da fonte, então o check confere o
+# prefixo e a parte numérica, sem fixar o comprimento.
+- name: entidade_id_prefixo_e_numerico
+  criticality: warn
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "entidade_id IS NULL OR (ascii(substring(entidade_id,1,1)) IN (65, 90) AND cast(substring(entidade_id,2,length(entidade_id)-1) as bigint) IS NOT NULL)"
+      msg: "Identificação da entidade fora do padrão (Z + dígitos para ID Bacen, A + dígitos para instalação)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-4060-ENT-FMT"
+    descricao: "A identificação da entidade começa por Z (ID Bacen) ou A (código de instalação), seguida de dígitos."
+    nivel_verificacao: "1"
+
+# Anexo 1 do leiaute — tipo da entidade assemelhada. Nulo fora do bloco 4, então
+# a expressão tolera NULL em vez de filtrar por bloco.
+- name: tipo_assemelhada_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tipo_assemelhada IS NULL OR cast(tipo_assemelhada as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_tipo_assemelhada)"
+      msg: "tipoAssemelhada fora do domínio do Anexo 1 do leiaute."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-TIPO-ASSEM"
+    descricao: "O tipo da entidade assemelhada deve estar no Anexo 1 do leiaute (Res. BCB 168/2021 e Res. 4.280/2013)."
+    nivel_verificacao: "1"
+
+# Anexo 2 — origem da assemelhada: 1 = País, 2 = Exterior.
+- name: origem_assemelhada_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "origem_assemelhada IS NULL OR cast(origem_assemelhada as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_origem_assemelhada)"
+      msg: "origemAssemelhada fora do domínio do Anexo 2 (1 = País, 2 = Exterior)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-ORIG-ASSEM"
+    descricao: "A origem da entidade assemelhada deve ser 1 (País) ou 2 (Exterior)."
+    nivel_verificacao: "1"
+
+# Anexo 3 — motivo da consolidação.
+- name: motivo_consolidacao_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "motivo_consolidacao IS NULL OR cast(motivo_consolidacao as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_motivo_consolidacao)"
+      msg: "motivoConsolidacao fora do domínio do Anexo 3 do leiaute."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-MOTIVO"
+    descricao: "O motivo da consolidação dos saldos da assemelhada deve estar no Anexo 3 do leiaute."
+    nivel_verificacao: "1"
+
+# Crítica **A7** da Tabela de Críticas COSIF — *Obrigatoriedade do campo Moeda
+# Funcional*: "se a origem da assemelhada for tipo 2 (exterior), o campo moeda
+# funcional deve ser informado". Aplica-se aos blocos 4, 6 e 7.
+- name: moeda_funcional_obrigatoria_no_exterior
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "origem_assemelhada IS NULL OR cast(origem_assemelhada as int) <> 2 OR (moeda_funcional IS NOT NULL AND length(trim(moeda_funcional)) = 3)"
+      msg: "Crítica A7 — entidade com origem no exterior sem moeda funcional informada (ISO de 3 letras)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "A7"
+    descricao: "Entidade assemelhada de origem no exterior deve informar a moeda funcional, conforme ISO com três letras."
+    nivel_verificacao: "1"
+
+# Cabeçalho: `taxaConversao` é obrigatória desde a data-base 2023-01. O leiaute
+# admite 99.9999 para indicar não aplicação do campo.
+- name: taxa_conversao_informada
+  criticality: warn
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4060_saldos_entidade)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "taxa_conversao IS NOT NULL AND taxa_conversao > 0"
+      msg: "taxaConversao ausente ou não positiva (use 99.9999 para indicar não aplicação do campo)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-4060-TAXA"
+    descricao: "A taxa de conversão Dólar/Real é obrigatória desde a data-base 2023-01; 99.9999 indica não aplicação."
+    nivel_verificacao: "1"

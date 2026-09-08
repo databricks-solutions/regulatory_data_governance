@@ -9,6 +9,7 @@
 # from a fresh deploy to populated gold tables:
 #
 #   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#                    ├─→  setup_reference_4060 ──────────────────────┘
 #                    └─→  grant_warehouse_perms (paralelo)
 #
 # Cada step espera o predecessor concluir com sucesso. As DLT pipelines são
@@ -30,6 +31,32 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${resources.schemas.reference.name}
+
+        # Domínios do CADOC 2011 (DDR) — 551 valores dos 7 anexos do leiaute +
+        # as views v_dom_2011_* consumidas pelos checks DQX. Notebook GERADO por
+        # scripts/gen_ddr2011_reference_seed.py. Depende do setup_reference, que
+        # cria a tabela reference.dominios.
+        - task_key: "setup_reference_2011"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_2011.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.reference.name}
+
+        # Semeia `reference.criticas_cosif` (2 críticas de exemplo do CADOC 4060) e
+        # `reference.cosif_anexo_i_res352`. Sem este seed, `criticas_cosif_4060`
+        # não encontra crítica ativa.
+        - task_key: "setup_reference_4060"
+          depends_on:
+            - task_key: "setup_reference"
+          notebook_task:
+            notebook_path: ../../notebooks/setup/setup_reference_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              reference_schema: ${resources.schemas.reference.name}
+              gold_schema: ${resources.schemas.gold_schema.name}
 
         - task_key: "load_sample_xmls"
           depends_on:
@@ -53,6 +80,9 @@ resources:
             base_parameters:
               app_name: ${resources.apps.r18_compliance_app.name}
               warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
+              # Catálogo DESTE deployment — obrigatório. Sem ele, um segundo
+              # deployment no mesmo workspace grantaria no catálogo do primeiro.
+              catalog: ${var.catalog}
               dqx_checks_table: ${var.dqx_checks_table}
               dqx_studio_sp: ${var.dqx_studio_sp}
 
@@ -71,5 +101,6 @@ resources:
         - task_key: "gold"
           depends_on:
             - task_key: "silver"
+            - task_key: "setup_reference_4060"
           pipeline_task:
             pipeline_id: ${resources.pipelines.gold.id}

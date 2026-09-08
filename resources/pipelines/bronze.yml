@@ -23,6 +23,22 @@ resources:
             path: ../../pipelines/bronze/transformations/raw_3040.py
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_3050.py
-        # CADOC 4010 (Balancete COSIF) — Auto Loader CSV (tabular, sem XML/lxml).
+        # CADOC 4010 (Balancete, mensal) e 4016 (Balanço, semestral) — leiaute XML
+        # oficial (IN BCB 469/2024, data-base ≥ jan/2025) via leitor nativo de XML,
+        # mais o posicional legado. Um notebook e uma tabela POR DOCUMENTO: os
+        # clientes operam os dois de forma independente.
         - notebook:
             path: ../../pipelines/bronze/transformations/raw_4010.py
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_4016.py
+        # CADOC 4060 (complemento COSIF) — leitor nativo de XML via leitor
+        # nativo de XML (IN BCB X/Y, um notebook e uma tabela POR DOCUMENTO:
+        # os clientes operam este de forma independente).
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_4060.py
+        # CADOC 2011 (DDR, DIÁRIO) — leitor nativo de XML com schema explícito
+        # (o XSD oficial fecha a estrutura, então não precisa da UDF lxml).
+        # Uma linha por ARQUIVO: o leiaute tem dois grãos filhos (parametros e
+        # contas→detalhamentos) e a silver os abre em três tabelas.
+        - notebook:
+            path: ../../pipelines/bronze/transformations/raw_2011.py

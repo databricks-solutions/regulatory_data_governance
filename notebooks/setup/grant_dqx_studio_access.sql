@@ -90,17 +90,79 @@ GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_metrics               TO `<RC18_S
 -- MAGIC     | python3 -c "import sys,json;print(json.load(sys.stdin).get('creator_user_name'))"
 -- MAGIC   ```
 -- MAGIC
--- MAGIC Substitua `<DQX_STUDIO_SP>` pelo identificador retornado.
+-- MAGIC Substitua `<DQX_STUDIO_SP>` pelo identificador retornado e `<CATALOG>`
+-- MAGIC pelo catálogo DESTE deployment (`var.catalog` do target — default
+-- MAGIC `rc18_catalog`). Com vários deployments no mesmo workspace, grantar no
+-- MAGIC catálogo errado deixa os checks com subquery em 100% de violação
+-- MAGIC silenciosa. Este script é o fallback manual do task
+-- MAGIC `grant_warehouse_perms` do `rc18_end_to_end`, que já faz tudo isto com o
+-- MAGIC catálogo correto.
 
 -- COMMAND ----------
 
-GRANT USE CATALOG ON CATALOG  rc18_catalog                  TO `<DQX_STUDIO_SP>`;
-GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.silver           TO `<DQX_STUDIO_SP>`;
-GRANT SELECT      ON SCHEMA   rc18_catalog.silver           TO `<DQX_STUDIO_SP>`;
-GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.gold             TO `<DQX_STUDIO_SP>`;
-GRANT SELECT      ON SCHEMA   rc18_catalog.gold             TO `<DQX_STUDIO_SP>`;
-GRANT USE SCHEMA  ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`;
-GRANT SELECT      ON SCHEMA   rc18_catalog.reference        TO `<DQX_STUDIO_SP>`;
+GRANT USE CATALOG ON CATALOG  <CATALOG>                     TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   <CATALOG>.silver              TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   <CATALOG>.silver              TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   <CATALOG>.gold                TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   <CATALOG>.gold                TO `<DQX_STUDIO_SP>`;
+GRANT USE SCHEMA  ON SCHEMA   <CATALOG>.reference           TO `<DQX_STUDIO_SP>`;
+GRANT SELECT      ON SCHEMA   <CATALOG>.reference           TO `<DQX_STUDIO_SP>`;
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## GRANT BYOL (obrigatório para a Linhagem gravável): o SP do app precisa
+-- MAGIC ## gerenciar External Metadata / External Lineage
+-- MAGIC
+-- MAGIC **Por que:** a página **Linhagem** do app RC18 virou uma superfície de
+-- MAGIC gestão (read/write) sobre as APIs `external-metadata` / `external-lineage`
+-- MAGIC do Unity Catalog. As escritas (criar/editar/remover objeto externo e
+-- MAGIC relacionamento de linhagem) rodam como o **service principal do app**.
+-- MAGIC
+-- MAGIC Privilégios necessários para o SP do app:
+-- MAGIC   - `CREATE EXTERNAL METADATA` no **metastore** — criar objetos externos;
+-- MAGIC   - `MODIFY` no objeto externo — definir relacionamentos a partir dele
+-- MAGIC     (o owner recebe MODIFY automaticamente ao criar);
+-- MAGIC   - nas tabelas UC alvo de relacionamento: `SELECT` (relacionamento
+-- MAGIC     DOWNSTREAM, ex. gold→validador) e `MODIFY` (relacionamento UPSTREAM,
+-- MAGIC     ex. fonte→bronze). O SP do app já costuma ter esses no `rc18_catalog`.
+-- MAGIC
+-- MAGIC **Sintoma se faltar:** o formulário "Novo metadado externo" / "Novo
+-- MAGIC relacionamento" retorna HTTP 403 e o app mostra a mensagem
+-- MAGIC "O service principal do app não tem privilégio para gravar metadados/
+-- MAGIC linhagem externa…". A LEITURA do grafo (visualização) não exige esses
+-- MAGIC grants — só a escrita.
+-- MAGIC
+-- MAGIC **Prefira o script automatizado** — ele resolve o identificador correto,
+-- MAGIC aplica e verifica os grants:
+-- MAGIC   ```bash
+-- MAGIC   ./scripts/grant_byol_lineage.sh -p <perfil>
+-- MAGIC   ```
+-- MAGIC
+-- MAGIC Para fazer manualmente, descubra o SP do app com:
+-- MAGIC   ```bash
+-- MAGIC   databricks apps get rc18-starter-kit-dev --profile <perfil> --output json \
+-- MAGIC     | grep service_principal_client_id
+-- MAGIC   ```
+-- MAGIC
+-- MAGIC **Use o `service_principal_client_id` (UUID), não o
+-- MAGIC `service_principal_name`.** O nome (ex.: `app-2i923x rc18-starter-kit-dev`)
+-- MAGIC é rejeitado com `PRINCIPAL_DOES_NOT_EXIST`, apesar de ser o campo exibido
+-- MAGIC na UI.
+-- MAGIC
+-- MAGIC Substitua `<RC18_APP_SP>` abaixo pelo UUID. `CREATE EXTERNAL METADATA` é
+-- MAGIC concedido no metastore (não há FQN — é privilégio de metastore) e exige que
+-- MAGIC quem executa seja **admin do metastore**.
+
+-- COMMAND ----------
+
+GRANT CREATE EXTERNAL METADATA ON METASTORE TO `<RC18_APP_SP>`;
+-- Escrita de relacionamentos que apontam para tabelas do catálogo do deployment:
+GRANT USE CATALOG ON CATALOG <CATALOG>                      TO `<RC18_APP_SP>`;
+GRANT USE SCHEMA  ON SCHEMA  <CATALOG>.bronze               TO `<RC18_APP_SP>`;
+GRANT MODIFY      ON SCHEMA  <CATALOG>.bronze               TO `<RC18_APP_SP>`;
+GRANT USE SCHEMA  ON SCHEMA  <CATALOG>.gold                 TO `<RC18_APP_SP>`;
+GRANT MODIFY      ON SCHEMA  <CATALOG>.gold                 TO `<RC18_APP_SP>`;
 
 -- COMMAND ----------
 
@@ -115,7 +177,7 @@ SHOW GRANTS ON TABLE dqx.dqx_studio.dq_quality_rules;
 
 -- COMMAND ----------
 
-SHOW GRANTS ON CATALOG rc18_catalog;
+SHOW GRANTS ON CATALOG <CATALOG>;
 
 -- COMMAND ----------
 

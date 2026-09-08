@@ -1,4 +1,4 @@
-# Regras de Qualidade RC18 — SCR 3040 (DQX Studio)
+# Regras de Qualidade RC18 — SCR, COSIF e DDR (DQX Studio)
 
 Catálogo de **regras de qualidade executáveis** para o CADOC/Documento **SCR 3040**,
 no formato de _checks_ do [DQX Studio](https://databrickslabs.github.io/dqx/) (Databricks Labs).
@@ -37,7 +37,12 @@ tabela ("Regras de tabela única"). Cada arquivo agrupa os checks daquela tabela
 | [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 9 · 3 |
 | [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 |
 | [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 |
+| [`dqx_checks/scr4010_saldos.yml`](dqx_checks/scr4010_saldos.yml) | `silver.scr4010_saldos` | Leiaute COSIF 4010 — formato/DV da conta, saldo, tipoRemessa, data-base | 9 · 2 · 6 · 8 |
+| [`dqx_checks/scr4016_saldos.yml`](dqx_checks/scr4016_saldos.yml) | `silver.scr4016_saldos` | Idem 4010 + grupos 7/8 vedados + periodicidade semestral | 9 · 2 · 6 · 8 · 10 |
 | [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 |
+| [`dqx_checks/scr2011_contas.yml`](dqx_checks/scr2011_contas.yml) | `silver.scr2011_contas` | Leiaute DDR 2011 — domínio das contas (Anexo 4), CNPJ, tipoEnvio, valor, bloco, data-base é dia útil | 3 · 9 · 6 · 2 · 12 |
+| [`dqx_checks/scr2011_detalhamentos.yml`](dqx_checks/scr2011_detalhamentos.yml) | `silver.scr2011_detalhamentos` | Domínios dos eixos do DDR (moeda/país/posição — Anexos 5/6/7) + valor do detalhamento | 3 · 9 · 6 · 2 |
+| [`dqx_checks/criticas_ddr_2011.yml`](dqx_checks/criticas_ddr_2011.yml) | `gold.criticas_ddr_2011` | Críticas oficiais intra-DDR 4693 e 4751 (via `status`) | 8 · 1 |
 
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`
 (código oficial ancorado no catálogo), `descricao` e `nivel_verificacao`
@@ -58,6 +63,14 @@ que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
 | `N01` | Batimento SCR 3040 × COSIF (Doc 4010) | 8 |
 
 ## Execução mensal — escopo por data-base (via `filter`)
+
+> **Exceção do DDR (Doc 2011), que é DIÁRIO.** Os checks de `scr2011_*` e de
+> `criticas_ddr_2011` filtram por
+> `data_base_month = (SELECT max(data_base_month) FROM <tabela>)`, e **não** por
+> `dt_base = (SELECT max(dt_base) …)` como os CADOCs mensais. Com várias
+> datas-base no mesmo mês, filtrar pelo último `dt_base` avaliaria só o último dia
+> remetido; filtrar pelo mês avalia o mês corrente inteiro — que é o grão do
+> seletor de Data-Base do app (mensal e compartilhado por todos os CADOCs).
 
 As regras rodam mensalmente e devem avaliar apenas a **data-base mais recente** de
 cada dataset — não reprocessar meses já validados.

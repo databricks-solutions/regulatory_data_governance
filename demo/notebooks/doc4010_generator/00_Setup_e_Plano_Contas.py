@@ -33,6 +33,8 @@ dbutils.widgets.text("src_prefix_3040", "rc18_catalog.reference.f_3040_",
 dbutils.widgets.text("pct_divergencia", "0.05", "Fração de rubricas com divergência injetada (~5%)")
 dbutils.widgets.text("tolerancia_pct", "0.10", "Tolerância do batimento em % (default 0,10%)")
 dbutils.widgets.text("seed", "42", "Semente para reprodutibilidade")
+dbutils.widgets.text("volume_out", "/Volumes/rc18_catalog/reference/cosif_out",
+                     "Volume de saída dos XMLs 4010/4016")
 
 DT_BASE = dbutils.widgets.get("dt_base")
 CNPJ_IF = dbutils.widgets.get("cnpj_if")
@@ -42,6 +44,7 @@ SRC_PREFIX_3040 = dbutils.widgets.get("src_prefix_3040")
 PCT_DIVERGENCIA = float(dbutils.widgets.get("pct_divergencia"))
 TOLERANCIA_PCT = float(dbutils.widgets.get("tolerancia_pct"))
 SEED = int(dbutils.widgets.get("seed"))
+VOLUME_OUT = dbutils.widgets.get("volume_out")
 
 print(f"DtBase={DT_BASE} CNPJ={CNPJ_IF}")
 print(f"Fonte 3040: {SRC_PREFIX_3040}* (operacoes/vencimentos)")
@@ -94,3 +97,69 @@ COL_SALDO_3040 = "total_saldo_venc"
 print(f"Plano de contas COSIF: {len(PLANO_CONTAS_COSIF)} rubricas "
       f"({sum(1 for r in PLANO_CONTAS_COSIF if r[0]=='T')} T, "
       f"{sum(1 for r in PLANO_CONTAS_COSIF if r[0]=='M')} M).")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Código da conta no ARQUIVO (10 dígitos) e dígito verificador
+# MAGIC
+# MAGIC No leiaute o campo `codigoConta` é numérico de 10 dígitos, **sem ponto nem
+# MAGIC traço** (§3.2.2.a das Instruções 4010/4016). As rubricas acima estão na
+# MAGIC forma mascarada de exibição (`1.6.1.10.00-1`), então a conversão é: remover
+# MAGIC os separadores (sobram 8 dígitos) e preencher à esquerda até 10. É essa a
+# MAGIC forma gravada em `reference.cosif_contas`, com a qual o batimento do core
+# MAGIC (`gold.reconciliacao_cosif`) faz o join contra `silver.scr4010_saldos`.
+# MAGIC
+# MAGIC O 10º dígito é o **verificador COSIF**: pesos 3-7-1 repetidos da direita
+# MAGIC para a esquerda sobre os 9 dígitos de hierarquia, `DV = 10 - (soma mod 10)`
+# MAGIC (0 quando o resto é 0). Conferido contra os quatro códigos do exemplo
+# MAGIC oficial do BCB (§4 das Instruções).
+
+# COMMAND ----------
+
+_DV_PESOS = [3, 7, 1]
+
+
+def conta_arquivo(conta_mascarada):
+    """`1.6.1.10.00-1` → `0016110001` (10 dígitos, como exige o leiaute)."""
+    digitos = conta_mascarada.replace(".", "").replace("-", "")
+    return digitos.rjust(10, "0")
+
+
+def dv_cosif(conta10):
+    """Dígito verificador esperado para os 9 dígitos de hierarquia de `conta10`."""
+    soma = sum(int(d) * _DV_PESOS[i % 3] for i, d in enumerate(reversed(conta10[:9])))
+    resto = soma % 10
+    return 0 if resto == 0 else 10 - resto
+
+
+def valida_conta(conta10):
+    """Falha alto se o código não respeitar formato/DV — o arquivo seria rejeitado."""
+    if len(conta10) != 10 or not conta10.isdigit():
+        raise ValueError(f"conta {conta10!r} fora do formato do leiaute (10 dígitos numéricos)")
+    if dv_cosif(conta10) != int(conta10[9]):
+        raise ValueError(
+            f"conta {conta10!r} com DV inválido (esperado {dv_cosif(conta10)})"
+        )
+    return conta10
+
+
+# Contas de CONTEXTO — dão corpo ao balancete além das rubricas de batimento.
+# O grupo COSIF é o 1º dígito SIGNIFICATIVO (estas contas estão na forma legada,
+# zero-preenchida até 10 posições — `0071000008` é do grupo 7). As dos grupos 7
+# (Receitas) e 8 (Despesas) entram SÓ no 4010: o 4016 representa a posição após a
+# apuração do resultado e não deve trazê-las (§3.2.2.a).
+CONTAS_CONTEXTO = [
+    # conta 10 díg, descrição, fração do total de créditos, só_no_4010
+    ("0011000006", "Disponibilidades",              0.05, False),
+    ("0041000007", "Depósitos",                     0.78, False),
+    ("0061000001", "Capital social",                0.25, False),
+    ("0071000008", "Receitas de operações de crédito", 0.013, True),
+    ("0081000005", "Despesas de captação",          0.009, True),
+]
+
+for _c in [conta_arquivo(r[2]) for r in PLANO_CONTAS_COSIF] + [c[0] for c in CONTAS_CONTEXTO]:
+    valida_conta(_c)
+print(f"Códigos de conta validados (formato + DV): "
+      f"{len(PLANO_CONTAS_COSIF)} rubricas + {len(CONTAS_CONTEXTO)} de contexto.")
+print(f"Destino dos XMLs: {VOLUME_OUT}")

@@ -105,7 +105,51 @@ VALUES
   ('3050', 'segmento', 'pesJuridica', 'Pessoa Jurídica', NULL, 'V11', '2025-11-07', true),
   ('3050', 'segmento', 'pesFisica', 'Pessoa Física', NULL, 'V11', '2025-11-07', true),
   -- Status bloqueante da reconciliação COSIF (consumido por v_recon_status_bloqueante).
-  ('4010', 'ReconStatusBloqueante', 'BLOQUEADO', 'Divergência de batimento acima da tolerância', NULL, 'V1', '2000-01-01', true)
+  ('4010', 'ReconStatusBloqueante', 'BLOQUEADO', 'Divergência de batimento acima da tolerância', NULL, 'V1', '2000-01-01', true),
+  -- Tipo de remessa do leiaute XML COSIF (§3.1.2.e das Instruções 4010/4016).
+  ('4010', 'tipoRemessa', 'I', 'Inclusão — primeira remessa do documento para a data-base', NULL, 'XMLv1', '2025-01-01', true),
+  ('4010', 'tipoRemessa', 'S', 'Substituição — troca documento já aceito pelo BCB', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'tipoRemessa', 'I', 'Inclusão — primeira remessa do documento para a data-base', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'tipoRemessa', 'S', 'Substituição — troca documento já aceito pelo BCB', NULL, 'XMLv1', '2025-01-01', true),
+  -- Grupos COSIF VEDADOS no Doc 4016: como o Balanço Patrimonial Analítico
+  -- representa a posição APÓS a apuração do resultado do exercício, não se espera
+  -- a presença das contas dos grupos 7 e 8 (§3.2.2.a das Instruções 4010/4016).
+  ('4016', 'GrupoVedado', '7', 'Receitas — não esperadas no Balanço (posição após apuração do resultado)', NULL, 'XMLv1', '2025-01-01', true),
+  ('4016', 'GrupoVedado', '8', 'Despesas — não esperadas no Balanço (posição após apuração do resultado)', NULL, 'XMLv1', '2025-01-01', true),
+  -- ── CADOC 4060 / 4066 — Conglomerado Prudencial ──────────────────────────
+  -- Leiaute PRÓPRIO (não é o do 4010/4016, apesar de também ser COSIF): 1
+  -- cabeçalho + 7 blocos, com a posição de cada entidade do conglomerado.
+  ('4060', 'tipoRemessa', 'I', 'Inclusão — primeira remessa do documento para a data-base', NULL, '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoRemessa', 'S', 'Substituição — troca TODAS as informações do documento já validado', NULL, '4060v2022-11', '2014-07-01', true),
+  -- Anexo 1 — tipo da entidade assemelhada (art. 1º e 8º da Res. 4.280/2013 e
+  -- alíneas "d" a "f" da Res. BCB 168/2021).
+  ('4060', 'tipoAssemelhada', '3', 'Administradora de consórcio', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '4', 'Instituição de Pagamento', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '5', 'Sociedade que realiza aquisição de operações de crédito', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '6', 'Pessoa jurídica sediada no país cujo objeto social exclusivo é a participação societária nas entidades consolidadas', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '7', 'Fundo de investimento, exceto FIDC de securitização de menor risco (art. 4º, §1º, Res. 4.606/2017)', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '8', 'Outros — art. 8º da Resolução 4.280/2013', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'tipoAssemelhada', '9', 'FIDC considerado como securitização de menor risco (art. 4º, §1º, Res. 4.606/2017)', 'Anexo 1', '4060v2022-11', '2014-07-01', true),
+  -- Anexo 2 — origem da entidade assemelhada.
+  ('4060', 'origemAssemelhada', '1', 'País', 'Anexo 2', '4060v2022-11', '2014-07-01', true),
+  ('4060', 'origemAssemelhada', '2', 'Exterior', 'Anexo 2', '4060v2022-11', '2014-07-01', true),
+  -- Anexo 3 — motivo da consolidação dos saldos da assemelhada.
+  ('4060', 'motivoConsolidacao', '1', 'Participação direta ou indireta que garante preponderância nas deliberações sociais ou poder de eleger ou destituir a maioria dos administradores', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  ('4060', 'motivoConsolidacao', '2', 'Controle operacional efetivo, caracterizado pela administração ou gerência comum', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  ('4060', 'motivoConsolidacao', '3', 'Controle operacional efetivo, caracterizado pela atuação no mercado sob a mesma marca ou nome comercial', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  ('4060', 'motivoConsolidacao', '4', 'Controle compartilhado', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  ('4060', 'motivoConsolidacao', '7', 'Retenção substancial de riscos e benefícios (exclusivo para Fundos de Investimento)', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  ('4060', 'motivoConsolidacao', '8', 'Determinação do Banco Central', 'Anexo 3', '4060v2022-11', '2016-04-01', true),
+  -- Blocos CONSOLIDADOS do leiaute (1, 2, 3 e 5). Os blocos 3 e 5 são
+  -- obrigatórios; 1 e 2 só se houver posição no exterior.
+  ('4060', 'BlocoConsolidado', 'consolidadoPais', 'Bloco 1 — posição contábil no país (opcional)', NULL, '4060v2022-11', '2015-01-01', true),
+  ('4060', 'BlocoConsolidado', 'consolidadoExterior', 'Bloco 2 — posição contábil no exterior (opcional)', NULL, '4060v2022-11', '2015-01-01', true),
+  ('4060', 'BlocoConsolidado', 'consolidadoPaisExterior', 'Bloco 3 — posição contábil país e exterior (OBRIGATÓRIO)', NULL, '4060v2022-11', '2014-07-01', true),
+  ('4060', 'BlocoConsolidado', 'consolidadoPrudencial', 'Bloco 5 — Conglomerado Prudencial (OBRIGATÓRIO)', NULL, '4060v2022-11', '2014-07-01', true),
+  -- Blocos com grão de ENTIDADE (4, 6 e 7).
+  ('4060', 'BlocoEntidade', 'assemelhadas', 'Bloco 4 — balancete individual de cada entidade assemelhada', NULL, '4060v2022-11', '2014-07-01', true),
+  ('4060', 'BlocoEntidade', 'dependenciasExterior', 'Bloco 6 — dependências no exterior', NULL, '4060v2022-11', '2023-01-01', true),
+  ('4060', 'BlocoEntidade', 'participacoesExterior', 'Bloco 7 — participações no exterior', NULL, '4060v2022-11', '2023-01-01', true)
 """)
 
 # COMMAND ----------
@@ -147,6 +191,42 @@ spark.sql(f"""
     FROM {CATALOG}.{SCHEMA}.dominios
     WHERE documento = '4010' AND campo = 'ReconStatusBloqueante' AND is_current
 """)
+
+# Tipo de remessa aceito no leiaute XML COSIF — vale para 4010 e 4016.
+spark.sql(f"""
+    CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.v_dom_cosif_tiporemessa AS
+    SELECT DISTINCT valor_codigo
+    FROM {CATALOG}.{SCHEMA}.dominios
+    WHERE documento IN ('4010', '4016') AND campo = 'tipoRemessa' AND is_current
+""")
+
+# Grupos COSIF vedados no Doc 4016 (7 = Receitas, 8 = Despesas). `valor_codigo`
+# já sai como INT para casar com `silver.scr4016_saldos.grupo_cosif` sem CAST no
+# check — mantendo a expression da DQX livre de literais e de conversões.
+spark.sql(f"""
+    CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.v_dom_4016_grupo_vedado AS
+    SELECT CAST(valor_codigo AS INT) AS valor_codigo
+    FROM {CATALOG}.{SCHEMA}.dominios
+    WHERE documento = '4016' AND campo = 'GrupoVedado' AND is_current
+""")
+
+# ── Views de domínio do CADOC 4060 ──────────────────────────────────────────
+# Uma view por domínio, porque as `expression` do DQX não podem ter literal
+# string (o round-trip de `parse_json` da Studio corrompe aspas).
+for _campo, _view in (
+    ("tipoRemessa", "v_dom_4060_tiporemessa"),
+    ("tipoAssemelhada", "v_dom_4060_tipo_assemelhada"),
+    ("origemAssemelhada", "v_dom_4060_origem_assemelhada"),
+    ("motivoConsolidacao", "v_dom_4060_motivo_consolidacao"),
+    ("BlocoConsolidado", "v_dom_4060_bloco_consolidado"),
+    ("BlocoEntidade", "v_dom_4060_bloco_entidade"),
+):
+    spark.sql(f"""
+        CREATE OR REPLACE VIEW {CATALOG}.{SCHEMA}.{_view} AS
+        SELECT DISTINCT valor_codigo
+        FROM {CATALOG}.{SCHEMA}.dominios
+        WHERE documento = '4060' AND campo = '{_campo}' AND is_current
+    """)
 
 # COMMAND ----------
 
@@ -374,7 +454,13 @@ INSERT INTO {CATALOG}.{SCHEMA}.leiaute_versoes (documento, versao, dt_vigencia_i
   ('3050', 'V10', '2025-07-01', false, 125, 'Versão anterior', '2025-06-01'),
   ('3050_dominios', 'V10', '2025-11-07', true, NULL, 'Domínios atualizados para V11', '2025-10-15'),
   ('3050_criticas', 'V11', '2025-11-07', true, 130, 'Críticas V11', '2025-10-15'),
-  ('3040', 'V1', '2000-01-01', true, 60, 'Versão única do SCR 3040', NULL)
+  ('3040', 'V1', '2000-01-01', true, 60, 'Versão única do SCR 3040', NULL),
+  -- 4060/4066 têm leiaute PRÓPRIO, com histórico de atualizações separado do
+  -- 4010/4016. A última alteração (IN BCB 321/2022) criou os blocos de
+  -- dependências e participações no exterior e os campos `taxaConversao` e
+  -- `moedaFuncional`.
+  ('4060', '4060v2022-11', '2022-11-10', true, 20, 'Blocos de dependências e participações no exterior; campos taxaConversao e moedaFuncional (IN BCB 321/2022)', '2022-11-10'),
+  ('4060', '4060v2021-02', '2021-02-19', false, 18, 'Atualização das informações gerais (Res. CMN 4.950/2021 e Res. BCB 168/2021)', '2021-02-19')
 """)
 
 # COMMAND ----------
@@ -457,7 +543,8 @@ print(f"Governance incidents table ready at {CATALOG}.governance.incidents")
 # MAGIC Três tabelas MUTÁVEIS escritas pelo app (schema `governance`, como
 # MAGIC `incidents`) que substituem o vínculo hard-coded regra→documento→dimensão:
 # MAGIC
-# MAGIC - `cadoc_documentos` — registro de CADOCs (3040/3050 semeados; novos via UI).
+# MAGIC - `cadoc_documentos` — registro de CADOCs (3040/3050/4010/4016/2011/4060
+# MAGIC   semeados; novos via UI).
 # MAGIC - `cadoc_tabelas`    — CADOC → tabelas silver (1:N). Substitui o prefixo
 # MAGIC   `silver.scr3040_` hard-coded em `validation.py`/`reference.py`.
 # MAGIC - `regra_vinculos`   — regra DQX → CADOC + dimensão R.18. Guarda **tanto**
@@ -505,6 +592,22 @@ SELECT * FROM (
   SELECT '3050', 'SCR 3050 - Estoque mensal agregado',
          'Documento SCR 3050 — dados agregados de crédito (TXB/XML, leiaute versionado).',
          'V11', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '4010', 'COSIF 4010 - Balancete Patrimonial Analítico',
+         'Documento contábil COSIF 4010 — balancete analítico mensal (uma conta COSIF por saldo). Leiaute XML obrigatório desde a data-base jan/2025 (IN BCB 469/2024); envio via STA com o código ACOS010. Perna contábil do batimento inter-CADOC com o SCR 3040.',
+         'XMLv1', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '4016', 'COSIF 4016 - Balanço Patrimonial Analítico',
+         'Documento contábil COSIF 4016 — balanço analítico SEMESTRAL (datas-base junho e dezembro), posição após a apuração do resultado do exercício, sem as contas dos grupos 7 (Receitas) e 8 (Despesas). Mesmo leiaute XML do 4010; envio via STA com o código ACOS016.',
+         'XMLv1', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '2011', 'DDR 2011 - Demonstrativo Diário de Acompanhamento das Parcelas de Requerimento de Capital e dos Limites Operacionais',
+         'Documento 2011 (DDR) — periodicidade DIÁRIA. Exposições em ouro, moeda estrangeira e operações sujeitas à variação cambial, mais as parcelas de requerimento de capital para risco de mercado (RWACAM, RWAJUR1-4, RWACOM, RWAACS, RWAMPAD, RWAMINT e o VPRM total). Projeto BCB Limites Operacionais; leiaute v5 vigente a partir de 01/07/2023. Único CADOC diário do acelerador — participa do seletor de Data-Base MENSAL pelo mês da data-base.',
+         'DDRv5', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
+  UNION ALL
+  SELECT '4060', 'COSIF 4060 - Balancete Patrimonial Analítico do Conglomerado Prudencial',
+         'Documento contábil COSIF 4060 — balancete analítico MENSAL do conglomerado prudencial, remetido pela instituição LÍDER do conglomerado (cadastro no módulo Conglomerados do Unicad). Leiaute PRÓPRIO, distinto do 4010/4016: 1 cabeçalho e 7 blocos, com a posição contábil no país, no exterior, país e exterior, o balancete individual de cada entidade assemelhada, o consolidado prudencial e as dependências e participações no exterior. Envio em ordem SEQUENCIAL obrigatória — sem a data-base anterior recepcionada o BCB não aceita a subsequente. O gêmeo semestral é o 4066 (Balanço, junho e dezembro).',
+         '4060v2022-11', true, current_timestamp(), 'setup:seed', current_timestamp(), 'setup:seed'
 ) src
 WHERE NOT EXISTS (
   SELECT 1 FROM {CATALOG}.governance.cadoc_documentos d WHERE d.documento = src.documento
@@ -531,18 +634,34 @@ TBLPROPERTIES (
 )
 """)
 
-# Seed com as tabelas silver canônicas (ver resources/uc_assets.yml). FQN completo
-# ({CATALOG}.silver.<t>) porque é a forma que aparece em dq_validation_runs.source_table_fqn.
-_SILVER_SEED = [
-    ("3040", "scr3040_operacoes"),
-    ("3040", "scr3040_clientes"),
-    ("3040", "scr3040_garantias"),
-    ("3040", "scr3040_vencimentos"),
-    ("3040", "scr3040_cont_4966"),
-    ("3050", "scr3050"),
+# Seed com as tabelas canônicas sob análise de qualidade (ver resources/uc_assets.yml).
+# FQN completo ({CATALOG}.<schema>.<t>) porque é a forma que aparece em
+# dq_validation_runs.source_table_fqn.
+#
+# O schema é explícito por linha: quase todas são silver, mas o DDR (2011) também
+# registra a tabela GOLD `criticas_ddr_2011`, onde vivem as duas críticas oficiais
+# intra-documento (4693/4751) — de grão agregado, logo não expressáveis como check
+# linha a linha na silver. Mesma ideia de `gold.reconciliacao_cosif` no batimento
+# COSIF: a regra é materializada no gold e o DQX checa o `status`.
+_TABELA_SEED = [
+    ("3040", "silver", "scr3040_operacoes"),
+    ("3040", "silver", "scr3040_clientes"),
+    ("3040", "silver", "scr3040_garantias"),
+    ("3040", "silver", "scr3040_vencimentos"),
+    ("3040", "silver", "scr3040_cont_4966"),
+    ("3050", "silver", "scr3050"),
+    ("4010", "silver", "scr4010_saldos"),
+    ("4016", "silver", "scr4016_saldos"),
+    ("2011", "silver", "scr2011_contas"),
+    ("2011", "silver", "scr2011_detalhamentos"),
+    ("2011", "silver", "scr2011_parametros"),
+    ("2011", "gold", "criticas_ddr_2011"),
+    ("4060", "silver", "scr4060_saldos_entidade"),
+    ("4060", "silver", "scr4060_saldos_consolidado"),
+    ("4060", "gold", "criticas_cosif_4060"),
 ]
 _values = ",\n  ".join(
-    f"('{doc}', '{CATALOG}.silver.{t}')" for doc, t in _SILVER_SEED
+    f"('{doc}', '{CATALOG}.{schema}.{t}')" for doc, schema, t in _TABELA_SEED
 )
 spark.sql(f"""
 INSERT INTO {CATALOG}.governance.cadoc_tabelas

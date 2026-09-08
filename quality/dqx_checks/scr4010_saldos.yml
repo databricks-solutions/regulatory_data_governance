@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: silver.scr4010_saldos
+#
+# CADOC 4010 — Balancete Patrimonial Analítico COSIF (periodicidade MENSAL).
+# Checks derivados do leiaute oficial: "Balancete e Balanço Patrimonial
+# Analítico — Documentos 4010/4016, Instruções de Preenchimento" (Desig/BCB),
+# bcb.gov.br/content/estabilidadefinanceira/cosif_leiautes/Leiaute_4010_xmlV1.pdf
+# Leiaute XML obrigatório desde a data-base jan/2025 (IN BCB 469/2024).
+#
+# As seções citadas em cada regra (§3.1.2, §3.2.2) são as das Instruções.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ EXECUÇÃO MENSAL: cada check tem `filter` = só a data-base corrente
+#    (`dt_base = (SELECT max(dt_base) FROM esta_tabela)`). Execute com "All rows"
+#    (sample_size=0): o DQX amostra ANTES do filter. Ver quality/README.md.
+#
+# ℹ️ As `expression` são de UMA linha e SEM literais string (o DQX corrompe
+#    aspas no round-trip de `parse_json`): os domínios vêm de views em
+#    `reference.*` e os testes de formato usam apenas números.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# §3.2.2.a — "Código numérico com [...] dígitos (não informar ponto ou traço)".
+# Desde jan/2025 o plano de contas COSIF tem 6 níveis hierárquicos + 1 dígito
+# verificador (INs 426 a 433), totalizando 10 dígitos no arquivo.
+- name: conta_cosif_formato_10_digitos
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
+      msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-FMT-CONTA"
+    descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
+    nivel_verificacao: "1"
+
+# Dígito verificador da conta COSIF (10º dígito). Algoritmo: pesos 3-7-1
+# repetidos da direita para a esquerda sobre os 9 dígitos de hierarquia; soma;
+# DV = 10 - (soma mod 10), com 0 quando o resto é 0. Conferido contra os quatro
+# códigos do exemplo oficial do BCB (§4 das Instruções).
+- name: conta_cosif_digito_verificador
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
+      msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-DV-CONTA"
+    descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
+    nivel_verificacao: "1"
+
+# §3.2.2.b — "Deve ser informado o saldo de fechamento, em R$, da rubrica
+# contábil no último dia útil do mês." Saldo ausente = linha sem informação.
+- name: saldo_informado
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo IS NOT NULL"
+      msg: "Conta COSIF sem saldo informado (o leiaute exige uma linha por conta e seu respectivo saldo)."
+  user_metadata:
+    dimensao_r18: "6"
+    critica_id: "COSIF-SLD-NULO"
+    descricao: "Toda conta informada no documento deve trazer o saldo de fechamento."
+    nivel_verificacao: "1"
+
+# §3.2.2.b — o campo tem até 18 posições, sendo 2 decimais. Guarda contra
+# estouro de escala vindo de conversão indevida na origem.
+- name: saldo_dentro_da_escala_do_leiaute
+  criticality: warn
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "saldo IS NULL OR abs(saldo) < 10000000000000000"
+      msg: "Saldo excede as 18 posições (16 inteiras + 2 decimais) previstas no leiaute."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-SLD-ESCALA"
+    descricao: "O saldo deve caber em 18 posições, sendo duas decimais."
+    nivel_verificacao: "1"
+
+# §3.1.2.e — tipoRemessa só admite 'I' (inclusão) ou 'S' (substituição). Domínio
+# na view reference.v_dom_cosif_tiporemessa (mantém a expression sem literais).
+# Nulo é tolerado: o leiaute posicional legado pode não trazer o campo.
+- name: tipo_remessa_em_dominio
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "tipo_remessa IS NULL OR tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_cosif_tiporemessa)"
+      msg: "Tipo de remessa fora do domínio do leiaute (I = inclusão, S = substituição)."
+  user_metadata:
+    dimensao_r18: "9"
+    critica_id: "COSIF-DOM-REMESSA"
+    descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição)."
+    nivel_verificacao: "1"
+
+# §3.1.2.d — dataBase no padrão AAAA-MM. A silver promove para DATE no 1º dia do
+# mês; um dia diferente de 1 indica derivação incorreta da data-base.
+- name: data_base_primeiro_dia_do_mes
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "day(dt_base) = 1"
+      msg: "Data-base não normalizada no 1º dia do mês (o leiaute informa apenas AAAA-MM)."
+  user_metadata:
+    dimensao_r18: "2"
+    critica_id: "COSIF-DTBASE-DIA"
+    descricao: "A data-base do documento é mensal (AAAA-MM) e deve ser normalizada no 1º dia do mês."
+    nivel_verificacao: "1"
+
+# §3.1.2.b — nesta tabela só devem existir linhas do documento 4010; qualquer
+# outro código indica erro de roteamento no bronze.
+- name: documento_e_4010
+  criticality: error
+  filter: "dt_base = (SELECT max(dt_base) FROM rc18_catalog.silver.scr4010_saldos)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "cast(documento as int) = 4010"
+      msg: "Linha de outro documento COSIF materializada em scr4010_saldos."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "COSIF-DOC-4010"
+    descricao: "A tabela do Balancete deve conter exclusivamente linhas do documento 4010."
+    nivel_verificacao: "2"
+
+# NOTA: a unicidade (cnpj_if, dt_base, codigo_conta) exigida pelo §3.2.1 ("uma
+# linha para cada conta e seu respectivo saldo") já é garantida por construção —
+# a silver deduplica exatamente por essa chave, mantendo a ingestão mais recente
+# (é assim que uma remessa 'S' sobrepõe a 'I'). Por isso não há check de
+# unicidade aqui: ele nunca acusaria violação.

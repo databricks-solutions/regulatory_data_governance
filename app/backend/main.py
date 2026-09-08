@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from routers import (
     branding,
     dashboard,
+    external_metadata,
     governance,
     health,
     lineage,
@@ -90,6 +91,10 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboar
 app.include_router(quality.router, prefix="/api/v1/quality", tags=["quality"])
 app.include_router(validation.router, prefix="/api/v1/validations", tags=["validations"])
 app.include_router(lineage.router, prefix="/api/v1/lineage", tags=["lineage"])
+# External Metadata + External Lineage management (BYOL write surface). Shares
+# the /lineage prefix; endpoints are /external-metadata, /external-lineage,
+# /system-types, /uc-tables.
+app.include_router(external_metadata.router, prefix="/api/v1/lineage", tags=["lineage"])
 app.include_router(xml_processing.router, prefix="/api/v1/xml", tags=["xml"])
 app.include_router(reference.router, prefix="/api/v1/reference", tags=["reference"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["submissions"])

@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<documentoDDR cnpj="99999999" dataBase="2026-04-01" codigoDocumento="2011" tipoEnvio="I">
+  <parametros>
+    <parametro codigoParametro="31" valorParametro="Maria Silva Santos"/>
+    <parametro codigoParametro="32" valorParametro="61-3414-1000"/>
+    <parametro codigoParametro="33" valorParametro="dlo@bancoexemplo.com.br"/>
+  </parametros>
+  <contas>
+    <conta codigoConta="111000" valorConta="1637863920.00">
+      <detalhamentosDDR>
+        <detalhamentoDDR valorDetalhe="201187830.00">
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="142692690.00">
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="256137810.00">
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="49632240.00">
+          <detalhe codigoElemento="83" valorElemento="GBP"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="136488660.00">
+          <detalhe codigoElemento="83" valorElemento="CHF"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="98378190.00">
+          <detalhe codigoElemento="83" valorElemento="ARS"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="311974080.00">
+          <detalhe codigoElemento="83" valorElemento="CAD"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="232207980.00">
+          <detalhe codigoElemento="83" valorElemento="CNY"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="209164440.00">
+          <detalhe codigoElemento="83" valorElemento="MXN"/>
+          <detalhe codigoElemento="84" valorElemento="1"/>
+        </detalhamentoDDR>
+      </detalhamentosDDR>
+    </conta>
+    <conta codigoConta="121000" valorConta="1341571455.00">
+      <detalhamentosDDR>
+        <detalhamentoDDR valorDetalhe="116046810.00">
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="86742060.00">
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="181103355.00">
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="148868130.00">
+          <detalhe codigoElemento="83" valorElemento="GBP"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="155315175.00">
+          <detalhe codigoElemento="83" valorElemento="CHF"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="141834990.00">
+          <detalhe codigoElemento="83" valorElemento="ARS"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="145351560.00">
+          <detalhe codigoElemento="83" valorElemento="CAD"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="180517260.00">
+          <detalhe codigoElemento="83" valorElemento="CNY"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="185792115.00">
+          <detalhe codigoElemento="83" valorElemento="MXN"/>
+          <detalhe codigoElemento="84" valorElemento="2"/>
+        </detalhamentoDDR>
+      </detalhamentosDDR>
+    </conta>
+    <conta codigoConta="131000" valorConta="78622500.00"/>
+    <conta codigoConta="132000" valorConta="68616000.00"/>
+    <conta codigoConta="141000" valorConta="296292465.00"/>
+    <conta codigoConta="151000" valorConta="0.00"/>
+    <conta codigoConta="161000" valorConta="62040300.00"/>
+    <conta codigoConta="171000" valorConta="105783000.00"/>
+    <conta codigoConta="181000" valorConta="44314500.00"/>
+    <conta codigoConta="210000" valorConta="423303540.00">
+      <detalhamentosDDR>
+        <detalhamentoDDR valorDetalhe="50003910.00">
+          <detalhe codigoElemento="81" valorElemento="BR"/>
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="25159200.00">
+          <detalhe codigoElemento="81" valorElemento="BR"/>
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="36795330.00">
+          <detalhe codigoElemento="81" valorElemento="BR"/>
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="10378170.00">
+          <detalhe codigoElemento="81" valorElemento="US"/>
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="18869400.00">
+          <detalhe codigoElemento="81" valorElemento="US"/>
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="51261870.00">
+          <detalhe codigoElemento="81" valorElemento="US"/>
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="17925930.00">
+          <detalhe codigoElemento="81" valorElemento="GB"/>
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="16038990.00">
+          <detalhe codigoElemento="81" valorElemento="GB"/>
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="22328790.00">
+          <detalhe codigoElemento="81" valorElemento="GB"/>
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="34279410.00">
+          <detalhe codigoElemento="81" valorElemento="KY"/>
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="37738800.00">
+          <detalhe codigoElemento="81" valorElemento="KY"/>
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="18240420.00">
+          <detalhe codigoElemento="81" valorElemento="KY"/>
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="23272260.00">
+          <detalhe codigoElemento="81" valorElemento="LU"/>
+          <detalhe codigoElemento="83" valorElemento="USD"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="17925930.00">
+          <detalhe codigoElemento="81" valorElemento="LU"/>
+          <detalhe codigoElemento="83" valorElemento="EUR"/>
+        </detalhamentoDDR>
+        <detalhamentoDDR valorDetalhe="43085130.00">
+          <detalhe codigoElemento="81" valorElemento="LU"/>
+          <detalhe codigoElemento="83" valorElemento="JPY"/>
+        </detalhamentoDDR>
+      </detalhamentosDDR>
+    </conta>
+    <conta codigoConta="220000" valorConta="130084500.00"/>
+    <conta codigoConta="230000" valorConta="185835000.00"/>
+    <conta codigoConta="240000" valorConta="37167000.00"/>
+    <conta codigoConta="310000" valorConta="115789500.00"/>
+    <conta codigoConta="310100" valorConta="96491250.00"/>
+    <conta codigoConta="310101" valorConta="69473700.00"/>
+    <conta codigoConta="310102" valorConta="27017550.00"/>
+    <conta codigoConta="310105" valorConta="1.20"/>
+    <conta codigoConta="410100" valorConta="100.00"/>
+    <conta codigoConta="410101" valorConta="285.00"/>
+    <conta codigoConta="410200" valorConta="70617300.00"/>
+    <conta codigoConta="410201" valorConta="27160500.00"/>
+    <conta codigoConta="410202" valorConta="43456800.00"/>
+    <conta codigoConta="410400" valorConta="17154000.00"/>
+    <conta codigoConta="410500" valorConta="12865500.00"/>
+    <conta codigoConta="410600" valorConta="10006500.00"/>
+    <conta codigoConta="410700" valorConta="5718000.00"/>
+    <conta codigoConta="410800" valorConta="8577000.00"/>
+    <conta codigoConta="410900" valorConta="7147500.00"/>
+    <conta codigoConta="411000" valorConta="2859000.00"/>
+    <conta codigoConta="501000" valorConta="54321000.00"/>
+    <conta codigoConta="502000" valorConta="47173500.00"/>
+    <conta codigoConta="503000" valorConta="61468500.00"/>
+    <conta codigoConta="504000" valorConta="100.00"/>
+    <conta codigoConta="506000" valorConta="100.00"/>
+    <conta codigoConta="610000" valorConta="51462000.00"/>
+    <conta codigoConta="620000" valorConta="42713460.00"/>
+    <conta codigoConta="620200" valorConta="10807020.00"/>
+    <conta codigoConta="620500" valorConta="23672520.00"/>
+    <conta codigoConta="630000" valorConta="67415220.00"/>
+    <conta codigoConta="710000" valorConta="228720000.00"/>
+  </contas>
+</documentoDDR>

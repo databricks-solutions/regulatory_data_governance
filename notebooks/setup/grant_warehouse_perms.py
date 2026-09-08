@@ -15,42 +15,54 @@
 # MAGIC      `dqx.dqx_studio.dq_quality_rules` + SELECT em
 # MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
 # MAGIC      (o RC18 apenas LÊ as tabelas da DQX Studio)
-# MAGIC   3. USE CATALOG em `rc18_catalog` + SELECT nos schemas de dados
+# MAGIC   3. USE CATALOG no catálogo do deployment + SELECT nos schemas de dados
 # MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
 # MAGIC      tabela `governance.incidents` (necessário para criação de
 # MAGIC      incidentes via POST /governance/incidents)
-# MAGIC   4. GRANT REVERSO — USE CATALOG + SELECT em `rc18_catalog.{silver,gold,
-# MAGIC      reference}` para o SP da DQX Studio (o `run_as` dos jobs de
-# MAGIC      validação), para que os checks com subquery resolvam. Só aplicado se
-# MAGIC      o widget `dqx_studio_sp` for informado.
+# MAGIC   4. GRANT REVERSO — USE CATALOG + SELECT em `{silver,gold,reference}` do
+# MAGIC      catálogo do deployment para o SP da DQX Studio (o `run_as` dos jobs
+# MAGIC      de validação), para que os checks com subquery resolvam. Só aplicado
+# MAGIC      se o widget `dqx_studio_sp` for informado.
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter USE/SELECT no
 # MAGIC catálogo/schema da DQX Studio (default `dqx`/`dqx_studio`, derivados do FQN
 # MAGIC passado em `dqx_checks_table`).
+# MAGIC
+# MAGIC ⚠️ O catálogo vem do widget `catalog` (obrigatório) — NUNCA hardcoded. Com
+# MAGIC vários deployments no mesmo workspace, um catálogo fixo aqui concederia
+# MAGIC acesso ao catálogo do deployment ERRADO: o app novo ficaria sem permissão
+# MAGIC no seu próprio catálogo e o SP da DQX Studio marcaria 100% de violação nos
+# MAGIC checks com subquery, silenciosamente. Os nomes dos schemas seguem os
+# MAGIC defaults (`bronze`/`silver`/`gold`/`reference`/`governance`); se o target
+# MAGIC sobrescrever `var.schema_*`, o GRANT falha alto com SCHEMA_NOT_FOUND.
 
 # COMMAND ----------
 
 dbutils.widgets.text("app_name", "", "Nome do app (ex: rc18-starter-kit-dev)")
 dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehouse-dev)")
+# Catálogo DESTE deployment. Sem default de propósito: um default silencioso é o
+# que faria um segundo deployment grantar no catálogo do primeiro.
+dbutils.widgets.text("catalog", "", "Catálogo do deployment (ex: rc18_catalog)")
 dbutils.widgets.text("dqx_checks_table", "dqx.dqx_studio.dq_quality_rules",
                      "FQN da tabela DQX Studio (catalog.schema.table)")
-# Service principal da DQX Studio (o run_as dos jobs de validação). Precisa LER
-# rc18_catalog para os checks com subquery (domínio/referência/batimento + o filter
-# de escopo mensal dt_base=(SELECT max…)) resolverem. Vazio = pula o grant reverso
-# (mas esses checks falharão com "invalid check filter" / 100% de violação).
-# Ver grant_dqx_studio_access.sql.
+# Service principal da DQX Studio (o run_as dos jobs de validação). Precisa LER o
+# catálogo deste deployment para os checks com subquery (domínio/referência/
+# batimento + o filter de escopo mensal dt_base=(SELECT max…)) resolverem. Vazio =
+# pula o grant reverso (mas esses checks falharão com "invalid check filter" /
+# 100% de violação). Ver grant_dqx_studio_access.sql.
 dbutils.widgets.text("dqx_studio_sp", "", "SP da DQX Studio (run_as dos jobs de validação)")
 
 APP_NAME = dbutils.widgets.get("app_name")
 WAREHOUSE_NAME = dbutils.widgets.get("warehouse_name")
+CATALOG = dbutils.widgets.get("catalog")
 DQX_CHECKS_TABLE = dbutils.widgets.get("dqx_checks_table")
 DQX_STUDIO_SP = dbutils.widgets.get("dqx_studio_sp")
 
-if not APP_NAME or not WAREHOUSE_NAME:
+if not APP_NAME or not WAREHOUSE_NAME or not CATALOG:
     raise ValueError(
-        "Widgets `app_name` e `warehouse_name` são obrigatórios. O orchestration "
-        "job passa esses valores via base_parameters."
+        "Widgets `app_name`, `warehouse_name` e `catalog` são obrigatórios. O "
+        "orchestration job passa esses valores via base_parameters."
     )
 
 # Quebra o FQN em catalog/schema/table pra montar os GRANTs corretamente.
@@ -123,7 +135,8 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 # MAGIC
 # MAGIC O SP do app precisa ler `dqx.dqx_studio.dq_quality_rules` pra
 # MAGIC popular o catálogo de regras de Críticas SCR. Como é cross-catalog
-# MAGIC (RC18 vive em `rc18_catalog`), precisamos USE CATALOG/SCHEMA + SELECT.
+# MAGIC (o RC18 vive no catálogo do deployment), precisamos USE CATALOG/SCHEMA
+# MAGIC + SELECT.
 # MAGIC Apenas leitura: as regras são autoradas na DQX Studio, não pelo RC18 —
 # MAGIC nenhum MODIFY é concedido nas tabelas da Studio.
 
@@ -136,11 +149,11 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 #     endpoints /validations/*/results e /quality/dimensions
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 
-# Grants em rc18_catalog (catálogo de DADOS — silver/bronze/gold/reference) +
-# tabela mutável governance.incidents. O app SP precisa ler silver/reference
-# (para joins e enriquecimentos no backend) e ler+escrever em governance.
-# Granularidade por TABELA na governance pra não conceder MODIFY ao schema
-# inteiro acidentalmente.
+# Grants no catálogo do deployment (catálogo de DADOS — silver/bronze/gold/
+# reference) + tabela mutável governance.incidents. O app SP precisa ler
+# silver/reference (para joins e enriquecimentos no backend) e ler+escrever em
+# governance. Granularidade por TABELA na governance pra não conceder MODIFY ao
+# schema inteiro acidentalmente.
 _RC18_READ_SCHEMAS = ["silver", "reference", "bronze", "gold"]
 
 grants = [
@@ -153,31 +166,31 @@ grants = [
     f"GRANT SELECT      ON TABLE   `{DQX_CATALOG}`.`{DQX_SCHEMA}`.`{t}` TO `{sp_client_id}`"
     for t in _DQX_READ_TABLES
 ] + [
-    # rc18_catalog — USE CATALOG raiz + read em schemas de dados
-    f"GRANT USE CATALOG ON CATALOG `rc18_catalog` TO `{sp_client_id}`",
+    # catálogo do deployment — USE CATALOG raiz + read em schemas de dados
+    f"GRANT USE CATALOG ON CATALOG `{CATALOG}` TO `{sp_client_id}`",
 ] + [
-    cmd.format(s=s, sp=sp_client_id)
+    cmd.format(cat=CATALOG, s=s, sp=sp_client_id)
     for s in _RC18_READ_SCHEMAS
     for cmd in (
-        "GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
-        "GRANT SELECT     ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+        "GRANT USE SCHEMA ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
+        "GRANT SELECT     ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
     )
 ] + [
     # governance.incidents — SP precisa ler (Gestão de Incidentes) E escrever
     # (POST /governance/incidents da Críticas SCR drilldown). MODIFY restrito
     # à TABELA, não ao schema inteiro.
-    f"GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`governance` TO `{sp_client_id}`",
-    f"GRANT SELECT     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
-    f"GRANT MODIFY     ON TABLE  `rc18_catalog`.`governance`.`incidents` TO `{sp_client_id}`",
+    f"GRANT USE SCHEMA ON SCHEMA `{CATALOG}`.`governance` TO `{sp_client_id}`",
+    f"GRANT SELECT     ON TABLE  `{CATALOG}`.`governance`.`incidents` TO `{sp_client_id}`",
+    f"GRANT MODIFY     ON TABLE  `{CATALOG}`.`governance`.`incidents` TO `{sp_client_id}`",
 ] + [
     # governance.<cadoc_documentos|cadoc_tabelas|regra_vinculos> — tabelas de
     # vínculo Regra↔CADOC↔Dimensão, escritas pela tela /linking (routers/linking.py).
     # SELECT+MODIFY por TABELA (mesma granularidade de incidents).
-    cmd.format(t=t, sp=sp_client_id)
+    cmd.format(cat=CATALOG, t=t, sp=sp_client_id)
     for t in ("cadoc_documentos", "cadoc_tabelas", "regra_vinculos")
     for cmd in (
-        "GRANT SELECT ON TABLE `rc18_catalog`.`governance`.`{t}` TO `{sp}`",
-        "GRANT MODIFY ON TABLE `rc18_catalog`.`governance`.`{t}` TO `{sp}`",
+        "GRANT SELECT ON TABLE `{cat}`.`governance`.`{t}` TO `{sp}`",
+        "GRANT MODIFY ON TABLE `{cat}`.`governance`.`{t}` TO `{sp}`",
     )
 ]
 for g in grants:
@@ -193,7 +206,7 @@ for row in spark.sql(f"SHOW GRANTS ON TABLE {DQX_CHECKS_TABLE}").collect():
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. GRANT REVERSO: o SP da DQX Studio precisa LER `rc18_catalog`
+# MAGIC ## 3. GRANT REVERSO: o SP da DQX Studio precisa LER o catálogo do deployment
 # MAGIC
 # MAGIC Os jobs de validação do DQX Studio rodam como o SP da PRÓPRIA DQX Studio
 # MAGIC (o `run_as`/creator do job — uma identidade DIFERENTE do SP do app RC18
@@ -202,10 +215,15 @@ for row in spark.sql(f"SHOW GRANTS ON TABLE {DQX_CHECKS_TABLE}").collect():
 # MAGIC (`EXISTS … silver.scr3040_clientes`), batimento COSIF
 # MAGIC (`NOT IN reference.v_recon_status_bloqueante`) E o `filter` de escopo mensal
 # MAGIC (`dt_base = (SELECT max(dt_base) …)`) — exige que esse SP tenha
-# MAGIC USE CATALOG + SELECT em `rc18_catalog`. SEM isso, a subquery não resolve e o
-# MAGIC DQX marca 100% das linhas como violação / "invalid check filter" — SILENCIOSO
-# MAGIC (o run reporta SUCCESS). Este grant é reaplicado a cada execução do job,
-# MAGIC igual aos demais, para sobreviver a `bundle destroy + deploy`.
+# MAGIC USE CATALOG + SELECT no catálogo deste deployment. SEM isso, a subquery não
+# MAGIC resolve e o DQX marca 100% das linhas como violação / "invalid check filter"
+# MAGIC — SILENCIOSO (o run reporta SUCCESS). Este grant é reaplicado a cada
+# MAGIC execução do job, igual aos demais, para sobreviver a `destroy + deploy`.
+# MAGIC
+# MAGIC Com a Studio COMPARTILHADA entre deployments, o mesmo SP acaba com leitura
+# MAGIC em vários catálogos — esperado: é o que permite os checks de cada
+# MAGIC deployment rodarem. O isolamento das REGRAS é feito no app, por catálogo
+# MAGIC (`app/backend/dqx_rules.py`), não por permissão.
 
 # COMMAND ----------
 
@@ -217,13 +235,13 @@ if not DQX_STUDIO_SP:
 else:
     print(f"DQX Studio SP: {DQX_STUDIO_SP}")
     reverse_grants = [
-        f"GRANT USE CATALOG ON CATALOG `rc18_catalog` TO `{DQX_STUDIO_SP}`",
+        f"GRANT USE CATALOG ON CATALOG `{CATALOG}` TO `{DQX_STUDIO_SP}`",
     ] + [
-        cmd.format(s=s, sp=DQX_STUDIO_SP)
+        cmd.format(cat=CATALOG, s=s, sp=DQX_STUDIO_SP)
         for s in ("silver", "gold", "reference")
         for cmd in (
-            "GRANT USE SCHEMA ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
-            "GRANT SELECT     ON SCHEMA `rc18_catalog`.`{s}` TO `{sp}`",
+            "GRANT USE SCHEMA ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
+            "GRANT SELECT     ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
         )
     ]
     for g in reverse_grants:

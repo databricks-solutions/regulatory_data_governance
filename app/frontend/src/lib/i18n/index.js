@@ -18,14 +18,17 @@ register('en', () => import('./locales/en.json'));
 register('es', () => import('./locales/es.json'));
 register('it', () => import('./locales/it.json'));
 
+// Só a escolha EXPLÍCITA do usuário (localStorage) tira o app do pt-BR.
+// Deliberadamente NÃO olhamos `navigator.language`: o idioma da UI é
+// Portuguese-BR (terminologia BCB/SCR), então um navegador em inglês abrindo um
+// deployment novo tem de ver pt-BR, não en. A detecção por navegador fazia o
+// DEFAULT_LOCALE nunca valer para quem não usa o navegador em português.
 function readInitialLocale() {
   if (!browser) return DEFAULT_LOCALE;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && SUPPORTED_LOCALES.some((l) => l.code === stored)) return stored;
   } catch (_) {}
-  const nav = (navigator.language || '').slice(0, 2).toLowerCase();
-  if (SUPPORTED_LOCALES.some((l) => l.code === nav)) return nav;
   return DEFAULT_LOCALE;
 }
 

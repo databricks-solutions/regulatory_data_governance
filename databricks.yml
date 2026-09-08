@@ -155,4 +155,4 @@ variables:
       Ex.: "lineage" oculta só o Lineage; "lineage,genie,xml" oculta os três.
       Uma seção cuja totalidade de itens for ocultada some junto.
       Default oculta lineage + xml; use `__none__` para não desabilitar nada.
-    default: "lineage,xml"
+    default: "xml"

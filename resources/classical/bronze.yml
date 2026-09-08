@@ -2,13 +2,14 @@
 #
 # Equivalente clássico do pipeline DLT `resources.pipelines.bronze`. Usa o MESMO
 # resource key `bronze`, então `databricks bundle run bronze` funciona idêntico
-# nos dois modos. Ingesta os dois CADOCs (3040 + native XML, 3050 + lxml UDF) via
-# Auto Loader batch (trigger availableNow) para `${var.catalog}.bronze`.
+# nos dois modos. Ingesta os CADOCs (3040 + native XML, 3050 + lxml UDF, 4010/4016
+# COSIF + native XML) via Auto Loader batch (trigger availableNow) para
+# `${var.catalog}.bronze`.
 resources:
   jobs:
     bronze:
       name: "r18-bronze-${bundle.target}"
-      description: "Ingestão bronze clássica (sem SDP/DLT) — Doc 3040/3050 XML → raw_3040_doc/raw_3050_doc via Auto Loader batch."
+      description: "Ingestão bronze clássica (sem SDP/DLT) — Doc 3040/3050 XML → raw_3040_doc/raw_3050_doc e Doc 4010/4016 COSIF → raw_4010_saldos/raw_4016_saldos, via Auto Loader batch."
       max_concurrent_runs: 1
 
       # `lxml` exigida pelo parser do bronze 3050 (paridade com o pipeline DLT).
@@ -38,10 +39,45 @@ resources:
               landing_schema: ${resources.schemas.landing.name}
               bronze_schema: ${resources.schemas.bronze_schema.name}
 
+        # COSIF: uma task POR DOCUMENTO, como no 3040/3050. 4010 (Balancete,
+        # mensal) e 4016 (Balanço, semestral) são operados de forma independente
+        # pelos clientes — tabelas bronze distintas, checkpoints distintos, então
+        # rodam em PARALELO sem risco de escrita concorrente.
         - task_key: "raw_4010"
           environment_key: serverless_env
           notebook_task:
             notebook_path: ../../pipelines/classical/bronze/raw_4010.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        - task_key: "raw_4016"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_4016.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        # CADOC 4060 (COSIF complemento) — leitor nativo de XML, tabela e checkpoint
+        # próprios, então roda em paralelo com os demais.
+        - task_key: "raw_4060"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_4060.py
+            base_parameters:
+              catalog: ${var.catalog}
+              landing_schema: ${resources.schemas.landing.name}
+              bronze_schema: ${resources.schemas.bronze_schema.name}
+
+        # CADOC 2011 (DDR, DIÁRIO) — leitor nativo de XML, tabela e checkpoint
+        # próprios, então roda em paralelo com os demais.
+        - task_key: "raw_2011"
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../pipelines/classical/bronze/raw_2011.py
             base_parameters:
               catalog: ${var.catalog}
               landing_schema: ${resources.schemas.landing.name}

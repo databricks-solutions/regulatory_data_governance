@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Regras de QUALIDADE DQX — TABELA-ALVO: gold.criticas_ddr_2011
+#
+# CRÍTICAS OFICIAIS INTRA-DOCUMENTO do CADOC 2011 (DDR).
+# Fonte: "Críticas de Pós-processamento DDR-2011" (V2). Das 11 críticas oficiais,
+# apenas 2 são intra-DDR; as outras 9 confrontam docs 2060 (DRM) e 2061 (DLO).
+#
+# | Código | Tipo | Regra |
+# |--------|------|-------|
+# | 4693   | E    | 161000 (PL Vendido) >= 181000 (Hedge Exterior) |
+# | 4751   | I    | sem chaves duplicadas (conta, país, moeda, posição) |
+#
+# As críticas são de grão agregado: calculadas no gold, uma linha por
+# (cnpj_if, dt_base, critica_id) com coluna `status` (OK / BLOQUEADO).
+# O check apenas verifica o status.
+#
+# ⚠️ Substitua `rc18_catalog` pelo seu catálogo antes de aplicar (BYOC).
+#
+# ⏱️ Escopo mensal (filter por `data_base_month`). Execute com "All rows" (sample_size=0).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 4693 — hedge cambial no exterior: 161000 >= 181000.
+- name: critica_4693_pl_vendido_ge_excesso_hedge
+  criticality: error
+  filter: "cast(critica_id as int) = 4693 AND data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.gold.criticas_ddr_2011)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
+      msg: "Crítica 4693 — Posições Vendidas (161000) < Excesso Hedge Exterior (181000)."
+  user_metadata:
+    dimensao_r18: "8"
+    critica_id: "4693"
+    descricao: "Conta 161000 não pode ser inferior a 181000."
+    nivel_verificacao: "2"
+
+# 4751 — sem chaves duplicadas nos detalhamentos.
+- name: critica_4751_sem_chave_duplicada_posicao_moeda
+  criticality: error
+  filter: "cast(critica_id as int) = 4751 AND data_base_month = (SELECT max(data_base_month) FROM rc18_catalog.gold.criticas_ddr_2011)"
+  check:
+    function: sql_expression
+    arguments:
+      expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
+      msg: "Crítica 4751 — chaves duplicadas (conta, país, moeda, posição)."
+  user_metadata:
+    dimensao_r18: "1"
+    critica_id: "4751"
+    descricao: "Combinação (conta, país, moeda, posição) sem repetição."
+    nivel_verificacao: "2"
