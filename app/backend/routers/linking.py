@@ -29,9 +29,9 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+import dqx_lakebase
 from db import (
     CATALOG,
-    DQX_CHECKS_TABLE,
     DQX_METRICS_TABLE,
     DQX_VALIDATION_RUNS_TABLE,
     SCHEMA_SILVER,
@@ -94,15 +94,19 @@ def _validate_table_fqn(table_fqn: str) -> str:
     return fqn
 
 
-def _in_clause(values: list[str], prefix: str) -> tuple[str, dict]:
+def _in_clause(values: list[str], prefix: str, paramstyle: str = "named") -> tuple[str, dict]:
     """Build a parameterized ``IN (:p0, :p1, ...)`` clause + params dict.
 
     Never interpolate values (esp. user-supplied `table_fqn`) directly into
     SQL — that is a SQL-injection vector. Returns ("(:p0,:p1)", {"p0":..}).
     Caller must guard against an empty list (produces "()", invalid SQL).
+
+    `paramstyle`: regras vêm do Lakebase (`%(nome)s`), runs/métricas do
+    Databricks SQL (`:nome`).
     """
     keys = [f"{prefix}{i}" for i in range(len(values))]
-    placeholders = ",".join(f":{k}" for k in keys)
+    marker = (lambda k: f"%({k})s") if paramstyle == "pyformat" else (lambda k: f":{k}")
+    placeholders = ",".join(marker(k) for k in keys)
     return f"({placeholders})", {k: v for k, v in zip(keys, values)}
 
 
@@ -397,7 +401,7 @@ async def browse_schema_tables(
 # ── Linkable rules (DQX rules + effective check_name + link status) ──────────
 
 def _parse_check_def(chk_raw) -> list[dict]:
-    """Coerce dq_quality_rules.check (VARIANT→str) into a list of check dicts."""
+    """Coerce dq_quality_rules.check (JSONB → dict, or JSON str) into check dicts."""
     try:
         parsed = json.loads(chk_raw) if isinstance(chk_raw, str) else (chk_raw or [])
     except (json.JSONDecodeError, TypeError):
@@ -508,13 +512,13 @@ async def list_linkable_rules(
     if not target_tables:
         return LinkableRulesResponse(rules=[])
 
-    # DQX rule definitions for those tables. `target_tables` may include a
-    # user-supplied `table_fqn` query param, so it MUST be parameterized.
-    in_tables, tbl_params = _in_clause(target_tables, "t")
-    rule_rows = await execute_query(
-        f"SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
-        f"FROM {DQX_CHECKS_TABLE} "
-        f"WHERE status IN ('active','approved') AND table_fqn IN {in_tables} "
+    # Regras dessas tabelas, do Lakebase. `target_tables` pode conter
+    # `table_fqn` vindo do usuário — parametrizar é obrigatório.
+    in_tables, tbl_params = _in_clause(target_tables, "t", paramstyle="pyformat")
+    rule_rows = await dqx_lakebase.query_or_empty(
+        f"SELECT rule_id, table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
+        f"FROM {dqx_lakebase.rules_table()} "
+        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND table_fqn IN {in_tables} "
         "ORDER BY table_fqn, rule_id",
         tbl_params,
     )

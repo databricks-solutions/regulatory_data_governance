@@ -128,9 +128,15 @@ Notas:
      não resolve e o check marca **100% como violação** (falso-positivo silencioso: o
      run passa como SUCCESS). Ver `notebooks/setup/grant_dqx_studio_access.sql`
      (seção "GRANT REVERSO").
+   - **GRANT para o SP do RC18 ler as regras no Lakebase** (novo na DQX 0.15/0.16):
+     sem o role Postgres + `GRANT SELECT`, a Studio funciona normalmente mas as
+     telas de Críticas SCR e Qualidade R.18 ficam **vazias**. Ver
+     `notebooks/setup/grant_dqx_lakebase_access.sql`.
 4. **Aprove** (Submit → Approve) e **Execute** (Run Rules) — usando **All rows**
-   (ver o aviso sobre `sample_size` acima). Revise no app RC18 (Críticas SCR /
-   Qualidade R.18): cada regra aparece na sua dimensão, com o `critica_id`.
+   (ver o aviso sobre `sample_size` acima). O RC18 só considera regra em status
+   `approved`; um check importado e não aprovado não aparece nas telas. Revise no
+   app RC18 (Críticas SCR / Qualidade R.18): cada regra aparece na sua dimensão,
+   com o `critica_id`.
 
 > **Semântica do `sql_expression`.** A `expression` retorna `true` = a linha **passa**;
 > `false` = viola. O `filter` (`dt_base = (SELECT max…)`) restringe a avaliação à
@@ -142,6 +148,10 @@ Notas:
 > import). Por isso o filtro `documento`/`campo` mora nas views `reference.v_dom_3040_*`
 > (definidas no setup) e a `expression` só as referencia — nunca coloque `'...'` numa
 > `expression` destinada ao DQX Studio.
+>
+> ⚠️ **A revalidar na 0.15/0.16:** a corrupção vinha do `parse_json` do caminho
+> Delta. Com JSONB no Lakebase pode ter desaparecido, o que dispensaria o
+> `critica_seq` numérico do 4060/DDR. Sem teste ainda — mantenha o padrão.
 
 ## Limitações declaradas
 

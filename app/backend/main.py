@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from routers import (
     branding,
     dashboard,
+    diagnostics,
     external_metadata,
     governance,
     health,
@@ -59,6 +60,13 @@ async def lifespan(app: FastAPI):
         close_pool()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha ao fechar connection pool no shutdown: %s", exc)
+    # Idem para o pool do Lakebase (lazy, e tem a task de refresh de token).
+    try:
+        from dqx_lakebase import close_pool as close_lakebase_pool
+
+        await close_lakebase_pool()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Falha ao fechar pool do Lakebase no shutdown: %s", exc)
     logger.info("R.18 Compliance Accelerator shutting down")
 
 
@@ -101,6 +109,9 @@ app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["subm
 app.include_router(governance.router, prefix="/api/v1/governance", tags=["governance"])
 app.include_router(linking.router, prefix="/api/v1/linking", tags=["linking"])
 app.include_router(branding.router, prefix="/api/v1/brand", tags=["brand"])
+# Diagnóstico dos acessos externos — distingue "falta permissão" de "não há
+# regra", que produzem a mesma tela vazia. Ver diagnostics.py.
+app.include_router(diagnostics.router, prefix="/api/v1/diagnostics", tags=["system"])
 
 # --- Brand static assets (uploaded logos) ---
 app.mount("/brand", StaticFiles(directory=str(BRAND_STATIC_DIR)), name="brand_assets")

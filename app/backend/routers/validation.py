@@ -22,8 +22,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_SILVER, USE_MOCK
-from dqx_config import dqx_studio_base_url
+import dqx_lakebase
+from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_SILVER, USE_MOCK
+from dqx_config import dqx_studio_base_url, dqx_studio_entry_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
@@ -75,15 +76,13 @@ def dqx_check_url(run_config_name: str | None, check_name: str | None) -> str | 
 
     A Studio (`databrickslabs/dqx`) não tem um deep-link por
     `run_config_name`/`check_name` que mostre a regra direto no editor — as
-    rotas internas do app são todas client-side. Por isso apontamos para
-    `/rules/active`, que lista todas as regras ativas (incluindo as 4 do RC18
-    + qualquer regra criada via UI da Studio). O usuário acha a regra na
-    lista e clica para abrir o editor.
+    rotas internas do app são todas client-side. Por isso apontamos para a tela
+    de entrada configurada (`dqx_studio_entry_url`, default `/registry-rules`),
+    que lista as regras; o usuário acha a dele e clica para abrir o editor.
     """
-    base = _dqx_studio_configured_base()
-    if not base or not check_name:
+    if not check_name:
         return None
-    return f"{base}/rules/active"
+    return dqx_studio_entry_url()
 
 
 def _studio_base_url() -> str | None:
@@ -361,12 +360,10 @@ def _summary_from_results(results) -> ValidationSummary:
 
 # ── DQX Studio run-results integration ──────────────────────────────────────
 #
-# The Críticas SCR module no longer reads from `silver.criticas_results` (a
-# view that depended on silver pipelines running DQX inline, which RC18 does
-# NOT do yet). Instead it reads ACTIVE/APPROVED rules from
-# `${DQX_CHECKS_TABLE}` + the LATEST run per source_table_fqn from
-# `${DQX_VALIDATION_RUNS_TABLE}`, joined with `${DQX_METRICS_TABLE}`
-# (`metric_name = 'check_metrics'` carries a JSON array of per-check counts).
+# Reads APPROVED rules from `dq_quality_rules` (Lakebase, via `dqx_lakebase`)
+# plus the LATEST run per source_table_fqn from `${DQX_VALIDATION_RUNS_TABLE}`
+# joined with `${DQX_METRICS_TABLE}` (`check_metrics` = JSON array of per-check
+# counts). Duas engines: a composição NÃO pode ser um join SQL único.
 # Old rule definitions deleted from `dq_quality_rules` produce check_metrics
 # entries that don't match any active rule — those are dropped silently.
 
@@ -377,18 +374,18 @@ _DOC_TO_TABLE_PREFIX = {
 
 
 async def _load_active_rules() -> RuleIndex:
-    """Definições das regras ACTIVE/APPROVED, indexadas por (tabela, check).
+    """Definições das regras APROVADAS, indexadas por (tabela, check).
 
-    O valor é a definição DQX da coluna `check` (VARIANT) acrescida de
+    O valor é a definição DQX da coluna `check` (JSONB no Lakebase) acrescida de
     `rule_id`/`_row_table_fqn` da linha. Escopado ao catálogo do deployment e
     indexado pelo PAR — `check_name` sozinho não é único em
-    `dq_quality_rules`. Ver `dqx_rules`.
+    `dq_quality_rules`. Ver `dqx_rules` e `dqx_lakebase`.
     """
-    scope_pred, scope_params = await rule_scope_clause()
-    rows = await execute_query(
-        "SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks "
-        f"FROM {DQX_CHECKS_TABLE} "
-        f"WHERE status IN ('active', 'approved') AND {scope_pred}",
+    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
+    rows = await dqx_lakebase.query_or_empty(
+        f"SELECT rule_id, table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
+        f"FROM {dqx_lakebase.rules_table()} "
+        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {scope_pred}",
         scope_params,
     )
     return build_index(
@@ -406,7 +403,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
 
     For each source_table_fqn that matches `document`'s silver tables, pick the
     LATEST SUCCESS run. Parse its `check_metrics` and emit one ValidationResult
-    per check that maps to an active RC18 rule (via the link table, then
+    per check that maps to an approved RC18 rule (via the link table, then
     check_name → dq_quality_rules).
 
     Table selection is driven by `governance.cadoc_tabelas` (the CADOC↔table

@@ -29,6 +29,7 @@ O que o deploy entrega:
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
 - Python 3.11+ (backend) e Node.js 18+ (frontend) — apenas para dev local
 - **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployment da aplicação no mesmo workspace** — provê a camada de qualidade e é utilizado como **Motor de Regras** do acelerador. **IMPORTANTE**: É pré-requisito obrigatório (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
+- **Lakebase habilitado no workspace** — a DQX Studio não tem mais modo Delta, então é pré-requisito dela e, por consequência, do RC18. Quem faz o deploy também precisa de CLI **≥ 1.4.0** e do entitlement **Databricks Database (Lakebase): Manager** (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 
 ---
 
@@ -73,7 +74,8 @@ targets:
 | `catalog` | cria `rc18_catalog` | Apontar para um catálogo existente ([BYOC](#trazer-catálogo--warehouse-próprios-byoc)) |
 | `warehouse_id` | cria warehouse Serverless 2X-Small | Apontar para um warehouse existente |
 | `schema_bronze` / `_silver` / `_gold` | `bronze` / `silver` / `gold` | Renomear schemas |
-| `dqx_catalog` / `dqx_schema` | `dqx` / `dqx_studio` | Se a DQX Studio estiver em outro catálogo/schema |
+| `dqx_catalog` / `dqx_schema` | `dqx` / `dqx_studio` | Se as tabelas Delta da DQX Studio (execuções) estiverem em outro catálogo/schema |
+| `dqx_lakebase_project` / `_branch` / `_schema` | `dqx-studio-db` / `dqx` / `dqx_studio` | Se o Lakebase da DQX Studio (onde ficam as **regras**) não usa os defaults dela |
 | `genie_space_id` | `__unset__` (desativado) | Ativar a sala Genie (ver [Genie Space](#sala-genie-opcional)) |
 
 ---
@@ -92,17 +94,31 @@ Abra http://localhost:5173. O dev local usa `.env` (copie de [`.env.example`](.e
 
 A autoria e execução de regras de qualidade são delegadas ao
 **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)**,
-um app do [Databricks Labs DQX](https://github.com/databrickslabs/dqx). O acelerador **NÃO** provisiona a Studio — ela precisa estar deployada no mesmo workspace, pois é responsável por popular a tabela de regras `dqx.dqx_studio.dq_quality_rules` que o app lê (página `/rules` + Críticas). As regras são criadas no próprio Studio; o RC18 apenas as **lê**.
+um app do [Databricks Labs DQX](https://github.com/databrickslabs/dqx). O acelerador **NÃO** provisiona a Studio — ela precisa estar deployada no mesmo workspace, pois é responsável por popular a tabela de regras `dq_quality_rules` que o app lê (página `/rules` + Críticas). As regras são criadas no próprio Studio; o RC18 apenas as **lê**.
+
+### Onde cada coisa mora (mudou na DQX 0.15/0.16)
+
+A Studio passou a guardar seu estado transacional em **Lakebase Postgres** e removeu o modo Delta. O RC18 lê de dois lugares:
+
+| O quê | Onde | Como o RC18 lê |
+|---|---|---|
+| **Regras** (`dq_quality_rules`) | Lakebase Postgres, schema `dqx_studio` | conexão Postgres direta ([`app/backend/dqx_lakebase.py`](app/backend/dqx_lakebase.py)) |
+| **Execuções** (`dq_validation_runs`, `dq_metrics`) | Delta, em `${dqx_catalog}.${dqx_schema}` | SQL Warehouse |
 
 Depois de instalar a Studio ([guia oficial](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)):
 
-1. **Conceda os grants de leitura (uma vez, como admin do catálogo `dqx`):** rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql), preenchendo o service principal do bundle RC18.
+1. **Conceda os grants UC de leitura (uma vez, como admin do catálogo `dqx`):** rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql), preenchendo o service principal do bundle RC18. Cobre só as tabelas Delta.
 2. **Informe a URL no `target.yml`:** `dqx_studio_url: https://<host-da-studio>` (obrigatório).
-3. **Se a Studio usa outro catálogo/schema:** ajuste `dqx_catalog` / `dqx_schema`.
+3. **Conceda o acesso ao Lakebase (regras).** Dois passos, o segundo manual:
+   - o `bundle deploy` cria o role Postgres do SP do app ([`resources/lakebase_role.yml`](resources/lakebase_role.yml));
+   - rode [`notebooks/setup/grant_dqx_lakebase_access.sql`](notebooks/setup/grant_dqx_lakebase_access.sql) contra o endpoint Lakebase, como quem deployou a Studio. **Sem isso, Críticas SCR fica vazia.**
+4. **Se a Studio usa outro catálogo/schema/projeto:** ajuste `dqx_catalog` / `dqx_schema` e as vars `dqx_lakebase_*`.
+
+> ⚠️ **O GRANT do Lakebase tem de ser REAPLICADO após cada `bundle destroy` + `deploy`** — o SP novo tem outro client id, então o role muda de nome e o grant fica órfão. O task `grant_warehouse_perms` só reaplica os grants de Unity Catalog: no Postgres ele roda como o próprio SP do RC18, que não concede a si mesmo. O app avisa e mostra o comando pronto nas telas de regra.
 
 > Os pipelines bronze→silver→gold são ELT puro e **não** dependem da DQX. Mas sem a Studio, o app não consegue ler as regras: a página Críticas SCR fica vazia e o task de grant do `rc18_end_to_end` falha (os demais concluem normalmente).
 
-> **Versão fixada.** A DQX é uma biblioteca Databricks Labs pré-1.0 (fixada aqui em `databricks-labs-dqx==0.14.0`). Antes de promover para produção, faça fork, mantenha a versão congelada e só atualize dentro do seu ciclo de recertificação, lendo o [CHANGELOG](https://github.com/databrickslabs/dqx/releases) primeiro.
+> **Versão fixada.** A DQX é uma biblioteca Databricks Labs pré-1.0. Antes de promover para produção, faça fork, mantenha a versão congelada e só atualize dentro do seu ciclo de recertificação, lendo o [CHANGELOG](https://github.com/databrickslabs/dqx/releases) primeiro. A mudança de backend das regras (Delta → Lakebase, na 0.15/0.16) é exatamente o tipo de quebra que esse congelamento existe para absorver: o RC18 hoje espera o padrão **Lakebase**, então uma Studio ≤ 0.14 (regras em UC) não é mais compatível com este código.
 
 ---
 

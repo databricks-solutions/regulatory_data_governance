@@ -42,19 +42,23 @@ resources:
             value: ${var.schema_quality}
           - name: SCHEMA_REFERENCE
             value: ${resources.schemas.reference.name}
-          # Catálogo/schema de vínculo com a DQX Studio. O backend deriva daqui
-          # o FQN das três tabelas que consome (dq_quality_rules +
-          # dq_validation_runs + dq_metrics), populando Críticas SCR e KPIs de
-          # qualidade. Trocar `dqx_catalog` no target.yml reaponta todas de uma vez.
+          # Catálogo/schema DELTA da Studio: FQN das tabelas de EXECUÇÃO
+          # (dq_validation_runs + dq_metrics), lidas via warehouse.
           - name: DQX_CATALOG
             value: ${var.dqx_catalog}
           - name: DQX_SCHEMA
             value: ${var.dqx_schema}
-          # FQN da tabela onde a DQX Studio mantém as regras (autoria + estado).
-          # O backend RC18 lê dessa tabela para popular o catálogo de Críticas SCR,
-          # garantindo bi-direção: regras criadas no Studio aparecem em RC18.
-          - name: DQX_CHECKS_TABLE
-            value: ${var.dqx_checks_table}
+          # Lakebase Postgres da Studio — onde `dq_quality_rules` vive desde a
+          # DQX 0.15/0.16; popula Críticas SCR. Ver app/backend/dqx_lakebase.py e,
+          # para o GRANT manual, notebooks/setup/grant_dqx_lakebase_access.sql.
+          - name: DQX_LAKEBASE_ENDPOINT
+            value: ${var.dqx_lakebase_endpoint}
+          - name: DQX_LAKEBASE_DATABASE
+            value: ${var.dqx_lakebase_database}
+          - name: DQX_LAKEBASE_SCHEMA
+            value: ${var.dqx_lakebase_schema}
+          - name: DQX_RULES_TABLE
+            value: ${var.dqx_rules_table}
           - name: DASHBOARD_ID_CONFORMIDADE
             value: ${resources.dashboards.conformidade_r18.id}
           - name: DASHBOARD_ID_CRITICAS
@@ -73,6 +77,10 @@ resources:
           # workspace e a URL deve estar preenchida no target.yml local.
           - name: DQX_STUDIO_URL
             value: ${var.dqx_studio_url}
+          # Tela em que o iframe entra. Separada da URL porque a Studio renomeia
+          # rotas — compilar isso no frontend foi o que quebrou o embed.
+          - name: DQX_STUDIO_ENTRY_PATH
+            value: ${var.dqx_studio_entry_path}
 
           # Módulos (menus da sidebar) a ocultar neste ambiente — CSV de slugs
           # (ex. "lineage,genie"). Default `__none__` = nada oculto. NÃO pode

@@ -3,16 +3,15 @@
 # MAGIC # Grants post-deploy para o service principal do app
 # MAGIC
 # MAGIC Cada `bundle destroy + deploy` recria o SP do Databricks App com um
-# MAGIC novo `client_id`. O ACL do warehouse e os grants cross-catalog em
-# MAGIC `dqx.dqx_studio.dq_quality_rules` ficam apontando pro SP antigo
-# MAGIC (que foi deletado), então o app novo retorna HTTP 500 ("Error during
-# MAGIC request to server" + INSUFFICIENT_PERMISSIONS) até alguém regrantar.
+# MAGIC novo `client_id`. O ACL do warehouse e os grants cross-catalog nas tabelas
+# MAGIC da DQX Studio ficam apontando pro SP antigo (que foi deletado), então o app
+# MAGIC novo retorna HTTP 500 ("Error during request to server" +
+# MAGIC INSUFFICIENT_PERMISSIONS) até alguém regrantar.
 # MAGIC
-# MAGIC Este notebook reaplica TODOS os grants necessários a CADA execução:
+# MAGIC Este notebook reaplica os grants de **Unity Catalog** a CADA execução:
 # MAGIC
 # MAGIC   1. CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
-# MAGIC   2. USE CATALOG + USE SCHEMA + SELECT em
-# MAGIC      `dqx.dqx_studio.dq_quality_rules` + SELECT em
+# MAGIC   2. USE CATALOG + USE SCHEMA no catálogo/schema da DQX Studio + SELECT em
 # MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
 # MAGIC      (o RC18 apenas LÊ as tabelas da DQX Studio)
 # MAGIC   3. USE CATALOG no catálogo do deployment + SELECT nos schemas de dados
@@ -24,10 +23,19 @@
 # MAGIC      de validação), para que os checks com subquery resolvam. Só aplicado
 # MAGIC      se o widget `dqx_studio_sp` for informado.
 # MAGIC
+# MAGIC ⚠️ **O grant da tabela de REGRAS não está aqui e NÃO é automatizável.**
+# MAGIC `dq_quality_rules` saiu do Unity Catalog na DQX 0.15/0.16 e vive em Lakebase
+# MAGIC Postgres. Privilégio de objeto no Postgres precisa ser concedido pelo dono
+# MAGIC das tabelas (o SP da Studio), e este notebook roda como o SP do RC18 — que
+# MAGIC não pode conceder privilégio a si mesmo. Ou seja: exatamente o problema do
+# MAGIC "client id novo a cada destroy" que este notebook resolve para o UC continua
+# MAGIC MANUAL no lado Lakebase, e precisa ser refeito a cada destroy+deploy. Ver
+# MAGIC `notebooks/setup/grant_dqx_lakebase_access.sql`.
+# MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter USE/SELECT no
-# MAGIC catálogo/schema da DQX Studio (default `dqx`/`dqx_studio`, derivados do FQN
-# MAGIC passado em `dqx_checks_table`).
+# MAGIC catálogo/schema da DQX Studio (widgets `dqx_catalog`/`dqx_schema`, defaults
+# MAGIC `dqx`/`dqx_studio`).
 # MAGIC
 # MAGIC ⚠️ O catálogo vem do widget `catalog` (obrigatório) — NUNCA hardcoded. Com
 # MAGIC vários deployments no mesmo workspace, um catálogo fixo aqui concederia
@@ -44,8 +52,11 @@ dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehous
 # Catálogo DESTE deployment. Sem default de propósito: um default silencioso é o
 # que faria um segundo deployment grantar no catálogo do primeiro.
 dbutils.widgets.text("catalog", "", "Catálogo do deployment (ex: rc18_catalog)")
-dbutils.widgets.text("dqx_checks_table", "dqx.dqx_studio.dq_quality_rules",
-                     "FQN da tabela DQX Studio (catalog.schema.table)")
+# Catálogo/schema DELTA da DQX Studio — onde vivem as tabelas de EXECUÇÃO. A
+# tabela de regras NÃO entra aqui: está no Lakebase Postgres, cujo grant é manual
+# (grant_dqx_lakebase_access.sql).
+dbutils.widgets.text("dqx_catalog", "dqx", "Catálogo da DQX Studio")
+dbutils.widgets.text("dqx_schema", "dqx_studio", "Schema da DQX Studio")
 # Service principal da DQX Studio (o run_as dos jobs de validação). Precisa LER o
 # catálogo deste deployment para os checks com subquery (domínio/referência/
 # batimento + o filter de escopo mensal dt_base=(SELECT max…)) resolverem. Vazio =
@@ -56,7 +67,8 @@ dbutils.widgets.text("dqx_studio_sp", "", "SP da DQX Studio (run_as dos jobs de 
 APP_NAME = dbutils.widgets.get("app_name")
 WAREHOUSE_NAME = dbutils.widgets.get("warehouse_name")
 CATALOG = dbutils.widgets.get("catalog")
-DQX_CHECKS_TABLE = dbutils.widgets.get("dqx_checks_table")
+DQX_CATALOG = dbutils.widgets.get("dqx_catalog")
+DQX_SCHEMA = dbutils.widgets.get("dqx_schema")
 DQX_STUDIO_SP = dbutils.widgets.get("dqx_studio_sp")
 
 if not APP_NAME or not WAREHOUSE_NAME or not CATALOG:
@@ -64,12 +76,8 @@ if not APP_NAME or not WAREHOUSE_NAME or not CATALOG:
         "Widgets `app_name`, `warehouse_name` e `catalog` são obrigatórios. O "
         "orchestration job passa esses valores via base_parameters."
     )
-
-# Quebra o FQN em catalog/schema/table pra montar os GRANTs corretamente.
-_parts = DQX_CHECKS_TABLE.split(".")
-if len(_parts) != 3:
-    raise ValueError(f"dqx_checks_table deve ser catalog.schema.table; recebido: {DQX_CHECKS_TABLE!r}")
-DQX_CATALOG, DQX_SCHEMA, _DQX_TABLE_NAME = _parts
+if not DQX_CATALOG or not DQX_SCHEMA:
+    raise ValueError("Widgets `dqx_catalog` e `dqx_schema` são obrigatórios.")
 
 # COMMAND ----------
 
@@ -131,10 +139,10 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. SQL GRANTs cross-catalog na tabela DQX Studio
+# MAGIC ## 2. SQL GRANTs cross-catalog nas tabelas Delta da DQX Studio
 # MAGIC
-# MAGIC O SP do app precisa ler `dqx.dqx_studio.dq_quality_rules` pra
-# MAGIC popular o catálogo de regras de Críticas SCR. Como é cross-catalog
+# MAGIC O SP do app precisa ler `dq_validation_runs` / `dq_metrics` pra
+# MAGIC alimentar os KPIs de qualidade e as validações. Como é cross-catalog
 # MAGIC (o RC18 vive no catálogo do deployment), precisamos USE CATALOG/SCHEMA
 # MAGIC + SELECT.
 # MAGIC Apenas leitura: as regras são autoradas na DQX Studio, não pelo RC18 —
@@ -142,11 +150,13 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 
 # COMMAND ----------
 
-# Grants no catálogo DQX (regras + tabelas de execução do DQX Studio):
+# Grants no catálogo DQX (tabelas DELTA de execução do DQX Studio):
 #   - USE CATALOG / USE SCHEMA — pré-requisito para qualquer SELECT no schema DQX
-#   - SELECT em dq_quality_rules — catálogo de regras (lido por /reference/criticas)
 #   - SELECT em validation_runs/metrics/quarantine_records — feeds para os
 #     endpoints /validations/*/results e /quality/dimensions
+# `dq_quality_rules` NÃO está aqui: vive no Lakebase Postgres desde a DQX
+# 0.15/0.16, e grantar aqui falharia com TABLE_OR_VIEW_NOT_FOUND. Ver
+# notebooks/setup/grant_dqx_lakebase_access.sql.
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 
 # Grants no catálogo do deployment (catálogo de DADOS — silver/bronze/gold/
@@ -157,11 +167,10 @@ _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 _RC18_READ_SCHEMAS = ["silver", "reference", "bronze", "gold"]
 
 grants = [
-    # catálogo DQX (DQX Studio) — pré-requisitos + dq_quality_rules (SELECT only;
-    # o RC18 apenas lê a tabela de regras, que é escrita pela DQX Studio).
+    # catálogo DQX (DQX Studio) — pré-requisitos de acesso ao schema (SELECT only;
+    # o RC18 apenas lê as tabelas da Studio).
     f"GRANT USE CATALOG ON CATALOG `{DQX_CATALOG}` TO `{sp_client_id}`",
     f"GRANT USE SCHEMA  ON SCHEMA  `{DQX_CATALOG}`.`{DQX_SCHEMA}` TO `{sp_client_id}`",
-    f"GRANT SELECT      ON TABLE   {DQX_CHECKS_TABLE} TO `{sp_client_id}`",
 ] + [
     f"GRANT SELECT      ON TABLE   `{DQX_CATALOG}`.`{DQX_SCHEMA}`.`{t}` TO `{sp_client_id}`"
     for t in _DQX_READ_TABLES
@@ -199,7 +208,9 @@ for g in grants:
 
 # Verificação rápida: SHOW GRANTS deve listar nosso SP
 print("\nSHOW GRANTS:")
-for row in spark.sql(f"SHOW GRANTS ON TABLE {DQX_CHECKS_TABLE}").collect():
+for row in spark.sql(
+    f"SHOW GRANTS ON TABLE `{DQX_CATALOG}`.`{DQX_SCHEMA}`.`dq_validation_runs`"
+).collect():
     if sp_client_id in str(row):
         print(f"  {dict(row.asDict())}")
 

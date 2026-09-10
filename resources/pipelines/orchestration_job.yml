@@ -17,7 +17,8 @@
 # automaticamente.
 #
 # As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
-# o RC18 apenas LÊ `dq_quality_rules`. Não há mais seed automático de regras.
+# o RC18 apenas LÊ `dq_quality_rules` (hoje em Lakebase Postgres). Não há mais
+# seed automático de regras.
 
 resources:
   jobs:
@@ -72,10 +73,11 @@ resources:
           depends_on:
             - task_key: "setup_reference"
           notebook_task:
-            # Concede CAN_USE no warehouse + SQL GRANTs cross-catalog em
-            # dqx.dqx_studio.dq_quality_rules para o SP do app. Necessário
-            # porque `bundle destroy` recria o SP a cada ciclo e nem o ACL do
-            # warehouse nem os grants no catálogo DQX persistem. Idempotente.
+            # Concede CAN_USE no warehouse + SQL GRANTs cross-catalog nas tabelas
+            # Delta da DQX Studio para o SP do app. Necessário porque `bundle
+            # destroy` recria o SP a cada ciclo e nem o ACL do warehouse nem os
+            # grants no catálogo DQX persistem. Idempotente.
+            # ⚠️ NÃO cobre o Lakebase (regras) — esse GRANT é manual.
             notebook_path: ../../notebooks/setup/grant_warehouse_perms.py
             base_parameters:
               app_name: ${resources.apps.r18_compliance_app.name}
@@ -83,7 +85,11 @@ resources:
               # Catálogo DESTE deployment — obrigatório. Sem ele, um segundo
               # deployment no mesmo workspace grantaria no catálogo do primeiro.
               catalog: ${var.catalog}
-              dqx_checks_table: ${var.dqx_checks_table}
+              # Catálogo/schema DELTA da Studio (runs/metrics). A tabela de regras
+              # não entra: está no Lakebase e seu GRANT é manual — ver
+              # notebooks/setup/grant_dqx_lakebase_access.sql.
+              dqx_catalog: ${var.dqx_catalog}
+              dqx_schema: ${var.dqx_schema}
               dqx_studio_sp: ${var.dqx_studio_sp}
 
         - task_key: "bronze"

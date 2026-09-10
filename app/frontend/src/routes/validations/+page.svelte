@@ -4,6 +4,7 @@
   import FilterBar from '$lib/components/data/FilterBar.svelte';
   import DataTable from '$lib/components/data/DataTable.svelte';
   import Pagination from '$lib/components/data/Pagination.svelte';
+  import PrereqAlert from '$lib/components/ui/PrereqAlert.svelte';
   import { appState } from '$lib/stores.svelte.js';
   import { getValidationResults, createIncident, getCadocs, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
@@ -29,6 +30,7 @@
 
   let runSummary = $state({ run_id: '', run_completed_at: '', total_rules: 0, passed: 0, failed: 0, warnings: 0, pass_rate_pct: 0 });
   let results = $state([]);
+  let resultsLoaded = $state(false);
   let studioUrl = $state(null);
   let activeNivel = $state(null); // null = all levels
 
@@ -201,7 +203,9 @@
       if (data?.results) results = data.results;
       if (data?.summary) runSummary = { ...runSummary, ...data.summary, run_id: data.run_id, run_completed_at: data.run_completed_at };
       studioUrl = data?.studio_url || null;
-    } catch {}
+    } catch {} finally {
+      resultsLoaded = true;  // distingue "não buscou" de "veio vazio"
+    }
   }
 
   // Carrega as abas a partir dos CADOCs cadastrados. Cada CADOC vira uma aba
@@ -293,6 +297,10 @@
 
   <!-- Filters -->
   <FilterBar filters={filterDefs} values={filterValues} onchange={handleFilter} onreset={resetFilters} />
+
+  <!-- Vazio pode ser ausência de execução ou falta de acesso. O componente só
+       desenha se alguma verificação falhar, então não gera alarme falso. -->
+  <PrereqAlert active={resultsLoaded && results.length === 0} />
 
   <!-- Results Table -->
   <div class="card">

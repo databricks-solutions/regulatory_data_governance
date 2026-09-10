@@ -112,25 +112,58 @@ variables:
 
   dqx_catalog:
     description: |
-      Unity Catalog de VÍNCULO com a DQX Studio (env var `DQX_CATALOG` no app
-      databrickslabs/dqx). É onde a Studio persiste as regras — o backend RC18
-      lê de `${dqx_catalog}.${dqx_schema}.dq_quality_rules`. Ajuste no target.yml
-      quando a Studio vive em outro catálogo que não o default.
+      Catálogo UC da DQX Studio (env `DQX_CATALOG`). Hospeda as tabelas DELTA de
+      execução que o RC18 lê via warehouse: `dq_validation_runs`, `dq_metrics`.
+      ⚠️ NÃO é mais onde as REGRAS vivem — ver as vars `dqx_lakebase_*`.
     default: "dqx"
 
   dqx_schema:
     description: |
-      Schema da DQX Studio dentro de `${var.dqx_catalog}` (env var `DQX_SCHEMA`
-      no app databrickslabs/dqx). Junto com o catálogo forma o FQN da tabela de
-      regras.
+      Schema dentro de `${var.dqx_catalog}` (env `DQX_SCHEMA`). Com o catálogo,
+      forma o FQN das tabelas Delta de execução.
     default: "dqx_studio"
 
-  dqx_checks_table:
+  # ── Lakebase Postgres da DQX Studio (onde as REGRAS vivem) ────────────────
+  # Defaults espelham o bundle da Studio — deploy padrão dela não exige nada aqui.
+  # Ver app/backend/dqx_lakebase.py. O acesso exige dois passos além destas vars:
+  # o role Postgres (resources/lakebase_role.yml) e o GRANT manual
+  # (notebooks/setup/grant_dqx_lakebase_access.sql).
+  dqx_lakebase_project:
     description: |
-      FQN completo da tabela onde a DQX Studio armazena as regras. Composto por
-      padrão a partir de `dqx_catalog` + `dqx_schema` (tabela `dq_quality_rules`).
-      Override direto apenas se o nome da tabela divergir desse padrão.
-    default: ${var.dqx_catalog}.${var.dqx_schema}.dq_quality_rules
+      Id do projeto Lakebase da DQX Studio (`lakebase_project_id` no bundle dela).
+    default: "dqx-studio-db"
+
+  dqx_lakebase_branch:
+    description: |
+      Branch do projeto Lakebase que a Studio usa (`lakebase_branch` no bundle dela).
+    default: "dqx"
+
+  dqx_lakebase_endpoint:
+    description: |
+      Endpoint Lakebase (env `DQX_LAKEBASE_ENDPOINT`) — única entrada de conexão:
+      resolve host E emite a credencial OAuth, então não dessincronizam.
+      `__unset__` desliga a leitura de regras (Críticas vazia em vez de erro);
+      NÃO pode ser vazio (a Apps API rejeita env sem `value`).
+    default: projects/${var.dqx_lakebase_project}/branches/${var.dqx_lakebase_branch}/endpoints/primary
+
+  dqx_lakebase_database:
+    description: |
+      Database lógico (env `DQX_LAKEBASE_DATABASE`). A Studio não cria database
+      próprio: usa o `databricks_postgres` e isola por schema.
+    default: "databricks_postgres"
+
+  dqx_lakebase_schema:
+    description: |
+      Schema Postgres das tabelas OLTP (env `DQX_LAKEBASE_SCHEMA`) = o
+      `lakebase_schema_name` do bundle dela. Se lá foi isolado por target
+      (ex. `dqx_studio_v2`), ajuste aqui também.
+    default: "dqx_studio"
+
+  dqx_rules_table:
+    description: |
+      Tabela de regras dentro de `${var.dqx_lakebase_schema}` (env
+      `DQX_RULES_TABLE`). Override só se divergir do padrão da Studio.
+    default: "dq_quality_rules"
 
   dqx_studio_url:
     description: |
@@ -138,6 +171,12 @@ variables:
       DQX Studio must already be deployed in the target workspace.
       Valor NÃO pode ser string vazia (API de Databricks Apps rejeita env vars
       sem valor — ver CLAUDE.md "Bundle gotchas").
+
+  dqx_studio_entry_path:
+    description: |
+      Tela da Studio em que o RC18 entra — iframe do Motor de Regras + linkbacks
+      (env `DQX_STUDIO_ENTRY_PATH`). 
+    default: "/registry-rules"
 
   dqx_studio_sp:
     description: |

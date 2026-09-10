@@ -13,9 +13,10 @@
 # Quality lifecycle (autoria de regras + execução) vive fora deste bundle, no
 # DQX Studio (pré-requisito obrigatório, deployado separadamente) — embarcado
 # via iframe na rota `/rules` usando a URL obrigatória definida no target. As
-# regras e o histórico de execução são de propriedade da DQX Studio (tabelas
-# `dq_quality_rules`/`dq_validation_runs`/`dq_metrics` em `${var.dqx_catalog}`);
-# o app RC18 apenas as LÊ. O schema `quality` abaixo permanece disponível para
+# regras e o histórico de execução são de propriedade da DQX Studio, hoje em DOIS
+# armazenamentos: as REGRAS (`dq_quality_rules`) em Lakebase Postgres e o
+# histórico (`dq_validation_runs`/`dq_metrics`) em Delta, no `${var.dqx_catalog}`.
+# O app RC18 apenas as LÊ. O schema `quality` abaixo permanece disponível para
 # artefatos locais de qualidade, mas não é mais semeado por nenhum job.
 
 resources:

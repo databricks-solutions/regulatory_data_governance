@@ -13,22 +13,38 @@ targets:
       # REQUIRED — DQX Studio is a prerequisite, not an optional integration.
       dqx_studio_url: https://<your-dqx-studio-app-host>
 
+      # OPTIONAL — tela em que o Motor de Regras entra (default /registry-rules;
+      # alternativas: /monitored-tables, /).
+      # dqx_studio_entry_path: /registry-rules
+
       # Service principal do DQX Studio (o run_as dos jobs de validação).
       # Recebe leitura em rc18_catalog para que os checks com subquery (domínio/
       # referência/batimento + o filtro de escopo mensal) funcionem. 
       # dqx_studio_sp: <uuid-do-sp-da-dqx-studio>
 
-      # OPTIONAL — catálogo/schema de vínculo com a DQX Studio (onde a Studio
-      # persiste as regras). O FQN da tabela de regras é montado como
-      # ${dqx_catalog}.${dqx_schema}.dq_quality_rules. Defaults: dqx_catalog / dqx_studio.
+      # OPTIONAL — catálogo/schema DELTA da Studio (dq_validation_runs,
+      # dq_metrics), lidos via warehouse. Defaults: dqx / dqx_studio.
       # dqx_catalog: <your-dqx-catalog>
       # dqx_schema: <your-dqx-schema>
 
-      # OPTIONAL — override do FQN completo, só se o nome da tabela divergir do
-      # padrão dq_quality_rules. Normalmente basta ajustar dqx_catalog/dqx_schema acima.
-      # dqx_checks_table: <your-dqx-catalog>.<your-dqx-schema>.dq_quality_rules
+      # OPTIONAL — Lakebase da Studio, onde vivem as REGRAS desde a DQX 0.15/0.16.
+      # Defaults espelham o bundle dela; ajuste se usa outro projeto/branch/schema.
+      #
+      # ⚠️ O acesso exige dois passos fora daqui: o role Postgres
+      # (resources/lakebase_role.yml; precisa de CLI >= 1.4.0 + entitlement
+      # Lakebase Manager) e o GRANT manual, a REAPLICAR após cada destroy+deploy
+      # (notebooks/setup/grant_dqx_lakebase_access.sql).
+      # dqx_lakebase_project: <dqx-studio-db>
+      # dqx_lakebase_branch: <dqx>
+      # dqx_lakebase_schema: <dqx_studio>
+      # dqx_lakebase_database: <databricks_postgres>
+      # dqx_rules_table: <dq_quality_rules>
+      #
+      # Para DESLIGAR a leitura de regras (Críticas vazia em vez de erro): use a
+      # sentinela, nunca string vazia (a Apps API rejeita env sem valor).
+      # dqx_lakebase_endpoint: __unset__
 
-      
+
 
       # OPTIONAL — modo de orquestração do medallion bronze→silver→gold:
       #   • classical (DEFAULT) — jobs Databricks + notebooks PySpark, SEM

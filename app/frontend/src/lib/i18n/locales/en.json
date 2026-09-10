@@ -572,5 +572,55 @@
     "zoneExternalIn": "External source",
     "zoneDatabricks": "Databricks",
     "zoneExternalOut": "External output"
+  },
+  "prereq": {
+    "title": "A permission is missing for the app to read the rules",
+    "subtitle": "Rule screens stay empty until this is fixed — it is not an absence of rules.",
+    "checking": "Checking prerequisites…",
+    "recheck": "Re-check",
+    "rechecking": "Checking…",
+    "copy": "Copy",
+    "copied": "Copied",
+    "runVia": "Open the Lakebase Postgres with the command below (it runs the repository file with the GRANT ready):",
+    "technicalDetail": "Technical detail",
+    "kind": {
+      "psql": "Postgres SQL (Lakebase)",
+      "sql": "SQL (warehouse)",
+      "shell": "shell",
+      "yaml": "target.yml"
+    },
+    "checks": {
+      "studio_url": {
+        "title": "DQX Studio URL is not configured",
+        "what": "Without the URL the Rule Engine cannot embed the Studio and the rules catalog stays empty.",
+        "how": "Set dqx_studio_url in target.yml and redeploy."
+      },
+      "lakebase_endpoint": {
+        "title": "Lakebase endpoint is not configured",
+        "what": "DQX Studio rules live in Lakebase Postgres; without the endpoint the app has nowhere to read them from.",
+        "how": "Set dqx_lakebase_endpoint in target.yml and redeploy."
+      },
+      "lakebase_connection": {
+        "title": "Could not connect to Lakebase",
+        "what": "The endpoint responds, but the app identity ({client_id}) could not open a session — usually its Postgres role does not exist yet.",
+        "how": "Run the bundle deploy: it creates the role (resources/lakebase_role.yml)."
+      },
+      "lakebase_rules_select": {
+        "title": "Missing read GRANT on the rules table",
+        "what": "The app connects to Lakebase as {client_id} but has no SELECT on {schema}.{table} — that is why rules do not show up.",
+        "how": "Run the GRANT below against the Studio's Postgres, as whoever deployed it (needs DATABRICKS_SUPERUSER on the branch). Then click Re-check."
+      },
+      "delta_runs_select": {
+        "title": "Missing read access on DQX Studio's run tables",
+        "what": "Without SELECT on {runs_table} and {metrics_table}, quality KPIs and validation history stay empty.",
+        "how": "Run the GRANTs below, or run the grant_warehouse_perms task of the rc18_end_to_end job, which reapplies them."
+      },
+      "rules_materialized": {
+        "title": "No rules materialized for this deployment",
+        "what": "Access is fine, so this is not a permission issue: there is no approved rule pointing at this catalog's tables.",
+        "how": "In DQX Studio, importing the YAML creates the rule in the Rules Registry — it only reaches the table RC18 reads once the table binding is PUBLISHED on the Tables tab (draft → approved)."
+      }
+    },
+    "unexpected": "Failed for a reason the diagnostic cannot prescribe — check the technical detail below before granting any permission."
   }
 }

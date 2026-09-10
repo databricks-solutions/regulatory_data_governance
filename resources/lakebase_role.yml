@@ -1,0 +1,29 @@
+# Role Postgres do SP do app RC18 no projeto Lakebase da DQX Studio.
+#
+# Necessário porque `dq_quality_rules` vive em Lakebase desde a DQX 0.15/0.16, e
+# GRANT de Unity Catalog não alcança lá — a identidade precisa de um role dentro
+# do Postgres. Mesmo idioma que o bundle da Studio usa para o SP dela.
+#
+# ⚠️ Criar o role dá LOGIN, não privilégio de objeto: o `GRANT USAGE`/`SELECT` roda
+# DENTRO do Postgres, pelo dono das tabelas, e é MANUAL —
+# notebooks/setup/grant_dqx_lakebase_access.sql. Precisa ser REAPLICADO depois de
+# `bundle destroy` + `deploy`: o SP novo tem outro client id, então o role muda de
+# nome e o grant anterior fica órfão (sintoma: Críticas SCR vazia +
+# `permission denied for table dq_quality_rules` no log do app).
+#
+# Pré-requisitos de quem deploya: CLI >= 1.4.0, entitlement "Databricks Database
+# (Lakebase): Manager", e o projeto/branch da Studio já provisionados (este
+# recurso NÃO os cria). Sem o entitlement, comente o bloco e crie o role à mão.
+resources:
+  postgres_roles:
+    rc18_app_sp:
+      parent: "projects/${var.dqx_lakebase_project}/branches/${var.dqx_lakebase_branch}"
+      # `role_id` precisa começar com letra (daí o prefixo); `postgres_role` tem de
+      # ser o client id do SP, que é como o app se autentica.
+      role_id: "sp-${resources.apps.r18_compliance_app.service_principal_client_id}"
+      postgres_role: ${resources.apps.r18_compliance_app.service_principal_client_id}
+      identity_type: SERVICE_PRINCIPAL
+      auth_method: LAKEBASE_OAUTH_V1
+      # Sem `attributes` e sem DATABRICKS_SUPERUSER, ao contrário do SP da Studio:
+      # o RC18 só lê. Superuser dispensaria o GRANT manual, mas daria escrita
+      # irrestrita no estado da Studio.

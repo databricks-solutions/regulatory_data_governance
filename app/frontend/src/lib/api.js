@@ -244,12 +244,22 @@ export function updateIncidentStatus(incidentId, payload) {
 // =============================================================================
 // Branding + embed config
 //
-// Returns brand-related fields plus runtime URLs for embedded external apps
-// (currently `dqx_studio_url` — empty string when not configured).
+// Returns brand fields + `dqx_studio_url` (base) e `dqx_studio_entry_url`
+// (base + tela de entrada configurável; é a que o iframe usa). Vazias quando a
+// Studio não está configurada. Ver backend `dqx_config`.
 // =============================================================================
 
 export function getBrandConfig() {
   return apiFetch('/brand/config');
+}
+
+// =============================================================================
+// Diagnóstico de pré-requisitos. Sem cache: cada chamada é uma verificação nova
+// (é o "Re-verificar"). Chamado só quando uma tela vem vazia.
+// =============================================================================
+
+export function getPrereqs() {
+  return apiFetch('/diagnostics/prereqs');
 }
 
 // =============================================================================
