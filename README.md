@@ -76,6 +76,7 @@ targets:
 | `schema_bronze` / `_silver` / `_gold` | `bronze` / `silver` / `gold` | Renomear schemas |
 | `dqx_catalog` / `dqx_schema` | `dqx` / `dqx_studio` | Se as tabelas Delta da DQX Studio (execuções) estiverem em outro catálogo/schema |
 | `dqx_lakebase_project` / `_branch` / `_schema` | `dqx-studio-db` / `dqx` / `dqx_studio` | Se o Lakebase da DQX Studio (onde ficam as **regras**) não usa os defaults dela |
+| `dqx_rules_catalog` | `dqx_lakebase` | Nome do catálogo UC que expõe o Lakebase para os dashboards |
 | `genie_space_id` | `__unset__` (desativado) | Ativar a sala Genie (ver [Genie Space](#sala-genie-opcional)) |
 
 ---
@@ -104,6 +105,9 @@ A Studio passou a guardar seu estado transacional em **Lakebase Postgres** e rem
 |---|---|---|
 | **Regras** (`dq_quality_rules`) | Lakebase Postgres, schema `dqx_studio` | conexão Postgres direta ([`app/backend/dqx_lakebase.py`](app/backend/dqx_lakebase.py)) |
 | **Execuções** (`dq_validation_runs`, `dq_metrics`) | Delta, em `${dqx_catalog}.${dqx_schema}` | SQL Warehouse |
+| **Regras, para os dashboards** | mesmo Lakebase, exposto como catálogo UC read-only (`${dqx_rules_catalog}`) | Lakeview, via `resources/postgres_catalogs.yml` |
+
+> **Por que o registro no UC.** Lakeview não fala Postgres, então o bundle registra o Lakebase da Studio como catálogo **read-only** e os datasets de regra leem de lá. Duas consequências: exige **warehouse Serverless** (Pro/Classic devolvem `PERMISSION_DENIED`) e os 4 dashboards usam `embed_credentials: true`, para o viewer não precisar de grant no catálogo registrado. Com vários deployments na mesma Studio, apenas UM gerencia esse recurso — nos outros, comente o arquivo e só defina `dqx_rules_catalog`.
 
 Depois de instalar a Studio ([guia oficial](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)):
 

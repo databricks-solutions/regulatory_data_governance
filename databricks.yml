@@ -165,6 +165,12 @@ variables:
       `DQX_RULES_TABLE`). Override só se divergir do padrão da Studio.
     default: "dq_quality_rules"
 
+  dqx_rules_catalog:
+    description: |
+      Catálogo UC que expõe o Lakebase da Studio read-only, para os dashboards
+      Lakeview lerem as regras (Lakeview não fala Postgres). 
+    default: "dqx_lakebase"
+
   dqx_studio_url:
     description: |
       REQUIRED. Public URL of the DQX Studio app embedded by Motor de Regras.

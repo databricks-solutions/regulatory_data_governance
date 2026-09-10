@@ -1,0 +1,26 @@
+# Registro do Lakebase da DQX Studio como catálogo UC read-only.
+#
+# Existe só para o LAKEVIEW: os dashboards precisam de dq_quality_rules, que
+# saiu do UC na DQX 0.15/0.16, e Lakeview não fala Postgres. O app não usa este
+# catálogo — ele lê o Postgres direto (app/backend/dqx_lakebase.py).
+#
+# Validado por experimento: `check` (JSONB) chega como STRING e o acessor
+# `check:name::string` continua funcionando, então o SQL dos datasets muda só o
+# FQN. Join numa query só entre este catálogo e tabelas Delta funciona.
+#
+# ⚠️ Exige warehouse SERVERLESS — Pro/Classic devolvem PERMISSION_DENIED. O
+# warehouse do bundle atende; BYOC com Pro/Classic não.
+#
+# ⚠️ Vários deployments na MESMA Studio: o catálogo é metastore-scoped e aponta
+# para um recurso compartilhado, então o nome NÃO é sufixado por target. Apenas
+# UM deployment deve gerenciar este arquivo; nos outros, comente-o e só defina
+# `dqx_rules_catalog` no target.yml — mesmo idioma do BYOC em catalog.yml.
+resources:
+  postgres_catalogs:
+    dqx_lakebase:
+      catalog_id: ${var.dqx_rules_catalog}
+      branch: "projects/${var.dqx_lakebase_project}/branches/${var.dqx_lakebase_branch}"
+      postgres_database: ${var.dqx_lakebase_database}
+      # O database é da Studio e já existe; criar por conta própria daria um DB
+      # vazio e um role novo no projeto dela.
+      create_database_if_missing: false

@@ -44,6 +44,12 @@ targets:
       # sentinela, nunca string vazia (a Apps API rejeita env sem valor).
       # dqx_lakebase_endpoint: __unset__
 
+      # OPTIONAL — catálogo UC que expõe o Lakebase para os dashboards Lakeview
+      # (que não falam Postgres). Exige warehouse Serverless. Com vários
+      # deployments na mesma Studio, só um gerencia resources/postgres_catalogs.yml;
+      # nos outros, comente o arquivo e aponte esta var para o catálogo já registrado.
+      # dqx_rules_catalog: dqx_lakebase
+
 
 
       # OPTIONAL — modo de orquestração do medallion bronze→silver→gold:

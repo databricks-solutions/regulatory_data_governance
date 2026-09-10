@@ -5,3 +5,5 @@ resources:
       display_name: "Monitor de Incidentes de Qualidade R.18"
       file_path: ../../dashboards/monitor_criticas.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      # Ver dashboard_conformidade.yml — mesmo motivo.
+      embed_credentials: true
