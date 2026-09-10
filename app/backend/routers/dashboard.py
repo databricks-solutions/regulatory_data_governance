@@ -8,7 +8,8 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
+import dqx_lakebase
+from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -238,13 +239,13 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         )
         metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
-        # Cache do `user_metadata` das regras (fonte da tag dimensao_r18).
+        # `user_metadata` das regras (fonte da tag dimensao_r18), do Lakebase.
         # Escopado ao catálogo e indexado por (tabela, check) — ver dqx_rules.
-        rule_scope_pred, rule_scope_params = await rule_scope_clause()
-        rule_rows = await execute_query(
-            "SELECT table_fqn, CAST(check AS STRING) AS checks "
-            f"FROM {DQX_CHECKS_TABLE} "
-            f"WHERE status IN ('active','approved') AND {rule_scope_pred}",
+        rule_scope_pred, rule_scope_params = await rule_scope_clause(paramstyle="pyformat")
+        rule_rows = await dqx_lakebase.query_or_empty(
+            f"SELECT table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
+            f"FROM {dqx_lakebase.rules_table()} "
+            f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {rule_scope_pred}",
             rule_scope_params,
         )
         rule_um = build_index(rule_rows)

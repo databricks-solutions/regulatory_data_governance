@@ -2,6 +2,7 @@
   import DimensionCard from '$lib/components/domain/DimensionCard.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
+  import PrereqAlert from '$lib/components/ui/PrereqAlert.svelte';
   import { goto } from '$app/navigation';
   import { appState } from '$lib/stores.svelte.js';
   import { getQualityDimensions } from '$lib/api.js';
@@ -30,16 +31,27 @@
     sem_regras: dimensions.filter(d => d.status === 'sem_regras')
   });
 
+  let dimensionsLoaded = $state(false);
+
+  // As 12 dimensões vêm sempre: "nada avaliado" = TODAS sem regra vinculada.
+  let nothingScored = $derived(
+    dimensionsLoaded && dimensions.length > 0 && dimensions.every((d) => d.status === 'sem_regras')
+  );
+
   onMount(async () => {
     try {
       const data = await getQualityDimensions(appState.dataBase);
       if (data?.dimensions) dimensions = data.dimensions;
-    } catch {}
+    } catch {} finally {
+      dimensionsLoaded = true;
+    }
   });
 </script>
 
 <div class="quality-page">
   <Tabs {tabs} active={activeTab} onchange={(k) => activeTab = k} />
+
+  <PrereqAlert active={nothingScored} />
 
   {#if activeTab === 'por_dimensao'}
     <div class="dim-grid">

@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from db import CATALOG, USE_MOCK
-from dqx_config import dqx_studio_base_url
+from dqx_config import dqx_studio_entry_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when governance tables haven't been populated yet.
@@ -107,17 +107,17 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 def _dqx_studio_url(_run_config_name: str | None, check_name: str | None) -> str | None:
-    """Linkback URL para DQX Studio (lista de regras ativas).
+    """Linkback URL para DQX Studio (tela de regras).
 
     Studio não tem deep-link por (run_config_name, check_name) — apontamos pra
-    `/rules/active` e o usuário localiza a regra na lista. Retorna ``None``
+    tela de entrada configurada (`dqx_studio_entry_url`, default
+    `/registry-rules`) e o usuário localiza a regra na lista. Retorna ``None``
     quando ``DQX_STUDIO_URL`` está como `about:blank`, OU
     quando ``check_name`` é nulo. `_run_config_name` mantido na assinatura
     apenas pra compatibilidade com call sites antigos; não é consumido."""
-    base = dqx_studio_base_url()
-    if not base or not check_name:
+    if not check_name:
         return None
-    return f"{base}/rules/active"
+    return dqx_studio_entry_url()
 
 
 def _caller_email(request: Request) -> str:

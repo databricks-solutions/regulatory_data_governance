@@ -54,21 +54,15 @@ SCHEMA_REFERENCE = os.getenv("SCHEMA_REFERENCE", "reference")
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 POOL_SIZE = int(os.getenv("DATABRICKS_SQL_POOL_SIZE", "5"))
 
-# Catálogo/schema de VÍNCULO com a DQX Studio (app databrickslabs/dqx). As três
-# tabelas que o backend consome — regras (`dq_quality_rules`) + histórico de
-# execução (`dq_validation_runs`, `dq_metrics`) — vivem nesse par catálogo.schema.
-# Configurados via `var.dqx_catalog`/`var.dqx_schema` no bundle (env vars
-# DQX_CATALOG/DQX_SCHEMA). Fallback assume Studio local ao catálogo RC18 para
-# dev/local sem Studio externa.
+# Catálogo/schema DELTA da DQX Studio. ⚠️ Desde a DQX 0.15/0.16 hospeda APENAS as
+# tabelas de execução (append-only, escritas pelo task runner); as REGRAS saíram
+# do UC para o Lakebase — ver `dqx_lakebase.py`.
+# Vem de `var.dqx_catalog`/`var.dqx_schema`; fallback = catálogo RC18 (dev local).
 DQX_CATALOG = os.getenv("DQX_CATALOG", CATALOG)
 DQX_SCHEMA = os.getenv("DQX_SCHEMA", SCHEMA_QUALITY)
 _DQX_SCHEMA_FQN = f"{DQX_CATALOG}.{DQX_SCHEMA}"
 
-# FQN da tabela de regras (autoria). Override direto via DQX_CHECKS_TABLE apenas
-# se o NOME da tabela divergir do padrão `dq_quality_rules`; caso contrário é
-# derivado do par catálogo.schema acima.
-DQX_CHECKS_TABLE = os.getenv("DQX_CHECKS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_quality_rules")
-# Tabelas irmãs de execução mantidas pela DQX Studio no mesmo schema.
+# Tabelas de execução mantidas em Delta pela DQX Studio.
 DQX_VALIDATION_RUNS_TABLE = os.getenv(
     "DQX_VALIDATION_RUNS_TABLE", f"{_DQX_SCHEMA_FQN}.dq_validation_runs"
 )

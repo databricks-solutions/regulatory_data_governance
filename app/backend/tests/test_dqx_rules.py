@@ -1,10 +1,9 @@
 """Testes do índice/escopo de regras DQX (`app/backend/dqx_rules.py`).
 
-O que estes testes protegem: `dq_quality_rules` é metastore-wide e
-`check_name` NÃO é único nela. Antes deste módulo, quatro routers indexavam as
-regras só pelo nome, então duas regras homônimas em tabelas diferentes
-colidiam e o metadado da última lida vencia — trocando a dimensão R.18 exibida
-sem erro nenhum.
+Protegem duas coisas: `check_name` NÃO é único em `dq_quality_rules` (homônimos
+em tabelas diferentes colidiam e trocavam a dimensão exibida), e o predicado
+serve duas engines — marcador errado não é erro de sintaxe, o predicado só nunca
+casa, zerando as telas em silêncio.
 """
 
 import asyncio
@@ -145,13 +144,13 @@ class BuildIndexTest(unittest.TestCase):
 class ScopeClauseTest(unittest.TestCase):
     """O predicado que impede regras de outro deployment de entrar nas telas."""
 
-    def _run(self, tables_by_doc):
+    def _run(self, tables_by_doc, **kwargs):
         async def fake_load_cadoc_tables():
             return tables_by_doc, {}
 
         with patch("app.backend.dqx_rules.load_cadoc_tables", fake_load_cadoc_tables), \
              patch("app.backend.dqx_rules.CATALOG", "meu_catalog"):
-            return asyncio.run(scope_clause())
+            return asyncio.run(scope_clause(**kwargs))
 
     def test_falls_back_to_catalog_prefix_when_no_registered_tables(self):
         pred, params = self._run({})
@@ -183,6 +182,35 @@ class ScopeClauseTest(unittest.TestCase):
             pred, params = asyncio.run(scope_clause("source_table_fqn", "sc"))
         self.assertEqual(pred, "source_table_fqn LIKE :sc_prefix")
         self.assertIn("sc_prefix", params)
+
+    # ── paramstyle: o MESMO predicado serve Lakebase (psycopg) e Databricks SQL.
+    def test_pyformat_marker_for_lakebase(self):
+        pred, params = self._run({}, paramstyle="pyformat")
+        self.assertEqual(pred, "table_fqn LIKE %(rscope_prefix)s")
+        self.assertEqual(params, {"rscope_prefix": "meu_catalog.%"})
+
+    def test_pyformat_marker_in_the_in_list(self):
+        pred, params = self._run(
+            {"3040": ["outro_catalog.silver.x"]}, paramstyle="pyformat"
+        )
+        self.assertEqual(
+            pred,
+            "(table_fqn LIKE %(rscope_prefix)s OR table_fqn IN (%(rscope0)s))",
+        )
+        self.assertEqual(params["rscope0"], "outro_catalog.silver.x")
+        self.assertNotIn("outro_catalog.silver.x", pred)
+
+    def test_param_names_are_identical_across_paramstyles(self):
+        """Só o marcador muda: permite reaproveitar o dict de params."""
+        tables = {"3040": ["c.s.a", "c.s.b"]}
+        _, named = self._run(tables)
+        _, pyformat = self._run(tables, paramstyle="pyformat")
+        self.assertEqual(named, pyformat)
+
+    def test_unknown_paramstyle_fails_loudly(self):
+        # Erro explícito > predicado que nunca casa.
+        with self.assertRaises(ValueError):
+            self._run({}, paramstyle="qmark")
 
 
 if __name__ == "__main__":

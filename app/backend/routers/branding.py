@@ -7,6 +7,9 @@ they never get hardcoded into the bundled frontend). Currently:
 
 - ``dqx_studio_url`` — DQX Studio Databricks App URL. Empty string means the
   "Motor de Regras" page renders an empty state with deploy instructions.
+- ``dqx_studio_entry_url`` — base + tela de entrada configurável. É o que o
+  iframe carrega; separada da base porque a Studio renomeia rotas entre versões
+  e o caminho não pode ficar compilado no frontend. Ver `dqx_config`.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from dqx_config import dqx_studio_base_url
+from dqx_config import dqx_studio_base_url, dqx_studio_entry_url
 
 router = APIRouter()
 
@@ -77,6 +80,9 @@ def get_brand_config():
     # only needs one fetch on bootstrap. Empty string = unset; in particular,
     # never expose the bundle's `about:blank` sentinel as an iframe URL.
     config["dqx_studio_url"] = dqx_studio_base_url() or ""
+    # O SPA usa a entry no iframe; a base segue exibida como "endpoint
+    # configurado" e decide o estado vazio.
+    config["dqx_studio_entry_url"] = dqx_studio_entry_url() or ""
     # Módulos desabilitados por ambiente — a sidebar oculta esses menus.
     config["disabled_modules"] = disabled_modules()
     return config

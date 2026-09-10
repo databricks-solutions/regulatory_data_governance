@@ -24,7 +24,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -57,7 +61,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -93,7 +101,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -118,7 +130,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -141,7 +157,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -164,7 +184,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -196,7 +220,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -206,24 +234,7 @@
       "name": "ds_regras_por_dimensao",
       "displayName": "DQX Rules Linked by R.18 Dimension",
       "queryLines": [
-        "WITH rule_dims AS ( ",
-        "  SELECT ",
-        "    check:user_metadata:dimensao_r18::string AS dimensao_r18 ",
-        "  FROM IDENTIFIER(:dqx_schema || '.dq_quality_rules') ",
-        "  WHERE status IN ('active', 'approved') ",
-        "), dim_rules AS ( ",
-        "  SELECT dimensao_r18, COUNT(*) AS rules_count ",
-        "  FROM rule_dims WHERE dimensao_r18 IS NOT NULL ",
-        "  GROUP BY dimensao_r18 ",
-        ") ",
-        "SELECT ",
-        "  d.dimensao_id, ",
-        "  d.nome AS dimensao, ",
-        "  COALESCE(dr.rules_count, 0) AS rules_count, ",
-        "  CASE WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ELSE 'COM REGRAS' END AS estado_regras ",
-        "FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d ",
-        "LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ",
-        "ORDER BY d.dimensao_id"
+        "WITH rule_dims AS (   SELECT     CASE check:user_metadata:dimensao_r18::string WHEN '1' THEN 'I' WHEN '2' THEN 'II' WHEN '3' THEN 'III' WHEN '4' THEN 'IV' WHEN '5' THEN 'V' WHEN '6' THEN 'VI' WHEN '7' THEN 'VII' WHEN '8' THEN 'VIII' WHEN '9' THEN 'IX' WHEN '10' THEN 'X' WHEN '11' THEN 'XI' WHEN '12' THEN 'XII' ELSE check:user_metadata:dimensao_r18::string END AS dimensao_r18   FROM IDENTIFIER(:dqx_rules_schema || '.dq_quality_rules')   WHERE status = 'approved' ), dim_rules AS (   SELECT dimensao_r18, COUNT(*) AS rules_count   FROM rule_dims WHERE dimensao_r18 IS NOT NULL   GROUP BY dimensao_r18 ) SELECT   d.dimensao_id,   d.nome AS dimensao,   COALESCE(dr.rules_count, 0) AS rules_count,   CASE WHEN COALESCE(dr.rules_count, 0) = 0 THEN 'SEM REGRAS' ELSE 'COM REGRAS' END AS estado_regras FROM IDENTIFIER(:catalog || '.reference.dimensoes_r18') d LEFT JOIN dim_rules dr ON dr.dimensao_r18 = d.dimensao_id ORDER BY d.dimensao_id"
       ],
       "parameters": [
         {
@@ -231,15 +242,29 @@
           "keyword": "catalog",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "rc18_catalog"}]}
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
+            }
           }
         },
         {
-          "displayName": "dqx_schema",
-          "keyword": "dqx_schema",
+          "displayName": "dqx_rules_schema",
+          "keyword": "dqx_rules_schema",
           "dataType": "STRING",
           "defaultSelection": {
-            "values": {"dataType": "STRING", "values": [{"value": "dqx.dqx_studio"}]}
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "dqx_lakebase.dqx_studio"
+                }
+              ]
+            }
           }
         }
       ]
@@ -266,7 +291,11 @@
           "defaultSelection": {
             "values": {
               "dataType": "STRING",
-              "values": [{"value": "rc18_catalog"}]
+              "values": [
+                {
+                  "value": "rc18_catalog"
+                }
+              ]
             }
           }
         }
@@ -283,314 +312,669 @@
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
-              "lines": ["## Quality Incident Monitor — R.18 Dimensions"]
+              "lines": [
+                "## Quality Incident Monitor — R.18 Dimensions"
+              ]
             }
           },
-          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "subtitle",
             "multilineTextboxSpec": {
-              "lines": ["Lifecycle of incidents raised by DQX Studio · source: governance.incidents · dimensions without linked DQX rules are highlighted"]
+              "lines": [
+                "Lifecycle of incidents raised by DQX Studio · source: governance.incidents · dimensions without linked DQX rules are highlighted"
+              ]
             }
           },
-          "position": {"x": 0, "y": 1, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "kpi-tmr",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_kpi_tmr",
-                "fields": [{"name": "tmr_horas", "expression": "`tmr_horas`"}],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_tmr",
+                  "fields": [
+                    {
+                      "name": "tmr_horas",
+                      "expression": "`tmr_horas`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "tmr_horas", "displayName": "MTTR (h)"}
+                "value": {
+                  "fieldName": "tmr_horas",
+                  "displayName": "MTTR (h)"
+                }
               },
-              "frame": {"showTitle": true, "title": "Mean Time to Resolution (h)"}
+              "frame": {
+                "showTitle": true,
+                "title": "Mean Time to Resolution (h)"
+              }
             }
           },
-          "position": {"x": 0, "y": 2, "width": 2, "height": 3}
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
         },
         {
           "widget": {
             "name": "kpi-bloqueantes",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_kpi_bloqueantes",
-                "fields": [{"name": "bloqueantes_abertos", "expression": "`bloqueantes_abertos`"}],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_bloqueantes",
+                  "fields": [
+                    {
+                      "name": "bloqueantes_abertos",
+                      "expression": "`bloqueantes_abertos`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "bloqueantes_abertos", "displayName": "Open Blocking"}
+                "value": {
+                  "fieldName": "bloqueantes_abertos",
+                  "displayName": "Open Blocking"
+                }
               },
-              "frame": {"showTitle": true, "title": "Open Blocking Incidents"}
+              "frame": {
+                "showTitle": true,
+                "title": "Open Blocking Incidents"
+              }
             }
           },
-          "position": {"x": 2, "y": 2, "width": 2, "height": 3}
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
         },
         {
           "widget": {
             "name": "kpi-taxa-resolucao",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_kpi_taxa_resolucao",
-                "fields": [{"name": "taxa_resolucao_pct", "expression": "`taxa_resolucao_pct`"}],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_taxa_resolucao",
+                  "fields": [
+                    {
+                      "name": "taxa_resolucao_pct",
+                      "expression": "`taxa_resolucao_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "counter",
               "encodings": {
-                "value": {"fieldName": "taxa_resolucao_pct", "displayName": "Resolution Rate (%)"}
+                "value": {
+                  "fieldName": "taxa_resolucao_pct",
+                  "displayName": "Resolution Rate (%)"
+                }
               },
-              "frame": {"showTitle": true, "title": "Resolution Rate (last 30 days)"}
+              "frame": {
+                "showTitle": true,
+                "title": "Resolution Rate (last 30 days)"
+              }
             }
           },
-          "position": {"x": 4, "y": 2, "width": 2, "height": 3}
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
         },
         {
           "widget": {
             "name": "section-funil",
             "multilineTextboxSpec": {
-              "lines": ["### Lifecycle Funnel"]
+              "lines": [
+                "### Lifecycle Funnel"
+              ]
             }
           },
-          "position": {"x": 0, "y": 5, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "bar-funil",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_funil_status",
-                "fields": [
-                  {"name": "status", "expression": "`status`"},
-                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
-                ],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_funil_status",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "qtd_incidentes",
+                      "expression": "`qtd_incidentes`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "status", "scale": {"type": "categorical"}, "displayName": "Status"},
-                "y": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incident Count"}
+                "x": {
+                  "fieldName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Status"
+                },
+                "y": {
+                  "fieldName": "qtd_incidentes",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Incident Count"
+                }
               },
-              "frame": {"showTitle": true, "title": "Incidents by Status (all periods)"}
+              "frame": {
+                "showTitle": true,
+                "title": "Incidents by Status (all periods)"
+              }
             }
           },
-          "position": {"x": 0, "y": 6, "width": 3, "height": 5}
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 5
+          }
         },
         {
           "widget": {
             "name": "bar-incidents-por-dimensao",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_incidents_por_dimensao",
-                "fields": [
-                  {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "sum(abertos)", "expression": "SUM(`abertos`)"},
-                  {"name": "severidade", "expression": "`severidade`"}
-                ],
-                "disaggregated": false
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_incidents_por_dimensao",
+                  "fields": [
+                    {
+                      "name": "dimensao",
+                      "expression": "`dimensao`"
+                    },
+                    {
+                      "name": "sum(abertos)",
+                      "expression": "SUM(`abertos`)"
+                    },
+                    {
+                      "name": "severidade",
+                      "expression": "`severidade`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
-                "y": {"fieldName": "sum(abertos)", "scale": {"type": "quantitative"}, "displayName": "Open"},
-                "color": {"fieldName": "severidade", "scale": {"type": "categorical"}, "displayName": "Severity"}
+                "x": {
+                  "fieldName": "dimensao",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Dimension"
+                },
+                "y": {
+                  "fieldName": "sum(abertos)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Open"
+                },
+                "color": {
+                  "fieldName": "severidade",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Severity"
+                }
               },
-              "frame": {"showTitle": true, "title": "Open Incidents by R.18 Dimension"}
+              "frame": {
+                "showTitle": true,
+                "title": "Open Incidents by R.18 Dimension"
+              }
             }
           },
-          "position": {"x": 3, "y": 6, "width": 3, "height": 5}
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 5
+          }
         },
         {
           "widget": {
             "name": "section-tendencia",
             "multilineTextboxSpec": {
-              "lines": ["### Detected vs Resolved (Last 6 Months)"]
+              "lines": [
+                "### Detected vs Resolved (Last 6 Months)"
+              ]
             }
           },
-          "position": {"x": 0, "y": 11, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "line-trend",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_tendencia_mensal",
-                "fields": [
-                  {"name": "mes", "expression": "`mes`"},
-                  {"name": "qtd", "expression": "`qtd`"},
-                  {"name": "tipo", "expression": "`tipo`"}
-                ],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tendencia_mensal",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "qtd",
+                      "expression": "`qtd`"
+                    },
+                    {
+                      "name": "tipo",
+                      "expression": "`tipo`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 3,
               "widgetType": "line",
               "encodings": {
-                "x": {"fieldName": "mes", "scale": {"type": "temporal"}, "displayName": "Month"},
-                "y": {"fieldName": "qtd", "scale": {"type": "quantitative"}, "displayName": "Incident Count"},
-                "color": {"fieldName": "tipo", "scale": {"type": "categorical"}, "displayName": "Type"}
+                "x": {
+                  "fieldName": "mes",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "qtd",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Incident Count"
+                },
+                "color": {
+                  "fieldName": "tipo",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Type"
+                }
               },
-              "frame": {"showTitle": true, "title": "Detected vs Resolved by Month"}
+              "frame": {
+                "showTitle": true,
+                "title": "Detected vs Resolved by Month"
+              }
             }
           },
-          "position": {"x": 0, "y": 12, "width": 6, "height": 5}
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 5
+          }
         },
         {
           "widget": {
             "name": "section-heatmap",
             "multilineTextboxSpec": {
-              "lines": ["### Concentration by Dimension x Document"]
+              "lines": [
+                "### Concentration by Dimension x Document"
+              ]
             }
           },
-          "position": {"x": 0, "y": 17, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "heatmap-dim-doc",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_heatmap_dimensao_doc",
-                "fields": [
-                  {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "documento", "expression": "`documento`"},
-                  {"name": "qtd_incidentes", "expression": "`qtd_incidentes`"}
-                ],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_heatmap_dimensao_doc",
+                  "fields": [
+                    {
+                      "name": "dimensao",
+                      "expression": "`dimensao`"
+                    },
+                    {
+                      "name": "documento",
+                      "expression": "`documento`"
+                    },
+                    {
+                      "name": "qtd_incidentes",
+                      "expression": "`qtd_incidentes`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 3,
               "widgetType": "heatmap",
               "encodings": {
-                "x": {"fieldName": "documento", "scale": {"type": "categorical"}, "displayName": "Document"},
-                "y": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
-                "color": {"fieldName": "qtd_incidentes", "scale": {"type": "quantitative"}, "displayName": "Incidents"}
+                "x": {
+                  "fieldName": "documento",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Document"
+                },
+                "y": {
+                  "fieldName": "dimensao",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Dimension"
+                },
+                "color": {
+                  "fieldName": "qtd_incidentes",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Incidents"
+                }
               },
-              "frame": {"showTitle": true, "title": "Incidents by Dimension x Document"}
+              "frame": {
+                "showTitle": true,
+                "title": "Incidents by Dimension x Document"
+              }
             }
           },
-          "position": {"x": 0, "y": 18, "width": 6, "height": 5}
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 5
+          }
         },
         {
           "widget": {
             "name": "section-top-violations",
             "multilineTextboxSpec": {
-              "lines": ["### Top 20 Open Incidents by Violation Rate"]
+              "lines": [
+                "### Top 20 Open Incidents by Violation Rate"
+              ]
             }
           },
-          "position": {"x": 0, "y": 23, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "table-top-violations",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_top_violations",
-                "fields": [
-                  {"name": "critica_id", "expression": "`critica_id`"},
-                  {"name": "check_name", "expression": "`check_name`"},
-                  {"name": "documento", "expression": "`documento`"},
-                  {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "severidade", "expression": "`severidade`"},
-                  {"name": "status", "expression": "`status`"},
-                  {"name": "affected_records", "expression": "`affected_records`"},
-                  {"name": "total_records", "expression": "`total_records`"},
-                  {"name": "taxa_violacao_pct", "expression": "`taxa_violacao_pct`"},
-                  {"name": "owner", "expression": "`owner`"},
-                  {"name": "detected_at", "expression": "`detected_at`"}
-                ],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_top_violations",
+                  "fields": [
+                    {
+                      "name": "critica_id",
+                      "expression": "`critica_id`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "documento",
+                      "expression": "`documento`"
+                    },
+                    {
+                      "name": "dimensao",
+                      "expression": "`dimensao`"
+                    },
+                    {
+                      "name": "severidade",
+                      "expression": "`severidade`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "affected_records",
+                      "expression": "`affected_records`"
+                    },
+                    {
+                      "name": "total_records",
+                      "expression": "`total_records`"
+                    },
+                    {
+                      "name": "taxa_violacao_pct",
+                      "expression": "`taxa_violacao_pct`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "detected_at",
+                      "expression": "`detected_at`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  {"fieldName": "critica_id", "displayName": "Validation"},
-                  {"fieldName": "check_name", "displayName": "Check"},
-                  {"fieldName": "documento", "displayName": "Document"},
-                  {"fieldName": "dimensao", "displayName": "Dimension"},
-                  {"fieldName": "severidade", "displayName": "Severity"},
-                  {"fieldName": "status", "displayName": "Status"},
-                  {"fieldName": "affected_records", "displayName": "Affected"},
-                  {"fieldName": "total_records", "displayName": "Total"},
-                  {"fieldName": "taxa_violacao_pct", "displayName": "Rate (%)"},
-                  {"fieldName": "owner", "displayName": "Owner"},
-                  {"fieldName": "detected_at", "displayName": "Detected At"}
+                  {
+                    "fieldName": "critica_id",
+                    "displayName": "Validation"
+                  },
+                  {
+                    "fieldName": "check_name",
+                    "displayName": "Check"
+                  },
+                  {
+                    "fieldName": "documento",
+                    "displayName": "Document"
+                  },
+                  {
+                    "fieldName": "dimensao",
+                    "displayName": "Dimension"
+                  },
+                  {
+                    "fieldName": "severidade",
+                    "displayName": "Severity"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "affected_records",
+                    "displayName": "Affected"
+                  },
+                  {
+                    "fieldName": "total_records",
+                    "displayName": "Total"
+                  },
+                  {
+                    "fieldName": "taxa_violacao_pct",
+                    "displayName": "Rate (%)"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "detected_at",
+                    "displayName": "Detected At"
+                  }
                 ]
               },
-              "frame": {"showTitle": true, "title": "Top 20 Open Incidents"}
+              "frame": {
+                "showTitle": true,
+                "title": "Top 20 Open Incidents"
+              }
             }
           },
-          "position": {"x": 0, "y": 24, "width": 6, "height": 8}
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 8
+          }
         },
         {
           "widget": {
             "name": "section-regras",
             "multilineTextboxSpec": {
-              "lines": ["### DQX Rule Coverage by R.18 Dimension"]
+              "lines": [
+                "### DQX Rule Coverage by R.18 Dimension"
+              ]
             }
           },
-          "position": {"x": 0, "y": 32, "width": 6, "height": 1}
+          "position": {
+            "x": 0,
+            "y": 32,
+            "width": 6,
+            "height": 1
+          }
         },
         {
           "widget": {
             "name": "bar-regras-por-dimensao",
-            "queries": [{
-              "name": "main_query",
-              "query": {
-                "datasetName": "ds_regras_por_dimensao",
-                "fields": [
-                  {"name": "dimensao", "expression": "`dimensao`"},
-                  {"name": "rules_count", "expression": "`rules_count`"},
-                  {"name": "estado_regras", "expression": "`estado_regras`"}
-                ],
-                "disaggregated": true
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regras_por_dimensao",
+                  "fields": [
+                    {
+                      "name": "dimensao",
+                      "expression": "`dimensao`"
+                    },
+                    {
+                      "name": "rules_count",
+                      "expression": "`rules_count`"
+                    },
+                    {
+                      "name": "estado_regras",
+                      "expression": "`estado_regras`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": {"fieldName": "dimensao", "scale": {"type": "categorical"}, "displayName": "Dimension"},
-                "y": {"fieldName": "rules_count", "scale": {"type": "quantitative"}, "displayName": "DQX Rule Count"},
-                "color": {"fieldName": "estado_regras", "scale": {"type": "categorical"}, "displayName": "State"}
+                "x": {
+                  "fieldName": "dimensao",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Dimension"
+                },
+                "y": {
+                  "fieldName": "rules_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "DQX Rule Count"
+                },
+                "color": {
+                  "fieldName": "estado_regras",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "State"
+                }
               },
-              "frame": {"showTitle": true, "title": "DQX rules linked to each dimension (SEM REGRAS = 0)"}
+              "frame": {
+                "showTitle": true,
+                "title": "DQX rules linked to each dimension (SEM REGRAS = 0)"
+              }
             }
           },
-          "position": {"x": 0, "y": 33, "width": 6, "height": 5}
+          "position": {
+            "x": 0,
+            "y": 33,
+            "width": 6,
+            "height": 5
+          }
         }
       ]
     },
@@ -602,80 +986,131 @@
         {
           "widget": {
             "name": "filter-documento",
-            "queries": [{
-              "name": "ds_incidents_por_dimensao_documento",
-              "query": {
-                "datasetName": "ds_incidents_por_dimensao",
-                "fields": [{"name": "documento", "expression": "`documento`"}],
-                "disaggregated": false
+            "queries": [
+              {
+                "name": "ds_incidents_por_dimensao_documento",
+                "query": {
+                  "datasetName": "ds_incidents_por_dimensao",
+                  "fields": [
+                    {
+                      "name": "documento",
+                      "expression": "`documento`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "filter-multi-select",
               "encodings": {
-                "fields": [{
-                  "fieldName": "documento",
-                  "displayName": "Document",
-                  "queryName": "ds_incidents_por_dimensao_documento"
-                }]
+                "fields": [
+                  {
+                    "fieldName": "documento",
+                    "displayName": "Document",
+                    "queryName": "ds_incidents_por_dimensao_documento"
+                  }
+                ]
               },
-              "frame": {"showTitle": true, "title": "Document"}
+              "frame": {
+                "showTitle": true,
+                "title": "Document"
+              }
             }
           },
-          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
         },
         {
           "widget": {
             "name": "filter-severidade",
-            "queries": [{
-              "name": "ds_incidents_por_dimensao_severidade",
-              "query": {
-                "datasetName": "ds_incidents_por_dimensao",
-                "fields": [{"name": "severidade", "expression": "`severidade`"}],
-                "disaggregated": false
+            "queries": [
+              {
+                "name": "ds_incidents_por_dimensao_severidade",
+                "query": {
+                  "datasetName": "ds_incidents_por_dimensao",
+                  "fields": [
+                    {
+                      "name": "severidade",
+                      "expression": "`severidade`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "filter-multi-select",
               "encodings": {
-                "fields": [{
-                  "fieldName": "severidade",
-                  "displayName": "Severity",
-                  "queryName": "ds_incidents_por_dimensao_severidade"
-                }]
+                "fields": [
+                  {
+                    "fieldName": "severidade",
+                    "displayName": "Severity",
+                    "queryName": "ds_incidents_por_dimensao_severidade"
+                  }
+                ]
               },
-              "frame": {"showTitle": true, "title": "Severity"}
+              "frame": {
+                "showTitle": true,
+                "title": "Severity"
+              }
             }
           },
-          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
         },
         {
           "widget": {
             "name": "filter-dimensao",
-            "queries": [{
-              "name": "ds_incidents_por_dimensao_dimensao",
-              "query": {
-                "datasetName": "ds_incidents_por_dimensao",
-                "fields": [{"name": "dimensao", "expression": "`dimensao`"}],
-                "disaggregated": false
+            "queries": [
+              {
+                "name": "ds_incidents_por_dimensao_dimensao",
+                "query": {
+                  "datasetName": "ds_incidents_por_dimensao",
+                  "fields": [
+                    {
+                      "name": "dimensao",
+                      "expression": "`dimensao`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
               }
-            }],
+            ],
             "spec": {
               "version": 2,
               "widgetType": "filter-multi-select",
               "encodings": {
-                "fields": [{
-                  "fieldName": "dimensao",
-                  "displayName": "Dimension",
-                  "queryName": "ds_incidents_por_dimensao_dimensao"
-                }]
+                "fields": [
+                  {
+                    "fieldName": "dimensao",
+                    "displayName": "Dimension",
+                    "queryName": "ds_incidents_por_dimensao_dimensao"
+                  }
+                ]
               },
-              "frame": {"showTitle": true, "title": "Dimension"}
+              "frame": {
+                "showTitle": true,
+                "title": "Dimension"
+              }
             }
           },
-          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
         }
       ]
     }

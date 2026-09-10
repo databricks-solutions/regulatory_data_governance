@@ -572,5 +572,55 @@
     "zoneExternalIn": "External source",
     "zoneDatabricks": "Databricks",
     "zoneExternalOut": "External output"
+  },
+  "prereq": {
+    "title": "Falta un permiso para que la app lea las reglas",
+    "subtitle": "Las pantallas de reglas quedan vacías hasta resolverlo — no es ausencia de reglas.",
+    "checking": "Verificando prerrequisitos…",
+    "recheck": "Volver a verificar",
+    "rechecking": "Verificando…",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "runVia": "Abra el Postgres de Lakebase con el comando de abajo (ejecuta el archivo del repositorio con el GRANT ya listo):",
+    "technicalDetail": "Detalle técnico",
+    "kind": {
+      "psql": "SQL Postgres (Lakebase)",
+      "sql": "SQL (warehouse)",
+      "shell": "shell",
+      "yaml": "target.yml"
+    },
+    "checks": {
+      "studio_url": {
+        "title": "URL de DQX Studio no configurada",
+        "what": "Sin la URL, el Motor de Reglas no incrusta el Studio y el catálogo de reglas queda vacío.",
+        "how": "Defina dqx_studio_url en target.yml y vuelva a desplegar."
+      },
+      "lakebase_endpoint": {
+        "title": "Endpoint de Lakebase no configurado",
+        "what": "Las reglas de DQX Studio viven en Lakebase Postgres; sin el endpoint la app no tiene de dónde leerlas.",
+        "how": "Defina dqx_lakebase_endpoint en target.yml y vuelva a desplegar."
+      },
+      "lakebase_connection": {
+        "title": "No se pudo conectar a Lakebase",
+        "what": "El endpoint responde, pero la identidad de la app ({client_id}) no pudo abrir sesión — normalmente su rol de Postgres aún no existe.",
+        "how": "Ejecute el deploy del bundle: crea el rol (resources/lakebase_role.yml)."
+      },
+      "lakebase_rules_select": {
+        "title": "Falta el GRANT de lectura en la tabla de reglas",
+        "what": "La app conecta a Lakebase como {client_id}, pero no tiene SELECT en {schema}.{table} — por eso las reglas no aparecen.",
+        "how": "Ejecute el GRANT de abajo en el Postgres del Studio, como quien lo desplegó (requiere DATABRICKS_SUPERUSER en el branch). Luego pulse Volver a verificar."
+      },
+      "delta_runs_select": {
+        "title": "Falta lectura en las tablas de ejecución de DQX Studio",
+        "what": "Sin SELECT en {runs_table} y {metrics_table}, los KPI de calidad y el historial de validación quedan vacíos.",
+        "how": "Ejecute los GRANT de abajo, o el task grant_warehouse_perms del job rc18_end_to_end, que los reaplica."
+      },
+      "rules_materialized": {
+        "title": "Ninguna regla materializada para este deployment",
+        "what": "El acceso está bien, así que no es permiso: no hay regla aprobada apuntando a las tablas de este catálogo.",
+        "how": "En DQX Studio, importar el YAML crea la regla en el Rules Registry — solo llega a la tabla que lee RC18 cuando el vínculo de la tabla se PUBLICA en la pestaña Tablas (draft → approved)."
+      }
+    },
+    "unexpected": "Falló por un motivo que el diagnóstico no sabe prescribir — revise el detalle técnico antes de conceder cualquier permiso."
   }
 }

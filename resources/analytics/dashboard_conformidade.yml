@@ -5,3 +5,7 @@ resources:
       display_name: "Painel de Conformidade R.18"
       file_path: ../../dashboards/conformidade_r18.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      # Credencial do publisher: os datasets de regra leem o catálogo Postgres
+      # registrado (var.dqx_rules_catalog) e, sem isso, cada viewer precisaria de
+      # USE CATALOG + SELECT nele.
+      embed_credentials: true

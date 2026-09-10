@@ -13,7 +13,8 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK
+import dqx_lakebase
+from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
@@ -270,18 +271,18 @@ async def get_quality_dimensions(
 
 
 async def _load_rule_user_metadata() -> RuleIndex:
-    """`user_metadata` das regras active/approved, indexado por (tabela, check).
+    """`user_metadata` das regras aprovadas, indexado por (tabela, check).
 
     Honra a tag `dimensao_r18` autorada na DQX Studio (o fallback
     `RC18_RULE_META` só entra quando a tag falta). Escopado ao catálogo do
     deployment e indexado pelo PAR — `check_name` sozinho não é único em
-    `dq_quality_rules`. Ver `dqx_rules`.
+    `dq_quality_rules`. Ver `dqx_rules` e `dqx_lakebase`.
     """
-    scope_pred, scope_params = await rule_scope_clause()
-    rows = await execute_query(
-        "SELECT table_fqn, CAST(check AS STRING) AS checks "
-        f"FROM {DQX_CHECKS_TABLE} "
-        f"WHERE status IN ('active','approved') AND {scope_pred}",
+    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
+    rows = await dqx_lakebase.query_or_empty(
+        f"SELECT table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
+        f"FROM {dqx_lakebase.rules_table()} "
+        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {scope_pred}",
         scope_params,
     )
     return build_index(rows)

@@ -6,7 +6,8 @@ import json
 
 from fastapi import APIRouter, Depends, Query
 
-from db import CATALOG, DQX_CHECKS_TABLE, SCHEMA_REFERENCE, USE_MOCK
+import dqx_lakebase
+from db import CATALOG, SCHEMA_REFERENCE, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when reference tables haven't been seeded yet (setup_job not run).
@@ -225,21 +226,17 @@ async def get_criticas(
             rules = [r for r in rules if search_lower in r.description.lower()]
         return CriticasResponse(total=len(rules), rules=rules)
 
-    # Lê da tabela autoritativa de regras (DQX Studio `dq_quality_rules`).
-    # Schema real (Studio v0.14.0): a definição da regra vive na coluna `check`
-    # (VARIANT, objeto único). Fazemos CAST(check AS STRING) e aliasamos para
-    # `checks` — o parser aceita tanto objeto único quanto array (ver
-    # _parse_dq_quality_rules_rows). Studio considera "active" tanto
-    # status='active' quanto 'approved'; demais estados ficam fora.
-    # Escopo por catálogo: a Studio pode ser compartilhada com outros projetos e
-    # `dq_quality_rules` é metastore-wide. Sem este predicado, regras de outro
-    # deployment entram nas Críticas (o `_doc_from_table_fqn` casa em
+    # Tabela autoritativa de regras, hoje no Lakebase (ver dqx_lakebase.py). A
+    # definição vive na coluna `check` (JSONB), aliasada para `checks`.
+    # Escopo por catálogo: a Studio é compartilhada, e sem o predicado regras de
+    # outro deployment entram nas Críticas (`_doc_from_table_fqn` casa em
     # `scr3040`/`scr3050` sem olhar o catálogo).
-    scope_pred, scope_params = await rule_scope_clause()
-    rows = await execute_query(
-        "SELECT rule_id, table_fqn, CAST(check AS STRING) AS checks, status, version, source, updated_at "
-        f"FROM {DQX_CHECKS_TABLE} "
-        "WHERE status IN ('active', 'approved') "
+    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
+    rows = await dqx_lakebase.query_or_empty(
+        f"SELECT rule_id, table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks, "
+        "       status, version, source, updated_at "
+        f"FROM {dqx_lakebase.rules_table()} "
+        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' "
         f"  AND {scope_pred} "
         "ORDER BY table_fqn, rule_id",
         scope_params,
@@ -300,13 +297,11 @@ def _parse_dq_quality_rules_rows(
     vinc_by_pair: dict | None = None,
     vinc_by_rule_id: dict | None = None,
 ) -> list[CriticaRule]:
-    """Translate dq_quality_rules rows (Studio's `check` VARIANT) → CriticaRule.
+    """Translate dq_quality_rules rows (Studio's `check` column) → CriticaRule.
 
-    Studio stores each rule's definition in the `check` VARIANT column as a
-    single object; the SELECT CASTs it to a JSON string aliased `checks`. Each
-    check carries the DQX library shape (`name`, `criticality`, `check`,
-    optional `filter`, optional `user_metadata`, optional `run_config_name`).
-    A legacy array shape is still tolerated below.
+    The `check` JSONB column comes back as a dict (a JSON string is still
+    accepted), carrying the DQX shape: `name`, `criticality`, `check`, optional
+    `filter`/`user_metadata`/`run_config_name`. A legacy array shape is tolerated.
 
     UI-created rules may omit `run_config_name` and `user_metadata` entirely
     — the binding is then the row's `table_fqn`. We accommodate both shapes.

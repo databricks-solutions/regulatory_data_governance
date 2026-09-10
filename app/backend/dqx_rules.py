@@ -1,9 +1,10 @@
 """Leitura das definições de regra da DQX Studio (`dq_quality_rules`).
 
-A DQX Studio é um pré-requisito EXTERNO e sua tabela de regras é
-**metastore-wide**: quando duas instalações do RC18 (ou o RC18 e outro projeto)
-compartilham a mesma Studio, `dq_quality_rules` contém as regras de todas. Este
-módulo concentra as duas defesas que isso exige:
+A tabela vive em Lakebase Postgres desde a DQX 0.15/0.16 (`dqx_lakebase.py`);
+aqui só montamos o predicado e indexamos o resultado.
+
+A Studio é compartilhada por todos os deployments que apontam para ela — antes
+metastore-wide em UC, agora um schema Postgres único —, o que exige duas defesas:
 
 1. `scope_clause()` — predicado que restringe as regras às tabelas DESTE
    deployment (catálogo próprio ∪ tabelas registradas em `cadoc_tabelas`).
@@ -13,7 +14,7 @@ módulo concentra as duas defesas que isso exige:
    nome faz duas regras homônimas colidirem e o metadado da última lida vencer
    — silenciosamente, trocando a dimensão R.18 exibida.
 
-Também centraliza o parse do `check` VARIANT, antes duplicado em quatro
+Também centraliza o parse da coluna `check`, antes duplicado em quatro
 routers — a divergência entre eles foi o que permitiu o problema aparecer.
 """
 
@@ -26,7 +27,11 @@ from db import CATALOG
 from rc18_links import load_cadoc_tables
 
 
-async def scope_clause(column: str = "table_fqn", param_prefix: str = "rscope") -> tuple[str, dict]:
+async def scope_clause(
+    column: str = "table_fqn",
+    param_prefix: str = "rscope",
+    paramstyle: str = "named",
+) -> tuple[str, dict]:
     """Predicado que limita as regras DQX às tabelas deste deployment.
 
     Escopo = qualquer tabela do catálogo do deployment (`<catalog>.%`, cobrindo
@@ -36,6 +41,9 @@ async def scope_clause(column: str = "table_fqn", param_prefix: str = "rscope") 
 
     Retorna (sql_predicate, params); nunca interpola FQN direto no SQL.
 
+    `paramstyle`: o predicado serve duas engines — `named` (`:nome`, Databricks
+    SQL) e `pyformat` (`%(nome)s`, psycopg). Só o marcador muda; os nomes não.
+
     ⚠️ Efeito colateral por desenho: regras cuja `table_fqn` não é uma tabela
     (a Studio usa `__sql_check__/<name>` para checks de SQL puro) ficam FORA —
     não há catálogo a que atribuí-las. Registre a tabela em `cadoc_tabelas` se
@@ -44,23 +52,32 @@ async def scope_clause(column: str = "table_fqn", param_prefix: str = "rscope") 
     tables_by_doc, _doc_by_table = await load_cadoc_tables()
     registered = sorted({t for tables in tables_by_doc.values() for t in tables})
 
+    marker = _param_marker(paramstyle)
     like_param = f"{param_prefix}_prefix"
     params: dict[str, Any] = {like_param: f"{CATALOG}.%"}
-    predicate = f"{column} LIKE :{like_param}"
+    predicate = f"{column} LIKE {marker(like_param)}"
     if registered:
         keys = [f"{param_prefix}{i}" for i in range(len(registered))]
         params.update(dict(zip(keys, registered)))
-        placeholders = ",".join(f":{k}" for k in keys)
+        placeholders = ",".join(marker(k) for k in keys)
         predicate = f"({predicate} OR {column} IN ({placeholders}))"
     return predicate, params
 
 
-def parse_check_defs(raw: Any) -> list[dict]:
-    """Normaliza a coluna `check` (VARIANT) numa lista de definições.
+def _param_marker(paramstyle: str):
+    """Devolve a função que formata um nome de parâmetro para a engine alvo."""
+    if paramstyle == "named":       # Databricks SQL
+        return lambda name: f":{name}"
+    if paramstyle == "pyformat":    # psycopg / Lakebase
+        return lambda name: f"%({name})s"
+    raise ValueError(f"paramstyle não suportado: {paramstyle!r}")
 
-    A Studio v0.14.0 grava UM objeto por linha; o formato legado era um array.
-    Aceita os dois e devolve `[]` para JSON inválido, para uma linha corrompida
-    não derrubar a tela inteira.
+
+def parse_check_defs(raw: Any) -> list[dict]:
+    """Normaliza a coluna `check` numa lista de definições.
+
+    Aceita dict (JSONB via psycopg), str (JSON cru) e list (formato legado).
+    JSON inválido devolve `[]` — uma linha corrompida não derruba a tela.
     """
     if raw is None:
         return []
@@ -126,9 +143,8 @@ class RuleIndex:
 def build_index(rows: list[dict], value_of=None) -> RuleIndex:
     """Monta um `RuleIndex` a partir das linhas de `dq_quality_rules`.
 
-    Espera as colunas `table_fqn` e `checks` (o `check` VARIANT já convertido
-    para string). `value_of(row, chk)` decide o que guardar; o default é o
-    `user_metadata` do check, que é o que a maioria dos consumidores precisa.
+    Espera `table_fqn` e `checks` (a coluna `check` aliasada). `value_of` decide
+    o que guardar; default é o `user_metadata`.
     """
     if value_of is None:
         def value_of(_row, chk):  # noqa: ANN001

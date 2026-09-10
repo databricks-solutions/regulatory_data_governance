@@ -18,15 +18,17 @@
   import { appState, setHeaderAction } from '$lib/stores.svelte.js';
 
   let studioUrl = $state('');
+  let studioEntryUrlFromConfig = $state('');
   let configLoaded = $state(false);
   let iframeLoaded = $state(false);
   let iframeBlocked = $state(false);
   let timeoutHandle = null;
 
-  // O usuário entra no Motor de Regras esperando ver a lista de regras ativas
-  // (não a home da Studio). Apontamos iframe + botão "Abrir em nova aba" pra
-  // /rules/active. Quando studioUrl é vazio, mantemos vazio.
-  let studioEntryUrl = $derived(studioUrl ? `${studioUrl.replace(/\/$/, '')}/rules/active` : '');
+  // O caminho vem do BACKEND, nunca hardcoded aqui: a Studio renomeia rotas
+  // entre versões (o `/rules/active` que este arquivo fixava foi aposentado, e o
+  // embed passou a mostrar tela deprecada). Fallback para a base cobre backend
+  // antigo com frontend novo.
+  let studioEntryUrl = $derived(studioEntryUrlFromConfig || studioUrl);
 
   // Bumped whenever the sidebar toggles, used as a key on the iframe so it
   // remounts at the new width. Cross-origin iframes (DQX Studio) don't always
@@ -68,8 +70,10 @@
     try {
       const cfg = await getBrandConfig();
       studioUrl = (cfg?.dqx_studio_url || '').trim();
+      studioEntryUrlFromConfig = (cfg?.dqx_studio_entry_url || '').trim();
     } catch {
       studioUrl = '';
+      studioEntryUrlFromConfig = '';
     }
     configLoaded = true;
 

@@ -8,7 +8,11 @@ resources:
       display_name: "R.18 Compliance Dashboard"
       file_path: ../../dashboards/conformidade_r18_en.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      # Ver dashboard_conformidade.yml: os datasets de regra leem o catálogo
+      # Postgres registrado, então a query roda com a credencial do publisher.
+      embed_credentials: true
     monitor_criticas_en:
       display_name: "R.18 Quality Incident Monitor"
       file_path: ../../dashboards/monitor_criticas_en.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      embed_credentials: true

@@ -3,12 +3,19 @@
 -- MAGIC # Cross-catalog GRANTs entre o RC18 e a DQX Studio (BIDIRECIONAL)
 -- MAGIC
 -- MAGIC São DOIS grants cross-catalog, em direções opostas — ambos necessários:
--- MAGIC   1. **RC18 → DQX** (abaixo): o SP do app RC18 LÊ `dqx.dqx_studio.*` para
--- MAGIC      popular o catálogo de Críticas SCR, KPIs e validações.
+-- MAGIC   1. **RC18 → DQX** (abaixo): o SP do app RC18 LÊ as tabelas DELTA de
+-- MAGIC      execução (`dq_validation_runs`, `dq_metrics`) para os KPIs e validações.
 -- MAGIC   2. **DQX → RC18** (mais abaixo, seção "GRANT REVERSO"): o SP da DQX Studio
 -- MAGIC      LÊ `rc18_catalog.{silver,gold,reference}` para os jobs de validação
 -- MAGIC      resolverem os checks de domínio/referência. **Sem ele, esses checks dão
 -- MAGIC      falso-positivo silencioso de 100%** — ver a seção para o porquê.
+-- MAGIC
+-- MAGIC ⚠️ **TEM UM TERCEIRO GRANT, E ELE NÃO ESTÁ AQUI.** As REGRAS
+-- MAGIC (`dq_quality_rules`) saíram do Unity Catalog na DQX 0.15/0.16 e vivem em
+-- MAGIC **Lakebase Postgres**. GRANT de UC não alcança lá: o acesso do RC18 depende
+-- MAGIC de um role Postgres (`resources/lakebase_role.yml`) + GRANTs rodados dentro
+-- MAGIC do Postgres — ver `notebooks/setup/grant_dqx_lakebase_access.sql`. Sem esse
+-- MAGIC terceiro grant, os grants deste notebook não bastam: Críticas SCR fica vazia.
 -- MAGIC
 -- MAGIC As regras em si são criadas pelo usuário na própria DQX Studio — o RC18 não
 -- MAGIC faz mais seed automático de regras.
@@ -54,10 +61,12 @@
 
 -- Substitua <RC18_SP> pelo identificador real do service principal antes de rodar.
 -- Backticks são necessários se o identificador contiver caracteres especiais.
+--
+-- Só as tabelas de EXECUÇÃO aparecem aqui. `dq_quality_rules` saiu do UC (está no
+-- Lakebase Postgres) — grantar SELECT nela falharia com TABLE_OR_VIEW_NOT_FOUND.
 
 GRANT USE CATALOG ON CATALOG dqx                                     TO `<RC18_SP>`;
 GRANT USE SCHEMA  ON SCHEMA  dqx.dqx_studio                          TO `<RC18_SP>`;
-GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_quality_rules         TO `<RC18_SP>`;
 GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_validation_runs       TO `<RC18_SP>`;
 GRANT SELECT      ON TABLE   dqx.dqx_studio.dq_metrics               TO `<RC18_SP>`;
 
@@ -169,11 +178,13 @@ GRANT MODIFY      ON SCHEMA  <CATALOG>.gold                 TO `<RC18_APP_SP>`;
 -- MAGIC %md
 -- MAGIC ## Verificação
 -- MAGIC
--- MAGIC Confirme que os grants apareceram:
+-- MAGIC Confirme que os grants apareceram. Para o lado Lakebase (regras), a
+-- MAGIC verificação equivalente está no fim de
+-- MAGIC `notebooks/setup/grant_dqx_lakebase_access.sql`.
 
 -- COMMAND ----------
 
-SHOW GRANTS ON TABLE dqx.dqx_studio.dq_quality_rules;
+SHOW GRANTS ON TABLE dqx.dqx_studio.dq_validation_runs;
 
 -- COMMAND ----------
 

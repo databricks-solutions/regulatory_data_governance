@@ -3,6 +3,7 @@
   import Badge from '$lib/components/ui/Badge.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import FilterBar from '$lib/components/data/FilterBar.svelte';
+  import PrereqAlert from '$lib/components/ui/PrereqAlert.svelte';
   import {
     getCadocs, createCadoc, updateCadoc, deleteCadoc,
     getLinkableRules, createLink, updateLink, deleteLink, ApiError
@@ -267,6 +268,9 @@
     {/if}
   {:else}
     <FilterBar filters={ruleFilterDefs} values={ruleFilters} onchange={ruleFilterChange} onreset={ruleFilterReset} />
+    <!-- Vazio pode ser falta de permissão ou ausência de regra — o diagnóstico
+         separa. Só sem filtro ativo: com filtro, vazio é resultado legítimo. -->
+    <PrereqAlert active={!rulesLoading && rules.length === 0 && Object.keys(ruleFilters).length === 0} />
     {#if rulesLoading}
       <div class="state">{$_('linking.loading')}</div>
     {:else if rules.length === 0}
