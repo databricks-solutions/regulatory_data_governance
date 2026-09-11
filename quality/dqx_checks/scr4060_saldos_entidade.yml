@@ -103,7 +103,7 @@
       expression: "tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4060_tiporemessa)"
       msg: "tipoRemessa fora do domínio do leiaute (I = inclusão, S = substituição)."
   user_metadata:
-    dimensao_r18: "6"
+    dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "COSIF-4060-REMESSA"
     descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição de documento já validado)."
     nivel_verificacao: "1"
@@ -118,7 +118,7 @@
       expression: "day(dt_base) = 1"
       msg: "Data-base do 4060 deve representar o mês (dia 1), conforme o padrão AAAA-MM do leiaute."
   user_metadata:
-    dimensao_r18: "12"
+    dimensao_r18: "5"  # Comparabilidade: data-base normalizada é o que torna as séries comparáveis.
     critica_id: "COSIF-4060-DTBASE"
     descricao: "A data-base do documento é mensal e no leiaute vem como AAAA-MM."
     nivel_verificacao: "1"
@@ -135,7 +135,7 @@
       expression: "cast(documento as int) = 4060"
       msg: "Documento diferente de 4060 na pasta do 4060 (provável arquivo do 4066 depositado por engano)."
   user_metadata:
-    dimensao_r18: "6"
+    dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "COSIF-4060-DOC"
     descricao: "O pipeline do 4060 só deve receber documentos com codigoDocumento = 4060."
     nivel_verificacao: "1"
@@ -203,7 +203,7 @@
       expression: "tipo_assemelhada IS NULL OR cast(tipo_assemelhada as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_tipo_assemelhada)"
       msg: "tipoAssemelhada fora do domínio do Anexo 1 do leiaute."
   user_metadata:
-    dimensao_r18: "6"
+    dimensao_r18: "4"  # Clareza: o tipo da entidade só é legível pela descrição do Anexo 1.
     critica_id: "COSIF-4060-TIPO-ASSEM"
     descricao: "O tipo da entidade assemelhada deve estar no Anexo 1 do leiaute (Res. BCB 168/2021 e Res. 4.280/2013)."
     nivel_verificacao: "1"
@@ -233,7 +233,7 @@
       expression: "motivo_consolidacao IS NULL OR cast(motivo_consolidacao as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_motivo_consolidacao)"
       msg: "motivoConsolidacao fora do domínio do Anexo 3 do leiaute."
   user_metadata:
-    dimensao_r18: "6"
+    dimensao_r18: "4"  # Clareza: o motivo da consolidação só é legível pela descrição do Anexo 3.
     critica_id: "COSIF-4060-MOTIVO"
     descricao: "O motivo da consolidação dos saldos da assemelhada deve estar no Anexo 3 do leiaute."
     nivel_verificacao: "1"

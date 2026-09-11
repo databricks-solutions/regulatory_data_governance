@@ -134,6 +134,11 @@ class Violation(BaseModel):
     # painel "Regras da Dimensão" — o painel lista TODAS as regras avaliadas, não
     # só as que falharam.
     status: str = "nao_conforme"
+    # Deep-link para Críticas SCR: `document` escolhe a aba (CADOC) e
+    # `check_name` é a chave de casamento estável — `rule_id` (= critica_id)
+    # pode vir vazio numa regra sem código oficial.
+    check_name: str | None = None
+    document: str = ""
 
 
 class DimensionDetailResponse(BaseModel):

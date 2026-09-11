@@ -33,34 +33,23 @@ tabela ("Regras de tabela única"). Cada arquivo agrupa os checks daquela tabela
 
 | Arquivo (tabela-alvo) | Tabela-alvo | Categorias | Dimensão R.18 |
 |---|---|---|:-:|
-| [`dqx_checks/scr3040_operacoes.yml`](dqx_checks/scr3040_operacoes.yml) | `silver.scr3040_operacoes` | Domínio (NatuOp, Mod) + consistência (datas, IPOC, integridade ref.) | 9 · 2 · 8 |
-| [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 9 · 3 |
+| [`dqx_checks/scr3040_operacoes.yml`](dqx_checks/scr3040_operacoes.yml) | `silver.scr3040_operacoes` | Domínio (NatuOp, Mod) + consistência (datas, IPOC, integridade ref.) | 2 · 8 · 9 · 10 |
+| [`dqx_checks/scr3040_clientes.yml`](dqx_checks/scr3040_clientes.yml) | `silver.scr3040_clientes` | Domínio (TpCli, Autorzc, PorteCli, TpCtrl) | 3 · 9 |
 | [`dqx_checks/scr3040_garantias.yml`](dqx_checks/scr3040_garantias.yml) | `silver.scr3040_garantias` | Consistência (garantidor ≠ cliente) | 8 |
-| [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Consistência (≥ 1 vencimento) | 6 |
-| [`dqx_checks/scr4010_saldos.yml`](dqx_checks/scr4010_saldos.yml) | `silver.scr4010_saldos` | Leiaute COSIF 4010 — formato/DV da conta, saldo, tipoRemessa, data-base | 9 · 2 · 6 · 8 |
-| [`dqx_checks/scr4016_saldos.yml`](dqx_checks/scr4016_saldos.yml) | `silver.scr4016_saldos` | Idem 4010 + grupos 7/8 vedados + periodicidade semestral | 9 · 2 · 6 · 8 · 10 |
+| [`dqx_checks/scr3040_vencimentos.yml`](dqx_checks/scr3040_vencimentos.yml) | `silver.scr3040_vencimentos` | Vencimento com saldo (≥ 1 vértice) | 11 |
+| [`dqx_checks/scr4010_saldos.yml`](dqx_checks/scr4010_saldos.yml) | `silver.scr4010_saldos` | Leiaute COSIF 4010 — formato/DV da conta, saldo, tipoRemessa, data-base | 1 · 2 · 5 · 6 · 7 · 9 |
+| [`dqx_checks/scr4016_saldos.yml`](dqx_checks/scr4016_saldos.yml) | `silver.scr4016_saldos` | Idem 4010 + grupos 7/8 vedados + periodicidade semestral | 1 · 2 · 5 · 6 · 7 · 8 · 9 · 12 |
+| [`dqx_checks/scr4060_saldos_entidade.yml`](dqx_checks/scr4060_saldos_entidade.yml) | `silver.scr4060_saldos_entidade` | Leiaute 4060 — conta/DV, saldo, conglomerado, identificação e classificação da entidade assemelhada | 1 · 2 · 4 · 5 · 6 · 7 · 9 · 10 |
+| [`dqx_checks/scr4060_saldos_consolidado.yml`](dqx_checks/scr4060_saldos_consolidado.yml) | `silver.scr4060_saldos_consolidado` | Idem + formação do saldo consolidado (E3) e domínio dos blocos | 1 · 2 · 5 · 6 · 7 · 8 · 9 |
 | [`dqx_checks/reconciliacao_cosif.yml`](dqx_checks/reconciliacao_cosif.yml) | `gold.reconciliacao_cosif` | Batimento inter-CADOC (3040 × 4010) | 8 |
-| [`dqx_checks/scr2011_contas.yml`](dqx_checks/scr2011_contas.yml) | `silver.scr2011_contas` | Leiaute DDR 2011 — domínio das contas (Anexo 4), CNPJ, tipoEnvio, valor, bloco, data-base é dia útil | 3 · 9 · 6 · 2 · 12 |
-| [`dqx_checks/scr2011_detalhamentos.yml`](dqx_checks/scr2011_detalhamentos.yml) | `silver.scr2011_detalhamentos` | Domínios dos eixos do DDR (moeda/país/posição — Anexos 5/6/7) + valor do detalhamento | 3 · 9 · 6 · 2 |
-| [`dqx_checks/criticas_ddr_2011.yml`](dqx_checks/criticas_ddr_2011.yml) | `gold.criticas_ddr_2011` | Críticas oficiais intra-DDR 4693 e 4751 (via `status`) | 8 · 1 |
+| [`dqx_checks/scr2011_contas.yml`](dqx_checks/scr2011_contas.yml) | `silver.scr2011_contas` | Leiaute DDR 2011 — domínio das contas (Anexo 4), CNPJ, tipoEnvio, valor, bloco, data-base é dia útil | 1 · 2 · 3 · 6 · 7 · 9 · 12 |
+| [`dqx_checks/scr2011_detalhamentos.yml`](dqx_checks/scr2011_detalhamentos.yml) | `silver.scr2011_detalhamentos` | Domínios dos eixos do DDR (moeda/país/posição — Anexos 5/6/7) + valor do detalhamento | 2 · 3 · 6 · 11 |
+| [`dqx_checks/criticas_ddr_2011.yml`](dqx_checks/criticas_ddr_2011.yml) | `gold.criticas_ddr_2011` | Críticas oficiais intra-DDR 4693 e 4751 (via `status`) | 8 |
 
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`
 (código oficial ancorado no catálogo), `descricao` e `nivel_verificacao`
 (1=sintático, 2=inter-documento, 3=negocial). Esses metadados são exatamente os
 que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
-
-## Mapeamento código → dimensão (resumo)
-
-| Código(s) | Regra | Dimensão R.18 |
-|-----------|-------|:-------------:|
-| `S20_001/002/003`, `S-DOM-*`, `S17` | Domínios de campo (Autorzc, PorteCli, TpCtrl, NatuOp, Mod, TpCli) | 3 / 9 |
-| `S10_004` | DiaAtraso ≥ 0 | 2 Acurácia |
-| `S14`, `S15` | Compatibilidade de datas (contratação × vencimento × data-base) | 8 |
-| `S87`/`S88` | IPOC bem-formado e consistente | 8 |
-| `A04` | Cada agregação com ≥ 1 vencimento | 6 |
-| `S13` | Garantidor fidejussório ≠ cliente principal | 8 |
-| `REF-OP-CLI` | Integridade referencial operação → cliente | 8 |
-| `N01` | Batimento SCR 3040 × COSIF (Doc 4010) | 8 |
 
 ## Execução mensal — escopo por data-base (via `filter`)
 

@@ -103,7 +103,7 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
         ]
     return DashboardKPIs(
         data_base=data_base,
-        compliance_score=round(sum(measured) / len(measured), 1) if measured else 0.0,
+        compliance_score=round(sum(measured) / len(measured), 2) if measured else 0.0,
         dimensions=dimensions,
         pending_validations=PendingValidations(scr3040=3, scr3050=1),
         last_submission=LastSubmission(
@@ -298,7 +298,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
             score = 0.0
             status = "sem_regras"
         else:
-            score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 1) if agg["total"] else 100.0
+            score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 2) if agg["total"] else 100.0
             status = (
                 "conforme" if score >= target
                 else "atencao" if score >= target - 10
@@ -311,7 +311,10 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
             score=score,
             status=status,
         ))
-    compliance = round(sum(measured_scores) / len(measured_scores), 1) if measured_scores else 0.0
+    # 2 casas, não 1: com 10 dimensões em 100 e duas em 99,9/99,7 a média dá
+    # 99,96667, que em 1 casa virava 100,0 — índice cheio com violação aberta é
+    # o pior falso-negativo do painel. Vale para o score por dimensão também.
+    compliance = round(sum(measured_scores) / len(measured_scores), 2) if measured_scores else 0.0
 
     days_left = _days_until_deadline()
     return DashboardKPIs(

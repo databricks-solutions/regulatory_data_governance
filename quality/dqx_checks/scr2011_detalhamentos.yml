@@ -66,7 +66,7 @@
       expression: "codigo_conta IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_conta)"
       msg: "Conta do detalhamento fora do domínio do Anexo 4."
   user_metadata:
-    dimensao_r18: "9"
+    dimensao_r18: "3"
     critica_id: "DDR-DET-CONTA"
     descricao: "Detalhamento deve pertencer a conta do domínio do Anexo 4."
     nivel_verificacao: "1"
@@ -96,7 +96,7 @@
       expression: "pais IS NOT NULL OR moeda IS NOT NULL OR posicao_pais_exterior IS NOT NULL"
       msg: "Detalhamento sem nenhum eixo válido (país, moeda ou posição)."
   user_metadata:
-    dimensao_r18: "6"
+    dimensao_r18: "11"  # Relevância: valor sem eixo analítico não informa decisão alguma.
     critica_id: "DDR-DET-SEM-EIXO"
     descricao: "Detalhamento deve ter ao menos um eixo do Anexo 3."
     nivel_verificacao: "1"

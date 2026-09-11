@@ -44,7 +44,7 @@
       expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
       msg: "Crítica 4751 — chaves duplicadas (conta, país, moeda, posição)."
   user_metadata:
-    dimensao_r18: "1"
+    dimensao_r18: "8"  # Consistência: unicidade de chave, não acessibilidade (rótulo corrigido).
     critica_id: "4751"
     descricao: "Combinação (conta, país, moeda, posição) sem repetição."
     nivel_verificacao: "2"

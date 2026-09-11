@@ -4,7 +4,7 @@
 # Todos os checks deste arquivo rodam sobre a MESMA tabela target, para importar
 # de uma só vez no DQX Studio (um run_config por tabela). Reúne duas categorias:
 #   • DOMÍNIO       (valores válidos por campo)      — dim. R.18: 9 Integridade
-#   • CONSISTÊNCIA  (coerência intra-documento)      — dim. R.18: 2 / 8
+#   • CONSISTÊNCIA  (coerência intra-documento)      — dim. R.18: 2 / 8 / 10
 # Cada bloco mantém seu critica_id oficial em user_metadata.
 #
 # Fonte dos códigos: catálogo oficial docs/scr3040/SCR3040_Criticas.xls. NÃO
@@ -63,7 +63,8 @@
 
 # ══ CONSISTÊNCIA ═════════════════════════════════════════════════════════════
 # Coerência DENTRO do próprio 3040 (entre campos e entre blocos), sem depender
-# de fonte externa. Dimensões R.18: 2 (Acurácia) e 8 (Consistência).
+# de fonte externa. Dimensões R.18: 2 (Acurácia), 8 (Consistência) e, no IPOC,
+# 10 (Rastreabilidade) — é a chave que segue a operação entre documentos.
 
 # S10/S45 — dia de atraso não pode ser negativo (valor inválido).
 - name: dia_atraso_nao_negativo
@@ -125,7 +126,7 @@
       expression: "ipoc IS NOT NULL AND length(ipoc) = 30 AND ipoc_is_consistent"
       msg: "IPOC ausente, com tamanho != 30 ou inconsistente com CNPJ/Mod/TpCli/Cli/Contrato."
   user_metadata:
-    dimensao_r18: "8"
+    dimensao_r18: "10"  # Rastreabilidade: o IPOC é a chave que segue a operação entre documentos.
     critica_id: "S87"
     descricao: "IPOC deve ter 30 caracteres e ser consistente com os campos que o compõem."
     nivel_verificacao: "2"
