@@ -30,7 +30,8 @@
     <div class="dim-score-empty">—</div>
     <div class="dim-target">{$_('dimensionCard.noRulesLinked')}</div>
   {:else}
-    <div class="dim-score">{dimension.score?.toFixed(1)}<span class="dim-unit">%</span></div>
+    <!-- 2 casas: 99,67 arredondado em 1 casa vira 99,7 e o índice, 100 (ver routers/dashboard.py). -->
+    <div class="dim-score">{dimension.score?.toFixed(2)}<span class="dim-unit">%</span></div>
     <div class="dim-target">{$_('dimensionCard.target', { values: { target: dimension.target?.toFixed(1), count: dimension.rules?.length || 0 } })}</div>
   {/if}
   <div class="dim-footer">

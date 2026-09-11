@@ -6,6 +6,7 @@
   import DataTable from '$lib/components/data/DataTable.svelte';
   import { appState } from '$lib/stores.svelte.js';
   import { getQualityDimension } from '$lib/api.js';
+  import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
 
@@ -103,7 +104,7 @@
     <div class="dim-stats">
       <div class="dim-stat dim-stat-main">
         <div class="dim-stat-label">{$_('quality.metricComplianceRate')}</div>
-        <div class="score-big">{data.score?.toFixed(1)}%</div>
+        <div class="score-big">{data.score?.toFixed(2)}%</div>
         <Badge label={statusLabel} variant={statusVariant} />
       </div>
       <div class="dim-stat">
@@ -158,7 +159,19 @@
   <!-- Rules Table — todas as regras avaliadas na dimensão com seu status -->
   <div class="card">
     <div class="card-header">{$_('quality.associatedRules')}</div>
-    <DataTable columns={violationColumns} data={data.violations} emptyMessage={$_('quality.noRules')} />
+    <!-- Clicar numa regra abre Críticas SCR na aba do CADOC dela, com a linha
+         expandida. `check` é a chave de casamento (estável); `rule` cobre o
+         caso de check_name ausente. -->
+    <DataTable
+      columns={violationColumns}
+      data={data.violations}
+      emptyMessage={$_('quality.noRules')}
+      onRowClick={(row) => goto(`/validations?${new URLSearchParams({
+        ...(row.document ? { doc: row.document } : {}),
+        ...(row.check_name ? { check: row.check_name } : {}),
+        ...(row.rule_id ? { rule: row.rule_id } : {})
+      })}`)}
+    />
   </div>
 </div>
 

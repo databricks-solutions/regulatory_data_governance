@@ -69,7 +69,8 @@
                 stroke-linecap="round"
                 transform="rotate(-90 60 60)" />
             </svg>
-            <div class="score-value">{kpis.compliance_score}<span>%</span></div>
+            <!-- 2 casas: 99,97 não pode ser exibido como 100 (ver routers/dashboard.py). -->
+            <div class="score-value">{(kpis.compliance_score ?? 0).toFixed(2)}<span>%</span></div>
           </div>
           <div class="score-meta">
             <div class="score-label">{$_('dashboard.r18Index')}</div>
@@ -88,7 +89,7 @@
   <div class="kpi-row">
     <KpiCard
       title={$_('dashboard.r18Index')}
-      value={kpis.compliance_score}
+      value={(kpis.compliance_score ?? 0).toFixed(2)}
       unit="%"
       status="info"
       href="/quality"
@@ -288,12 +289,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 21px;
+    /* 17px, não 21: com 2 casas decimais o número tem 5 dígitos + '%' e
+       encostava no anel de 88px (ver routers/dashboard.py sobre as 2 casas). */
+    font-size: 17px;
     font-weight: 800;
     letter-spacing: -0.03em;
   }
   .score-value span {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 600;
     opacity: 0.7;
     margin-left: 1px;

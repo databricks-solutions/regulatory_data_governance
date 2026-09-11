@@ -9,6 +9,7 @@
   import { getValidationResults, createIncident, getCadocs, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { _ } from 'svelte-i18n';
 
   let activeTab = $state('3040');
@@ -224,7 +225,18 @@
     } catch { /* mantém FALLBACK_TABS */ }
   }
 
+  // Deep-link do painel "Regras da Dimensão" (/quality/<n>): ?doc= escolhe a
+  // aba e ?check=/?rule= dizem qual linha abrir. Consumido UMA vez — depois de
+  // aplicado o alvo é zerado, senão trocar de aba reabriria a mesma regra.
+  let pendingCheck = $state(null);
+  let pendingRule = $state(null);
+
   onMount(() => {
+    const params = $page.url.searchParams;
+    const doc = params.get('doc');
+    pendingCheck = params.get('check');
+    pendingRule = params.get('rule');
+    if (doc) activeTab = doc;     // antes do loadResults, para já buscar a aba certa
     loadTabs();
     loadResults();
   });
@@ -232,6 +244,23 @@
   $effect(() => {
     activeTab;
     loadResults();
+  });
+
+  // Expande a linha da regra apontada pelo deep-link tão logo os resultados
+  // cheguem, e rola até ela (a lista pode ser longa).
+  $effect(() => {
+    if (!pendingCheck && !pendingRule) return;
+    if (!filteredResults.length) return;
+    const i = filteredResults.findIndex((r) =>
+      (pendingCheck && r.check_name === pendingCheck) || (pendingRule && r.rule_id === pendingRule)
+    );
+    pendingCheck = null;
+    pendingRule = null;
+    if (i < 0) return;
+    expandedRow = i;
+    requestAnimationFrame(() =>
+      document.querySelector('.expand-detail')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    );
   });
 </script>
 

@@ -28,7 +28,7 @@ from models import (
 )
 from rc18_rule_meta import meta_for, resolve_meta
 from dqx_rules import RuleIndex, build_index, scope_clause as rule_scope_clause
-from rc18_links import load_vinculos, scope_table_clause
+from rc18_links import load_cadoc_tables, load_vinculos, scope_table_clause
 
 router = APIRouter()
 
@@ -150,7 +150,8 @@ def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Viola
     """
     from routers.validation import _mock_rules_3040, _mock_rules_3050
 
-    fixtures = _mock_rules_3040(locale) + _mock_rules_3050(locale)
+    fixtures = [("3040", r) for r in _mock_rules_3040(locale)]
+    fixtures += [("3050", r) for r in _mock_rules_3050(locale)]
     return [
         Violation(
             rule_id=r.rule_id,
@@ -159,13 +160,18 @@ def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Viola
             count=r.affected_records,
             sample_records=list(r.sample_ipocs),
             status="conforme" if r.status == "pass" else "nao_conforme",
+            check_name=r.check_name,
+            document=documento,
         )
-        for r in fixtures
+        for documento, r in fixtures
         if r.dimension_r18 == dimension_id
     ]
 
 
-async def _real_violations_for_dimension(dimension_id: int) -> list[Violation]:
+async def _real_violations_for_dimension(
+    dimension_id: int,
+    documentos: list[str] | None = None,
+) -> list[Violation]:
     """Real-mode analogue of `_mock_violations_for_dimension`.
 
     Builds the dimension's rule results from the SAME source the Críticas SCR
@@ -181,10 +187,15 @@ async def _real_violations_for_dimension(dimension_id: int) -> list[Violation]:
 
     violations: list[Violation] = []
     seen: set[tuple[str, str]] = set()
-    # 3040 and 3050 are scoped to disjoint silver tables, but a dimension can
-    # span both documents — call each and merge, deduping on (run, check) in
-    # case a table is linked to more than one CADOC on the /linking screen.
-    for document in ("3040", "3050"):
+    # Uma dimensão atravessa CADOCs (ex.: Acessibilidade vive em 4010/4016/
+    # 2011/4060), então o conjunto de documentos vem do CHAMADOR — derivado das
+    # tabelas que a agregação já viu nesta dimensão. Sem isso o painel só
+    # mostrava 3040/3050 e as demais dimensões apareciam vazias apesar de o
+    # cartão contar as regras. Fallback: todos os CADOCs registrados.
+    if documentos is None:
+        tables_by_doc, _doc_by_table = await load_cadoc_tables()
+        documentos = sorted(tables_by_doc) or ["3040", "3050"]
+    for document in documentos:
         results, _run_id, _run_time = await _fetch_studio_results(document)
         for vr in results:
             if vr.dimension_r18 != dimension_id:
@@ -200,6 +211,8 @@ async def _real_violations_for_dimension(dimension_id: int) -> list[Violation]:
                 count=vr.affected_records,
                 sample_records=list(vr.sample_ipocs or []),
                 status="conforme" if vr.status == "pass" else "nao_conforme",
+                check_name=vr.check_name,
+                document=document,
             ))
     return violations
 
@@ -228,7 +241,7 @@ async def get_quality_dimensions(
                 trend=_mock_trend(score),
             ))
         measured = [s for s in _MOCK_SCORES if s is not None]
-        overall = round(sum(measured) / len(measured), 1) if measured else 0.0
+        overall = round(sum(measured) / len(measured), 2) if measured else 0.0
         return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
     # Real mode: aggregate per dimension from the latest DQX Studio runs.
@@ -244,7 +257,7 @@ async def get_quality_dimensions(
             score: float | None = None
             status = "sem_regras"
         else:
-            score = round(100 * (total - invalid) / total, 1) if total else 100.0
+            score = round(100 * (total - invalid) / total, 2) if total else 100.0
             status = (
                 "conforme" if score >= target
                 else "atencao" if score >= target - 10
@@ -264,9 +277,10 @@ async def get_quality_dimensions(
             trend=[],
         ))
     # Overall score = média APENAS das dimensões medidas (com regras). Dims sem
-    # regras não distorcem o agregado para cima.
+    # regras não distorcem o agregado para cima. 2 casas porque em 1 casa uma
+    # média de 99,96 vira 100,0 — ver o comentário em dashboard.py.
     measured = [d.score for d in dims if d.score is not None]
-    overall = round(sum(measured) / len(measured), 1) if measured else 0.0
+    overall = round(sum(measured) / len(measured), 2) if measured else 0.0
     return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
 
 
@@ -365,11 +379,17 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             dim_id = meta["dimension_r18"]
             err = int(cmrow.get("error_count") or 0)
             warn = int(cmrow.get("warning_count") or 0)
-            bucket = out.setdefault(dim_id, {"total": 0, "invalid": 0, "rules": 0, "rule_names": set()})
+            bucket = out.setdefault(
+                dim_id,
+                {"total": 0, "invalid": 0, "rules": 0, "rule_names": set(), "tables": set()},
+            )
             bucket["total"] += total
             bucket["invalid"] += (err + warn)
             bucket["rules"] += 1
             bucket["rule_names"].add(check_name)
+            # Tabelas desta dimensão: o detalhe usa para descobrir QUAIS CADOCs
+            # buscar, em vez de varrer todos (ver _real_violations_for_dimension).
+            bucket["tables"].add(source_table)
     # Convert sets to lists so the response can be serialized cleanly.
     for v in out.values():
         v["rule_names"] = sorted(v.get("rule_names", set()))
@@ -525,7 +545,7 @@ async def get_quality_dimension_detail(
         score = None
         status = "sem_regras"
     else:
-        score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 1) if agg["total"] else 100.0
+        score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 2) if agg["total"] else 100.0
         status = (
             "conforme" if score >= target
             else "atencao" if score >= target - 10
@@ -533,7 +553,16 @@ async def get_quality_dimension_detail(
         )
     # Violações reais + tendência mensal da mesma fonte (dq_metrics). Só busca
     # quando há regras vinculadas — sem regras não há execução a inspecionar.
-    violations = await _real_violations_for_dimension(dimension_id) if agg["rules"] else []
+    # Os CADOCs a consultar saem das TABELAS que a agregação viu nesta dimensão:
+    # evita varrer os 6 documentos (3 consultas cada) só para descobrir onde as
+    # regras estão.
+    documentos = None
+    if agg.get("tables"):
+        _tables_by_doc, doc_by_table = await load_cadoc_tables()
+        # `or None` de propósito: tabela fora de cadoc_tabelas (ex.: uma gold não
+        # registrada) não deve virar lista vazia — cai no fallback de todos.
+        documentos = sorted({doc_by_table[t] for t in agg["tables"] if t in doc_by_table}) or None
+    violations = await _real_violations_for_dimension(dimension_id, documentos) if agg["rules"] else []
     trend = await _dimension_trend(dimension_id) if agg["rules"] else []
     return DimensionDetailResponse(
         dimension=d, score=score, target=target, status=status,
