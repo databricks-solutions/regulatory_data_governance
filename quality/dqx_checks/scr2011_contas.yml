@@ -38,7 +38,7 @@
       expression: "cast(documento as int) = 2011"
       msg: "Documento diferente de 2011 na pasta do DDR."
   user_metadata:
-    dimensao_r18: "9"
+    dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "DDR-DOC-CODIGO"
     descricao: "Toda linha deve vir do documento 2011."
     nivel_verificacao: "1"
@@ -68,7 +68,7 @@
       expression: "tipo_envio IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_tipoenvio)"
       msg: "Tipo de envio fora do domínio (I ou S)."
   user_metadata:
-    dimensao_r18: "3"
+    dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "DDR-DOM-TIPOENVIO"
     descricao: "Tipo de envio deve ser I (inclusão) ou S (substituição)."
     nivel_verificacao: "1"

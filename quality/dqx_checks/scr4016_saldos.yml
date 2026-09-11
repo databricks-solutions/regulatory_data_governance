@@ -101,7 +101,7 @@
       expression: "tipo_remessa IS NULL OR tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_cosif_tiporemessa)"
       msg: "Tipo de remessa fora do domínio do leiaute (I = inclusão, S = substituição)."
   user_metadata:
-    dimensao_r18: "9"
+    dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "COSIF-DOM-REMESSA"
     descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição)."
     nivel_verificacao: "1"
@@ -117,7 +117,7 @@
       expression: "day(dt_base) = 1"
       msg: "Data-base não normalizada no 1º dia do mês (o leiaute informa apenas AAAA-MM)."
   user_metadata:
-    dimensao_r18: "2"
+    dimensao_r18: "5"  # Comparabilidade: data-base normalizada é o que torna as séries comparáveis.
     critica_id: "COSIF-DTBASE-DIA"
     descricao: "A data-base do documento vem como AAAA-MM e deve ser normalizada no 1º dia do mês."
     nivel_verificacao: "1"
@@ -133,7 +133,7 @@
       expression: "cast(documento as int) = 4016"
       msg: "Linha de outro documento COSIF materializada em scr4016_saldos."
   user_metadata:
-    dimensao_r18: "8"
+    dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "COSIF-DOC-4016"
     descricao: "A tabela do Balanço deve conter exclusivamente linhas do documento 4016."
     nivel_verificacao: "2"
@@ -174,7 +174,7 @@
       expression: "month(dt_base) IN (6, 12)"
       msg: "Data-base fora da periodicidade semestral do 4016 (esperado apenas junho ou dezembro)."
   user_metadata:
-    dimensao_r18: "10"
+    dimensao_r18: "12"  # Tempestividade: o Balanço só tem janela em junho e dezembro.
     critica_id: "COSIF-4016-PERIODICIDADE"
     descricao: "O Balanço Patrimonial Analítico é semestral — somente datas-base de junho e dezembro."
     nivel_verificacao: "1"
