@@ -28,6 +28,7 @@ O que o deploy entrega:
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
 - Python 3.11+ (backend) e Node.js 18+ (frontend) — apenas para dev local
+- Docker com Compose v2.24+ — apenas para rodar o app em [container](#app-em-container-docker)
 - **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployment da aplicação no mesmo workspace** — provê a camada de qualidade e é utilizado como **Motor de Regras** do acelerador. **IMPORTANTE**: É pré-requisito obrigatório (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 - **Lakebase habilitado no workspace** — a DQX Studio não tem mais modo Delta, então é pré-requisito dela e, por consequência, do RC18. Quem faz o deploy também precisa de CLI **≥ 1.4.0** e do entitlement **Databricks Database (Lakebase): Manager** (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 
@@ -88,6 +89,18 @@ targets:
 ```
 
 Abra http://localhost:5173. O dev local usa `.env` (copie de [`.env.example`](.env.example)), separado do deploy. Com `USE_MOCK_BACKEND=true` o app roda sem conexão com o Databricks.
+
+---
+
+## App em container (Docker)
+
+Alternativa ao Databricks Apps para hospedar o app na infraestrutura própria; o restante do acelerador continua no bundle.
+
+```bash
+docker compose -f docker/compose.yaml up --build    # modo mock, http://localhost:8000
+```
+
+Dados reais, identidade do container e diferenças para o Databricks Apps (sem SSO, embeds) em [`docker/README.md`](docker/README.md).
 
 ---
 
@@ -347,6 +360,7 @@ regulatory-data-governance/
 ├── app/                      # Aplicação
 │   ├── backend/              # API FastAPI servida pelo Databricks Apps
 │   └── frontend/             # Código-fonte SvelteKit 5
+├── docker/                   # App em container (alternativa ao Databricks Apps)
 ├── pipelines/                # Transformações bronze → silver → gold
 │   ├── {bronze,silver,gold}/ #   modo SDP/DLT (notebooks @dlt.table)
 │   └── classical/            #   modo clássico, padrão (notebooks PySpark, sem DLT)

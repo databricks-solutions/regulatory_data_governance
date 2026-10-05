@@ -1,0 +1,21 @@
+# App RC18 em container. Sem docker/.env sobe em modo mock.
+#   docker compose -f docker/compose.yaml up --build
+name: rc18
+
+services:
+  app:
+    build:
+      context: ../app
+      dockerfile: ../docker/Dockerfile
+      # Mirrors de pacote, lidos do shell ou do docker/.env; ausentes = registries públicos.
+      args:
+        - PIP_INDEX_URL
+        - NPM_CONFIG_REGISTRY
+    image: rc18-app:local
+    env_file:
+      - path: .env
+        required: false
+    # Só loopback: o app não autentica usuário. Para expor, ponha um proxy com SSO na frente (docker/README.md).
+    ports:
+      - "127.0.0.1:${RC18_PORT:-8000}:8000"
+    restart: unless-stopped

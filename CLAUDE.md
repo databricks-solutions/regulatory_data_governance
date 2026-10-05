@@ -64,6 +64,11 @@ regulatory-data-governance/
 │   ├── backend/                   # FastAPI (main.py, routers/, models.py, frontend_dist/, ...)
 │   └── frontend/                  # SvelteKit 5 source
 │
+├── docker/                        # App em container — alternativa ao Databricks Apps, fora do bundle
+│   ├── Dockerfile                 #   build da SPA + runtime Python 3.11; contexto de build = app/
+│   ├── compose.yaml               #   sem docker/.env sobe em mock; publica só em 127.0.0.1
+│   └── .env.example               #   SP OAuth M2M + as mesmas vars de resources/app.yml
+│
 ├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
 │   ├── bronze/transformations/    # SDP/DLT mode: @dlt.table notebooks
 │   │                              #   raw_3040 · raw_3050 · raw_4010 · raw_4016 · raw_2011 · raw_4060
@@ -188,6 +193,9 @@ Note: `databricks.yml`'s `include:` no longer uses the broad `resources/**/*.yml
 
 # Frontend build → copy into app/backend/frontend_dist (served by FastAPI)
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
+
+# App em container (alternativa ao Databricks Apps) — runbook em docker/README.md
+docker compose -f docker/compose.yaml up --build        # mock sem docker/.env; dados reais: cp docker/.env.example docker/.env
 
 # === Implementation deploy (accelerator — self-contained sandbox) ===
 # Default: provisions catalog + serverless warehouse + CLASSICAL pipeline jobs
@@ -386,6 +394,10 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - Databricks does NOT own full XML generation — app validates/displays XML, does not produce certified XML
 - R.18 covers ALL BCB reporting (50+ documents), not just SCR — scope limited to SCR for MVP
 - Mock mode enables local development without Databricks connectivity
+- **App em container (`docker/`) é alternativa de hospedagem, não um terceiro bundle** — nada do bundle referencia `docker/`, e o Databricks App continua deployado (role Lakebase e grants dependem do SP dele). Não óbvio:
+  - Sem SSO: os `X-Forwarded-*` que o app grava como autor vêm do proxy do Databricks Apps; no container só um proxy com SSO os fornece, daí o compose publicar em `127.0.0.1`.
+  - O bundle só concede acesso ao SP do app: o SP do container recebe os GRANTs de UC/Lakebase/BYOL à mão — mas o role Lakebase dele não é recriado a cada deploy.
+  - O `COPY` do backend é lista explícita (pacote novo precisa entrar no Dockerfile) e o `WORKDIR` tem 3 níveis porque `main.py` lê `parents[2]/.env` — com o código em `/app`, o import quebra.
 - Synthetic data has intentional quality issues (3% nulls, 2% out-of-domain, 5% cross-doc divergences)
 - Quality trend improves over 3 months (Jan 82% → Feb 91% → Mar 96%) for compelling demo
 - **DQX Studio is a mandatory prerequisite for quality rule authoring and execution.** It is an external Databricks App from Databricks Labs DQX (https://databrickslabs.github.io/dqx/docs/guide/dqx_studio/) and is not provisioned by this bundle. The target must provide `dqx_studio_url`; the RC18 app embeds it at `/rules`. Pipelines silver/gold remain pure ELT — no embedded DQX dependency, no `_errors`/`_warnings` columns, no `quality.dqx_checks` table. **A Studio agora exige Lakebase habilitado no workspace** (o backend Delta dela foi removido), o que torna Lakebase pré-requisito transitivo do RC18 — ver o bullet de `dq_resolved_rules`.
