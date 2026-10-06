@@ -24,7 +24,7 @@
 # MAGIC      se o widget `dqx_studio_sp` for informado.
 # MAGIC
 # MAGIC ⚠️ **O grant da tabela de REGRAS não está aqui e NÃO é automatizável.**
-# MAGIC `dq_quality_rules` saiu do Unity Catalog na DQX 0.15/0.16 e vive em Lakebase
+# MAGIC `dq_resolved_rules` saiu do Unity Catalog na DQX 0.15/0.16 e vive em Lakebase
 # MAGIC Postgres. Privilégio de objeto no Postgres precisa ser concedido pelo dono
 # MAGIC das tabelas (o SP da Studio), e este notebook roda como o SP do RC18 — que
 # MAGIC não pode conceder privilégio a si mesmo. Ou seja: exatamente o problema do
@@ -154,7 +154,7 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 #   - USE CATALOG / USE SCHEMA — pré-requisito para qualquer SELECT no schema DQX
 #   - SELECT em validation_runs/metrics/quarantine_records — feeds para os
 #     endpoints /validations/*/results e /quality/dimensions
-# `dq_quality_rules` NÃO está aqui: vive no Lakebase Postgres desde a DQX
+# `dq_resolved_rules` NÃO está aqui: vive no Lakebase Postgres desde a DQX
 # 0.15/0.16, e grantar aqui falharia com TABLE_OR_VIEW_NOT_FOUND. Ver
 # notebooks/setup/grant_dqx_lakebase_access.sql.
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]

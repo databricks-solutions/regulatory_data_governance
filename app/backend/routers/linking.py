@@ -401,7 +401,7 @@ async def browse_schema_tables(
 # ── Linkable rules (DQX rules + effective check_name + link status) ──────────
 
 def _parse_check_def(chk_raw) -> list[dict]:
-    """Coerce dq_quality_rules.check (JSONB → dict, or JSON str) into check dicts."""
+    """Coerce dq_resolved_rules.check (JSONB → dict, or JSON str) into check dicts."""
     try:
         parsed = json.loads(chk_raw) if isinstance(chk_raw, str) else (chk_raw or [])
     except (json.JSONDecodeError, TypeError):

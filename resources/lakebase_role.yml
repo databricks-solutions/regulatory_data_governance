@@ -1,6 +1,6 @@
 # Role Postgres do SP do app RC18 no projeto Lakebase da DQX Studio.
 #
-# Necessário porque `dq_quality_rules` vive em Lakebase desde a DQX 0.15/0.16, e
+# Necessário porque `dq_resolved_rules` vive em Lakebase desde a DQX 0.15/0.16, e
 # GRANT de Unity Catalog não alcança lá — a identidade precisa de um role dentro
 # do Postgres. Mesmo idioma que o bundle da Studio usa para o SP dela.
 #
@@ -9,7 +9,7 @@
 # notebooks/setup/grant_dqx_lakebase_access.sql. Precisa ser REAPLICADO depois de
 # `bundle destroy` + `deploy`: o SP novo tem outro client id, então o role muda de
 # nome e o grant anterior fica órfão (sintoma: Críticas SCR vazia +
-# `permission denied for table dq_quality_rules` no log do app).
+# `permission denied for table dq_resolved_rules` no log do app).
 #
 # Pré-requisitos de quem deploya: CLI >= 1.4.0, entitlement "Databricks Database
 # (Lakebase): Manager", e o projeto/branch da Studio já provisionados (este

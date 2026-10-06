@@ -783,7 +783,7 @@ class IncidentCreateRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
     critica_id: str | None = None
-    # DQX Studio's dq_quality_rules no longer carries run_config_name, so the
+    # DQX Studio's dq_resolved_rules no longer carries run_config_name, so the
     # Críticas SCR rows come through with it empty. Optional (default ''): the
     # document is inferred from ``table_fqn`` when it's absent, and the dedup key
     # tolerates the empty value (all manual rows share ''). See create_incident.
@@ -990,7 +990,7 @@ class RegraVinculo(BaseModel):
     """Vínculo persistido de uma regra DQX a um CADOC + dimensão R.18."""
     vinculo_id: str
     check_name: str                   # nome efetivo/runtime = chave de junção com métricas
-    rule_id: str | None = None        # dq_quality_rules.rule_id (estável)
+    rule_id: str | None = None        # dq_resolved_rules.rule_id (estável)
     table_fqn: str
     documento: str | None = None
     dimensao_r18: int | None = None   # 1..12

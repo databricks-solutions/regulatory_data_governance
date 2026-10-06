@@ -24,11 +24,11 @@ class GrantCommandTest(unittest.TestCase):
     def test_client_id_is_double_quoted(self):
         """O role é um UUID: sem aspas duplas o Postgres recusa."""
         with patch.object(diag.dqx_lakebase, "LAKEBASE_SCHEMA", "dqx_studio"), \
-             patch.object(diag.dqx_lakebase, "RULES_TABLE", "dq_quality_rules"):
+             patch.object(diag.dqx_lakebase, "RULES_TABLE", "dq_resolved_rules"):
             cmd = diag._grant_command("00000000-1111-2222-3333-444444444444")
         self.assertIn('TO "00000000-1111-2222-3333-444444444444"', cmd)
         self.assertIn("GRANT USAGE ON SCHEMA dqx_studio", cmd)
-        self.assertIn("GRANT SELECT ON TABLE dqx_studio.dq_quality_rules", cmd)
+        self.assertIn("GRANT SELECT ON TABLE dqx_studio.dq_resolved_rules", cmd)
 
     def test_unknown_client_id_leaves_a_placeholder(self):
         # Placeholder visível > comando que parece pronto e concede a role vazio.

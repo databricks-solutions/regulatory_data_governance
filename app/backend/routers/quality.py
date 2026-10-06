@@ -290,7 +290,7 @@ async def _load_rule_user_metadata() -> RuleIndex:
     Honra a tag `dimensao_r18` autorada na DQX Studio (o fallback
     `RC18_RULE_META` só entra quando a tag falta). Escopado ao catálogo do
     deployment e indexado pelo PAR — `check_name` sozinho não é único em
-    `dq_quality_rules`. Ver `dqx_rules` e `dqx_lakebase`.
+    `dq_resolved_rules`. Ver `dqx_rules` e `dqx_lakebase`.
     """
     scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
     rows = await dqx_lakebase.query_or_empty(
@@ -359,11 +359,11 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             if not check_name:
                 continue
             # Filtra check_metrics de runs cujas regras foram deletadas de
-            # dq_quality_rules — mesma semântica de /validations/*/results
+            # dq_resolved_rules — mesma semântica de /validations/*/results
             # e /dashboard/kpis. Sem isso, dimensões podiam ser inflacionadas
             # por execuções históricas de regras stale (source='ui' apagadas).
             # EXCEÇÃO: se houver vínculo (source_table, check_name) na tela
-            # /linking, a regra conta mesmo sem entrada em dq_quality_rules
+            # /linking, a regra conta mesmo sem entrada em dq_resolved_rules
             # (regra criada sem `name` explícito).
             link = vinc_by_pair.get((source_table, check_name))
             um = rule_meta_cache.get(source_table, check_name)

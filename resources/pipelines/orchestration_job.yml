@@ -17,7 +17,7 @@
 # automaticamente.
 #
 # As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
-# o RC18 apenas LÊ `dq_quality_rules` (hoje em Lakebase Postgres). Não há mais
+# o RC18 apenas LÊ `dq_resolved_rules` (hoje em Lakebase Postgres). Não há mais
 # seed automático de regras.
 
 resources:

@@ -167,7 +167,7 @@ async def _check_rules_materialized() -> PrereqCheck:
     """Há regra aprovada no escopo deste deployment? (só roda com acesso OK)
 
     Codifica a pegadinha do fluxo novo: importar YAML cria regra no Registry, e
-    ela só chega em `dq_quality_rules` quando o binding é PUBLICADO em Tabelas.
+    ela só chega em `dq_resolved_rules` quando o binding é PUBLICADO em Tabelas.
     """
     scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
     rows = await dqx_lakebase.query(

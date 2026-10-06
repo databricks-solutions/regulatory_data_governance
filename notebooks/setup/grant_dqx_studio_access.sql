@@ -11,7 +11,7 @@
 -- MAGIC      falso-positivo silencioso de 100%** — ver a seção para o porquê.
 -- MAGIC
 -- MAGIC ⚠️ **TEM UM TERCEIRO GRANT, E ELE NÃO ESTÁ AQUI.** As REGRAS
--- MAGIC (`dq_quality_rules`) saíram do Unity Catalog na DQX 0.15/0.16 e vivem em
+-- MAGIC (`dq_resolved_rules`) saíram do Unity Catalog na DQX 0.15/0.16 e vivem em
 -- MAGIC **Lakebase Postgres**. GRANT de UC não alcança lá: o acesso do RC18 depende
 -- MAGIC de um role Postgres (`resources/lakebase_role.yml`) + GRANTs rodados dentro
 -- MAGIC do Postgres — ver `notebooks/setup/grant_dqx_lakebase_access.sql`. Sem esse
@@ -62,7 +62,7 @@
 -- Substitua <RC18_SP> pelo identificador real do service principal antes de rodar.
 -- Backticks são necessários se o identificador contiver caracteres especiais.
 --
--- Só as tabelas de EXECUÇÃO aparecem aqui. `dq_quality_rules` saiu do UC (está no
+-- Só as tabelas de EXECUÇÃO aparecem aqui. `dq_resolved_rules` saiu do UC (está no
 -- Lakebase Postgres) — grantar SELECT nela falharia com TABLE_OR_VIEW_NOT_FOUND.
 
 GRANT USE CATALOG ON CATALOG dqx                                     TO `<RC18_SP>`;

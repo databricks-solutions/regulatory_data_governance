@@ -113,7 +113,7 @@ _MOCK_DOMINIOS_EN = [
 ]
 
 # 4 regras iniciais do acelerador, usadas APENAS no modo mock (USE_MOCK_BACKEND).
-# Em modo real, o catálogo de Críticas é lido de `dq_quality_rules` da DQX Studio
+# Em modo real, o catálogo de Críticas é lido de `dq_resolved_rules` da DQX Studio
 # — as regras são criadas via DQX Studio (Motor de Regras) e aparecem aqui assim
 # que autoradas. O RC18 não semeia mais regras.
 _MOCK_CRITICAS = [
@@ -242,7 +242,7 @@ async def get_criticas(
         scope_params,
     )
     vinc_by_pair, vinc_by_rule = await load_vinculos()
-    rules = _parse_dq_quality_rules_rows(rows, vinc_by_pair, vinc_by_rule)
+    rules = _parse_dq_resolved_rules_rows(rows, vinc_by_pair, vinc_by_rule)
     # Apply filters in Python — set is small (10s of rules) so this is fine.
     if document:
         rules = [r for r in rules if r.document == document]
@@ -292,12 +292,12 @@ def _doc_from_table_fqn(table_fqn: str) -> str:
     return ""
 
 
-def _parse_dq_quality_rules_rows(
+def _parse_dq_resolved_rules_rows(
     rows: list[dict],
     vinc_by_pair: dict | None = None,
     vinc_by_rule_id: dict | None = None,
 ) -> list[CriticaRule]:
-    """Translate dq_quality_rules rows (Studio's `check` column) → CriticaRule.
+    """Translate dq_resolved_rules rows (Studio's `check` column) → CriticaRule.
 
     The `check` JSONB column comes back as a dict (a JSON string is still
     accepted), carrying the DQX shape: `name`, `criticality`, `check`, optional

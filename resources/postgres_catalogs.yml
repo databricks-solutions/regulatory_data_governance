@@ -1,6 +1,6 @@
 # Registro do Lakebase da DQX Studio como catálogo UC read-only.
 #
-# Existe só para o LAKEVIEW: os dashboards precisam de dq_quality_rules, que
+# Existe só para o LAKEVIEW: os dashboards precisam de dq_resolved_rules, que
 # saiu do UC na DQX 0.15/0.16, e Lakeview não fala Postgres. O app não usa este
 # catálogo — ele lê o Postgres direto (app/backend/dqx_lakebase.py).
 #

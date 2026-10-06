@@ -1,4 +1,4 @@
--- GRANT Postgres: leitura de `dq_quality_rules` pelo SP do app RC18
+-- GRANT Postgres: leitura de `dq_resolved_rules` pelo SP do app RC18
 -- ============================================================================
 -- ⚠️ NÃO é notebook Databricks. É SQL **Postgres**, rodado contra o endpoint
 -- Lakebase da DQX Studio — num notebook/SQL editor do Databricks falha na 1ª linha.
@@ -9,7 +9,7 @@
 --
 -- ⚠️ REAPLICAR após `bundle destroy` + `deploy`: o SP novo tem outro client id, e
 -- os GRANTs abaixo passam a apontar para um role inexistente. Sintoma: Críticas
--- SCR vazia + `permission denied for table dq_quality_rules` no log do app.
+-- SCR vazia + `permission denied for table dq_resolved_rules` no log do app.
 --
 -- QUEM RODA: quem tem `DATABRICKS_SUPERUSER` no branch (na prática, quem
 -- deployou a Studio) — no Postgres só o dono das tabelas ou um superuser concede.
@@ -28,10 +28,10 @@
 
 -- Sem USAGE no schema, o SELECT falha mesmo com grant na tabela.
 GRANT USAGE ON SCHEMA dqx_studio TO "<RC18_APP_SP_CLIENT_ID>";
-GRANT SELECT ON TABLE dqx_studio.dq_quality_rules TO "<RC18_APP_SP_CLIENT_ID>";
+GRANT SELECT ON TABLE dqx_studio.dq_resolved_rules TO "<RC18_APP_SP_CLIENT_ID>";
 
 -- OPCIONAL — trilha de auditoria das regras (o RC18 ainda não consome).
--- GRANT SELECT ON TABLE dqx_studio.dq_quality_rules_history TO "<RC18_APP_SP_CLIENT_ID>";
+-- GRANT SELECT ON TABLE dqx_studio.dq_resolved_rules_history TO "<RC18_APP_SP_CLIENT_ID>";
 
 -- Nada mais é concedido: o resto (`dq_app_settings`, `dq_role_mappings`,
 -- `dq_comments`, `dq_schedule_*`) é estado interno da Studio, e nenhuma escrita
@@ -41,4 +41,4 @@ GRANT SELECT ON TABLE dqx_studio.dq_quality_rules TO "<RC18_APP_SP_CLIENT_ID>";
 SELECT grantee, privilege_type
 FROM information_schema.table_privileges
 WHERE table_schema = 'dqx_studio'
-  AND table_name = 'dq_quality_rules';
+  AND table_name = 'dq_resolved_rules';

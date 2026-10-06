@@ -95,7 +95,7 @@ Abra http://localhost:5173. O dev local usa `.env` (copie de [`.env.example`](.e
 
 A autoria e execução de regras de qualidade são delegadas ao
 **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation)**,
-um app do [Databricks Labs DQX](https://github.com/databrickslabs/dqx). O acelerador **NÃO** provisiona a Studio — ela precisa estar deployada no mesmo workspace, pois é responsável por popular a tabela de regras `dq_quality_rules` que o app lê (página `/rules` + Críticas). As regras são criadas no próprio Studio; o RC18 apenas as **lê**.
+um app do [Databricks Labs DQX](https://github.com/databrickslabs/dqx). O acelerador **NÃO** provisiona a Studio — ela precisa estar deployada no mesmo workspace, pois é responsável por popular a tabela de regras `dq_resolved_rules` que o app lê (página `/rules` + Críticas). As regras são criadas no próprio Studio; o RC18 apenas as **lê**.
 
 ### Onde cada coisa mora (mudou na DQX 0.15/0.16)
 
@@ -103,7 +103,7 @@ A Studio passou a guardar seu estado transacional em **Lakebase Postgres** e rem
 
 | O quê | Onde | Como o RC18 lê |
 |---|---|---|
-| **Regras** (`dq_quality_rules`) | Lakebase Postgres, schema `dqx_studio` | conexão Postgres direta ([`app/backend/dqx_lakebase.py`](app/backend/dqx_lakebase.py)) |
+| **Regras** (`dq_resolved_rules`) | Lakebase Postgres, schema `dqx_studio` | conexão Postgres direta ([`app/backend/dqx_lakebase.py`](app/backend/dqx_lakebase.py)) |
 | **Execuções** (`dq_validation_runs`, `dq_metrics`) | Delta, em `${dqx_catalog}.${dqx_schema}` | SQL Warehouse |
 | **Regras, para os dashboards** | mesmo Lakebase, exposto como catálogo UC read-only (`${dqx_rules_catalog}`) | Lakeview, via `resources/postgres_catalogs.yml` |
 

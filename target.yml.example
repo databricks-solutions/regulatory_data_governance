@@ -38,7 +38,7 @@ targets:
       # dqx_lakebase_branch: <dqx>
       # dqx_lakebase_schema: <dqx_studio>
       # dqx_lakebase_database: <databricks_postgres>
-      # dqx_rules_table: <dq_quality_rules>
+      # dqx_rules_table: <dq_resolved_rules>
       #
       # Para DESLIGAR a leitura de regras (Críticas vazia em vez de erro): use a
       # sentinela, nunca string vazia (a Apps API rejeita env sem valor).

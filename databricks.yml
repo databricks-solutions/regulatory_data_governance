@@ -162,8 +162,9 @@ variables:
   dqx_rules_table:
     description: |
       Tabela de regras dentro de `${var.dqx_lakebase_schema}` (env
-      `DQX_RULES_TABLE`). Override só se divergir do padrão da Studio.
-    default: "dq_quality_rules"
+      `DQX_RULES_TABLE`). Override só se divergir do padrão da Studio — ex.
+      `dq_quality_rules` numa Studio anterior ao rename (DQX #1531).
+    default: "dq_resolved_rules"
 
   dqx_rules_catalog:
     description: |

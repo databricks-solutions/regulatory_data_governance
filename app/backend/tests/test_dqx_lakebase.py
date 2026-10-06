@@ -18,8 +18,8 @@ class IdentifierQuotingTest(unittest.TestCase):
 
     def test_rules_table_is_schema_qualified_and_quoted(self):
         with patch.object(dqx_lakebase, "LAKEBASE_SCHEMA", "dqx_studio"), \
-             patch.object(dqx_lakebase, "RULES_TABLE", "dq_quality_rules"):
-            self.assertEqual(dqx_lakebase.rules_table(), '"dqx_studio"."dq_quality_rules"')
+             patch.object(dqx_lakebase, "RULES_TABLE", "dq_resolved_rules"):
+            self.assertEqual(dqx_lakebase.rules_table(), '"dqx_studio"."dq_resolved_rules"')
 
     def test_embedded_quote_is_escaped(self):
         with patch.object(dqx_lakebase, "LAKEBASE_SCHEMA", 'we"ird'), \
@@ -100,7 +100,7 @@ class QueryOrEmptyTest(unittest.TestCase):
 
     def test_connection_failure_degrades_to_empty(self):
         async def boom(sql, params=None):
-            raise RuntimeError("permission denied for table dq_quality_rules")
+            raise RuntimeError("permission denied for table dq_resolved_rules")
 
         with patch.object(
             dqx_lakebase, "LAKEBASE_ENDPOINT",

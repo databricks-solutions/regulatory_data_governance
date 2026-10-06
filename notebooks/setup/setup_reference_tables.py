@@ -259,7 +259,7 @@ TBLPROPERTIES ('delta.logRetentionDuration' = 'interval 1825 days')
 """)
 
 # Tabela `validation_rules` mantida apenas como esqueleto: as regras DQX
-# autoritativas vivem em `dq_quality_rules` da DQX Studio e são criadas via a
+# autoritativas vivem em `dq_resolved_rules` da DQX Studio e são criadas via a
 # própria Studio (Motor de Regras) — o RC18 não semeia mais regras. O CREATE
 # acima é preservado para compatibilidade com dashboards/notebooks legados.
 
