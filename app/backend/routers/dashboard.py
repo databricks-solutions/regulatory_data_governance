@@ -268,7 +268,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
                 if not check_name:
                     continue
                 # Filtra runs antigos cujas regras foram deletadas de
-                # dq_quality_rules — mesma semântica do /validations/*/results
+                # dq_resolved_rules — mesma semântica do /validations/*/results
                 # (validation.py:_fetch_studio_results). Sem isso, o dashboard
                 # contava check_metrics de regras stale (ex: source='ui' já
                 # apagadas) e divergia das Críticas SCR.

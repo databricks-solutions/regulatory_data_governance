@@ -48,7 +48,7 @@ resources:
             value: ${var.dqx_catalog}
           - name: DQX_SCHEMA
             value: ${var.dqx_schema}
-          # Lakebase Postgres da Studio — onde `dq_quality_rules` vive desde a
+          # Lakebase Postgres da Studio — onde `dq_resolved_rules` vive desde a
           # DQX 0.15/0.16; popula Críticas SCR. Ver app/backend/dqx_lakebase.py e,
           # para o GRANT manual, notebooks/setup/grant_dqx_lakebase_access.sql.
           - name: DQX_LAKEBASE_ENDPOINT

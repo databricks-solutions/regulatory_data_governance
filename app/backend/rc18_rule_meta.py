@@ -1,6 +1,6 @@
 """RC18 rule metadata — hard-coded mapping keyed by DQX check `name`.
 
-The DQX Studio rule storage (`dq_quality_rules`) carries only minimal user
+The DQX Studio rule storage (`dq_resolved_rules`) carries only minimal user
 tags (`projeto`, `descricao`). The structural metadata that drives the
 Críticas SCR / Qualidade R.18 UI (critica_id, dimensão R.18, nível de
 verificação, documento alvo) lives here so the YAML tags can stay clean

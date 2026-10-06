@@ -1,6 +1,6 @@
 """Testes do índice/escopo de regras DQX (`app/backend/dqx_rules.py`).
 
-Protegem duas coisas: `check_name` NÃO é único em `dq_quality_rules` (homônimos
+Protegem duas coisas: `check_name` NÃO é único em `dq_resolved_rules` (homônimos
 em tabelas diferentes colidiam e trocavam a dimensão exibida), e o predicado
 serve duas engines — marcador errado não é erro de sintaxe, o predicado só nunca
 casa, zerando as telas em silêncio.

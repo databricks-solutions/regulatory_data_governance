@@ -1,4 +1,4 @@
-"""Leitura somente-leitura de `dq_quality_rules` no Lakebase Postgres da DQX Studio.
+"""Leitura somente-leitura de `dq_resolved_rules` no Lakebase Postgres da DQX Studio.
 
 Desde a DQX 0.15/0.16 as regras saíram do UC; runs/métricas seguem em Delta
 (`db.py`). Espelha o `pg_executor.py` da Studio: o endpoint é a única entrada
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 LAKEBASE_ENDPOINT = (os.getenv("DQX_LAKEBASE_ENDPOINT") or "").strip()
 LAKEBASE_DATABASE = os.getenv("DQX_LAKEBASE_DATABASE", "databricks_postgres")
 LAKEBASE_SCHEMA = os.getenv("DQX_LAKEBASE_SCHEMA", "dqx_studio")
-RULES_TABLE = os.getenv("DQX_RULES_TABLE", "dq_quality_rules")
+# Era `dq_quality_rules` até a DQX #1531; Studio anterior → `DQX_RULES_TABLE`.
+RULES_TABLE = os.getenv("DQX_RULES_TABLE", "dq_resolved_rules")
 
 POOL_MIN_SIZE = int(os.getenv("DQX_LAKEBASE_POOL_MIN_SIZE", "1"))
 POOL_MAX_SIZE = int(os.getenv("DQX_LAKEBASE_POOL_MAX_SIZE", "5"))
@@ -45,7 +46,7 @@ def _quote_ident(identifier: str) -> str:
 
 
 def rules_table() -> str:
-    """FQN citado, ex. `"dqx_studio"."dq_quality_rules"`."""
+    """FQN citado, ex. `"dqx_studio"."dq_resolved_rules"`."""
     return f"{_quote_ident(LAKEBASE_SCHEMA)}.{_quote_ident(RULES_TABLE)}"
 
 

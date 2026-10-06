@@ -1,4 +1,4 @@
-"""Leitura das definições de regra da DQX Studio (`dq_quality_rules`).
+"""Leitura das definições de regra da DQX Studio (`dq_resolved_rules`).
 
 A tabela vive em Lakebase Postgres desde a DQX 0.15/0.16 (`dqx_lakebase.py`);
 aqui só montamos o predicado e indexamos o resultado.
@@ -10,7 +10,7 @@ metastore-wide em UC, agora um schema Postgres único —, o que exige duas defe
    deployment (catálogo próprio ∪ tabelas registradas em `cadoc_tabelas`).
    Sem ele, a tela de Críticas lista regras de outro projeto.
 2. `RuleIndex` — índice por `(table_fqn, check_name)`. `check_name` NÃO é único
-   em `dq_quality_rules` (o grão real é tabela+regra), então indexar só pelo
+   em `dq_resolved_rules` (o grão real é tabela+regra), então indexar só pelo
    nome faz duas regras homônimas colidirem e o metadado da última lida vencer
    — silenciosamente, trocando a dimensão R.18 exibida.
 
@@ -107,7 +107,7 @@ class RuleIndex:
 
     `get()` tenta o par primeiro e cai para o nome apenas se o par não casar.
     O fallback existe porque `dq_validation_runs.source_table_fqn` e
-    `dq_quality_rules.table_fqn` são preenchidos por caminhos diferentes da
+    `dq_resolved_rules.table_fqn` são preenchidos por caminhos diferentes da
     Studio e podem divergir — sem ele, uma divergência de formatação zeraria a
     tela em vez de degradar. Com o `scope_clause()` aplicado na consulta, o
     fallback só pode casar dentro do próprio catálogo, então deixa de ser a
@@ -141,7 +141,7 @@ class RuleIndex:
 
 
 def build_index(rows: list[dict], value_of=None) -> RuleIndex:
-    """Monta um `RuleIndex` a partir das linhas de `dq_quality_rules`.
+    """Monta um `RuleIndex` a partir das linhas de `dq_resolved_rules`.
 
     Espera `table_fqn` e `checks` (a coluna `check` aliasada). `value_of` decide
     o que guardar; default é o `user_metadata`.

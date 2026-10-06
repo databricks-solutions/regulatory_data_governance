@@ -197,7 +197,7 @@ _RC_3050 = "silver_3050"
 
 # As 4 regras iniciais do acelerador — referência canônica usada para o mapping
 # de dimensões R.18. As regras autoritativas são criadas via DQX Studio e lidas
-# de `dq_quality_rules`; o RC18 não semeia mais regras.
+# de `dq_resolved_rules`; o RC18 não semeia mais regras.
 # Mapping uses the spec-canonical 12 R.18 dimensions per docs/spec/01_requirements.md §1.2:
 # 1 Acessibilidade, 2 Acurácia, 3 Adaptabilidade, 4 Clareza, 5 Comparabilidade,
 # 6 Completude, 7 Confiabilidade, 8 Consistência, 9 Integridade, 10 Rastreabilidade,
@@ -360,11 +360,11 @@ def _summary_from_results(results) -> ValidationSummary:
 
 # ── DQX Studio run-results integration ──────────────────────────────────────
 #
-# Reads APPROVED rules from `dq_quality_rules` (Lakebase, via `dqx_lakebase`)
+# Reads APPROVED rules from `dq_resolved_rules` (Lakebase, via `dqx_lakebase`)
 # plus the LATEST run per source_table_fqn from `${DQX_VALIDATION_RUNS_TABLE}`
 # joined with `${DQX_METRICS_TABLE}` (`check_metrics` = JSON array of per-check
 # counts). Duas engines: a composição NÃO pode ser um join SQL único.
-# Old rule definitions deleted from `dq_quality_rules` produce check_metrics
+# Old rule definitions deleted from `dq_resolved_rules` produce check_metrics
 # entries that don't match any active rule — those are dropped silently.
 
 _DOC_TO_TABLE_PREFIX = {
@@ -379,7 +379,7 @@ async def _load_active_rules() -> RuleIndex:
     O valor é a definição DQX da coluna `check` (JSONB no Lakebase) acrescida de
     `rule_id`/`_row_table_fqn` da linha. Escopado ao catálogo do deployment e
     indexado pelo PAR — `check_name` sozinho não é único em
-    `dq_quality_rules`. Ver `dqx_rules` e `dqx_lakebase`.
+    `dq_resolved_rules`. Ver `dqx_rules` e `dqx_lakebase`.
     """
     scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
     rows = await dqx_lakebase.query_or_empty(
@@ -404,7 +404,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
     For each source_table_fqn that matches `document`'s silver tables, pick the
     LATEST SUCCESS run. Parse its `check_metrics` and emit one ValidationResult
     per check that maps to an approved RC18 rule (via the link table, then
-    check_name → dq_quality_rules).
+    check_name → dq_resolved_rules).
 
     Table selection is driven by `governance.cadoc_tabelas` (the CADOC↔table
     map maintained on the /linking screen); when that table is empty (fresh

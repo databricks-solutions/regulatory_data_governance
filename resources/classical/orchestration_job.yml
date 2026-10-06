@@ -35,7 +35,7 @@
 # notebooks clássicos em pipelines/classical/**. Cada step espera o predecessor.
 #
 # As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
-# o RC18 apenas LÊ `dq_quality_rules` (hoje em Lakebase Postgres).
+# o RC18 apenas LÊ `dq_resolved_rules` (hoje em Lakebase Postgres).
 
 resources:
   jobs:
