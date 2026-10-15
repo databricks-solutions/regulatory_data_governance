@@ -140,7 +140,7 @@
         </li>
         <li>
           <strong>{$_('rules.stepBundleLabel')}</strong> {$_('rules.stepBundlePre')}<code>DQX_STUDIO_URL</code>{$_('rules.stepBundleMid1')}
-          <code>resources/app.yml</code>{$_('rules.stepBundleMid2')}<code>apps.config.env</code>){$_('rules.stepBundleMid3')}
+          <code>resources/app/app.yml</code>{$_('rules.stepBundleMid2')}<code>apps.config.env</code>){$_('rules.stepBundleMid3')}
           <code>databricks bundle deploy</code>.
         </li>
       </ul>

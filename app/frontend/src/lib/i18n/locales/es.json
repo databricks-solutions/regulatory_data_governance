@@ -603,7 +603,7 @@
       "lakebase_connection": {
         "title": "No se pudo conectar a Lakebase",
         "what": "El endpoint responde, pero la identidad de la app ({client_id}) no pudo abrir sesión — normalmente su rol de Postgres aún no existe.",
-        "how": "Ejecute el deploy del bundle: crea el rol (resources/lakebase_role.yml)."
+        "how": "Ejecute el deploy del bundle: crea el rol (resources/app/lakebase_role.yml)."
       },
       "lakebase_rules_select": {
         "title": "Falta el GRANT de lectura en la tabla de reglas",

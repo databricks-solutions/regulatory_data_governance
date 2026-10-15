@@ -10,18 +10,20 @@
 # MAGIC
 # MAGIC Este notebook reaplica os grants de **Unity Catalog** a CADA execução:
 # MAGIC
-# MAGIC   1. CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
-# MAGIC   2. USE CATALOG + USE SCHEMA no catálogo/schema da DQX Studio + SELECT em
-# MAGIC      `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
-# MAGIC      (o RC18 apenas LÊ as tabelas da DQX Studio)
-# MAGIC   3. USE CATALOG no catálogo do deployment + SELECT nos schemas de dados
-# MAGIC      (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
-# MAGIC      tabela `governance.incidents` (necessário para criação de
-# MAGIC      incidentes via POST /governance/incidents)
-# MAGIC   4. GRANT REVERSO — USE CATALOG + SELECT em `{silver,gold,reference}` do
+# MAGIC   1. GRANT REVERSO — USE CATALOG + SELECT em `{silver,gold,reference}` do
 # MAGIC      catálogo do deployment para o SP da DQX Studio (o `run_as` dos jobs
 # MAGIC      de validação), para que os checks com subquery resolvam. Só aplicado
 # MAGIC      se o widget `dqx_studio_sp` for informado.
+# MAGIC   2. Para o SP do Databricks App — pulado com `app_hosting=container`, em que
+# MAGIC      o SP do container recebe os mesmos grants via `docker/grant_sp.sh`:
+# MAGIC      - CAN_USE no warehouse `rc18-warehouse-dev` (via REST Permissions API)
+# MAGIC      - USE CATALOG + USE SCHEMA no catálogo/schema da DQX Studio + SELECT em
+# MAGIC        `dq_validation_runs` / `dq_metrics` / `dq_quarantine_records`
+# MAGIC        (o RC18 apenas LÊ as tabelas da DQX Studio)
+# MAGIC      - USE CATALOG no catálogo do deployment + SELECT nos schemas de dados
+# MAGIC        (`silver`, `reference`, `bronze`, `gold`) + SELECT/MODIFY na
+# MAGIC        tabela `governance.incidents` (necessário para criação de
+# MAGIC        incidentes via POST /governance/incidents)
 # MAGIC
 # MAGIC ⚠️ **O grant da tabela de REGRAS não está aqui e NÃO é automatizável.**
 # MAGIC `dq_resolved_rules` saiu do Unity Catalog na DQX 0.15/0.16 e vive em Lakebase
@@ -48,6 +50,8 @@
 # COMMAND ----------
 
 dbutils.widgets.text("app_name", "", "Nome do app (ex: rc18-starter-kit-dev)")
+# `container` = app fora do Databricks Apps (docker/): só o grant reverso se aplica.
+dbutils.widgets.text("app_hosting", "databricks_app", "databricks_app | container")
 dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehouse-dev)")
 # Catálogo DESTE deployment. Sem default de propósito: um default silencioso é o
 # que faria um segundo deployment grantar no catálogo do primeiro.
@@ -65,6 +69,7 @@ dbutils.widgets.text("dqx_schema", "dqx_studio", "Schema da DQX Studio")
 dbutils.widgets.text("dqx_studio_sp", "", "SP da DQX Studio (run_as dos jobs de validação)")
 
 APP_NAME = dbutils.widgets.get("app_name")
+APP_HOSTING = dbutils.widgets.get("app_hosting")
 WAREHOUSE_NAME = dbutils.widgets.get("warehouse_name")
 CATALOG = dbutils.widgets.get("catalog")
 DQX_CATALOG = dbutils.widgets.get("dqx_catalog")
@@ -78,12 +83,77 @@ if not APP_NAME or not WAREHOUSE_NAME or not CATALOG:
     )
 if not DQX_CATALOG or not DQX_SCHEMA:
     raise ValueError("Widgets `dqx_catalog` e `dqx_schema` são obrigatórios.")
+if APP_HOSTING not in ("databricks_app", "container"):
+    raise ValueError(f"app_hosting inválido: {APP_HOSTING!r} (databricks_app | container).")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1. GRANT REVERSO: o SP da DQX Studio precisa LER o catálogo do deployment
+# MAGIC
+# MAGIC Os jobs de validação do DQX Studio rodam como o SP da PRÓPRIA DQX Studio
+# MAGIC (o `run_as`/creator do job — uma identidade DIFERENTE do SP do app RC18,
+# MAGIC seção 2). Roda primeiro porque vale também com o app em container. Todo check com subquery — os de domínio
+# MAGIC (`IN (SELECT … FROM reference.v_dom_3040_*)`), integridade referencial
+# MAGIC (`EXISTS … silver.scr3040_clientes`), batimento COSIF
+# MAGIC (`NOT IN reference.v_recon_status_bloqueante`) E o `filter` de escopo mensal
+# MAGIC (`dt_base = (SELECT max(dt_base) …)`) — exige que esse SP tenha
+# MAGIC USE CATALOG + SELECT no catálogo deste deployment. SEM isso, a subquery não
+# MAGIC resolve e o DQX marca 100% das linhas como violação / "invalid check filter"
+# MAGIC — SILENCIOSO (o run reporta SUCCESS). Este grant é reaplicado a cada
+# MAGIC execução do job, igual aos demais, para sobreviver a `destroy + deploy`.
+# MAGIC
+# MAGIC Com a Studio COMPARTILHADA entre deployments, o mesmo SP acaba com leitura
+# MAGIC em vários catálogos — esperado: é o que permite os checks de cada
+# MAGIC deployment rodarem. O isolamento das REGRAS é feito no app, por catálogo
+# MAGIC (`app/backend/dqx_rules.py`), não por permissão.
+
+# COMMAND ----------
+
+if not DQX_STUDIO_SP:
+    print("[SKIP] Widget `dqx_studio_sp` vazio — grant reverso NÃO aplicado. Os checks "
+          "com subquery (domínio/referência/escopo mensal) falharão com "
+          "'invalid check filter'. Defina o SP da DQX Studio no target.yml para "
+          "habilitar, ou rode grant_dqx_studio_access.sql (seção GRANT REVERSO).")
+else:
+    print(f"DQX Studio SP: {DQX_STUDIO_SP}")
+    reverse_grants = [
+        f"GRANT USE CATALOG ON CATALOG `{CATALOG}` TO `{DQX_STUDIO_SP}`",
+    ] + [
+        cmd.format(cat=CATALOG, s=s, sp=DQX_STUDIO_SP)
+        for s in ("silver", "gold", "reference")
+        for cmd in (
+            "GRANT USE SCHEMA ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
+            "GRANT SELECT     ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
+        )
+    ]
+    for g in reverse_grants:
+        spark.sql(g)
+        print(f"  ✓ {g}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Grants do SP do Databricks App (warehouse + Unity Catalog)
 
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import NotFound
 
 w = WorkspaceClient()
+
+if APP_HOSTING == "container":
+    # Sem Databricks App: os grants do SP do container vêm de docker/grant_sp.sh.
+    # App existente aqui = include e variável dessincronizados — o App ficaria sem grants.
+    try:
+        w.apps.get(APP_NAME)
+    except NotFound:
+        dbutils.notebook.exit("app_hosting=container: grants do SP do App pulados")
+    raise RuntimeError(
+        f"app_hosting=container, mas o App {APP_NAME!r} existe. Comente resources/app/*.yml "
+        "no include: do databricks.yml, ou volte app_hosting para databricks_app."
+    )
 
 # Resolve o SP a partir do app
 app = w.apps.get(APP_NAME)
@@ -139,7 +209,7 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. SQL GRANTs cross-catalog nas tabelas Delta da DQX Studio
+# MAGIC ### SQL GRANTs cross-catalog nas tabelas Delta da DQX Studio
 # MAGIC
 # MAGIC O SP do app precisa ler `dq_validation_runs` / `dq_metrics` pra
 # MAGIC alimentar os KPIs de qualidade e as validações. Como é cross-catalog
@@ -213,48 +283,3 @@ for row in spark.sql(
 ).collect():
     if sp_client_id in str(row):
         print(f"  {dict(row.asDict())}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3. GRANT REVERSO: o SP da DQX Studio precisa LER o catálogo do deployment
-# MAGIC
-# MAGIC Os jobs de validação do DQX Studio rodam como o SP da PRÓPRIA DQX Studio
-# MAGIC (o `run_as`/creator do job — uma identidade DIFERENTE do SP do app RC18
-# MAGIC acima). Todo check com subquery — os de domínio
-# MAGIC (`IN (SELECT … FROM reference.v_dom_3040_*)`), integridade referencial
-# MAGIC (`EXISTS … silver.scr3040_clientes`), batimento COSIF
-# MAGIC (`NOT IN reference.v_recon_status_bloqueante`) E o `filter` de escopo mensal
-# MAGIC (`dt_base = (SELECT max(dt_base) …)`) — exige que esse SP tenha
-# MAGIC USE CATALOG + SELECT no catálogo deste deployment. SEM isso, a subquery não
-# MAGIC resolve e o DQX marca 100% das linhas como violação / "invalid check filter"
-# MAGIC — SILENCIOSO (o run reporta SUCCESS). Este grant é reaplicado a cada
-# MAGIC execução do job, igual aos demais, para sobreviver a `destroy + deploy`.
-# MAGIC
-# MAGIC Com a Studio COMPARTILHADA entre deployments, o mesmo SP acaba com leitura
-# MAGIC em vários catálogos — esperado: é o que permite os checks de cada
-# MAGIC deployment rodarem. O isolamento das REGRAS é feito no app, por catálogo
-# MAGIC (`app/backend/dqx_rules.py`), não por permissão.
-
-# COMMAND ----------
-
-if not DQX_STUDIO_SP:
-    print("[SKIP] Widget `dqx_studio_sp` vazio — grant reverso NÃO aplicado. Os checks "
-          "com subquery (domínio/referência/escopo mensal) falharão com "
-          "'invalid check filter'. Defina o SP da DQX Studio no target.yml para "
-          "habilitar, ou rode grant_dqx_studio_access.sql (seção GRANT REVERSO).")
-else:
-    print(f"DQX Studio SP: {DQX_STUDIO_SP}")
-    reverse_grants = [
-        f"GRANT USE CATALOG ON CATALOG `{CATALOG}` TO `{DQX_STUDIO_SP}`",
-    ] + [
-        cmd.format(cat=CATALOG, s=s, sp=DQX_STUDIO_SP)
-        for s in ("silver", "gold", "reference")
-        for cmd in (
-            "GRANT USE SCHEMA ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
-            "GRANT SELECT     ON SCHEMA `{cat}`.`{s}` TO `{sp}`",
-        )
-    ]
-    for g in reverse_grants:
-        spark.sql(g)
-        print(f"  ✓ {g}")

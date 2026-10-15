@@ -39,10 +39,16 @@ include:
   - target.yml
 
   # Recursos SEMPRE presentes, independentes do modo de pipeline:
-  # app, catálogo, warehouse, setup job, schemas/volumes UC (resources/*.yml)
+  # catálogo, warehouse, setup job, schemas/volumes UC (resources/*.yml)
   # + dashboards Lakeview (resources/analytics/).
   - resources/*.yml
   - resources/analytics/*.yml
+
+  # ── Hospedagem do app (DEFAULT: Databricks App) ───────────────────────────
+  # App + role Lakebase do SP dele. Para rodar o app em container (docker/),
+  # comente esta linha E defina `app_hosting: container` no target.yml — sem a
+  # linha, o deploy APAGA o App de um deployment existente.
+  - resources/app/*.yml
 
   # ── Modo de pipeline bronze→silver→gold (escolha UM bloco) ────────────────
   # DEFAULT: pipelines CLÁSSICAS — job + notebooks PySpark, ZERO recursos
@@ -86,6 +92,15 @@ variables:
       e descomentar resources/pipelines/*.yml, ou vice-versa).
     default: "classical"
 
+  app_hosting:
+    description: |
+      Onde o app roda. Um de:
+        • databricks_app (DEFAULT) — Databricks App deployado pelo bundle.
+        • container — app em container (docker/), fora do bundle.
+      Como `pipeline_mode`, a troca EFETIVA é no `include:` (resources/app/*.yml);
+      esta variável diz ao task de grants se deve procurar o SP do App.
+    default: "databricks_app"
+
   catalog:
     default: "rc18_catalog"
     description: "Unity Catalog name. Omit in target.yml to provision and use rc18_catalog."
@@ -126,7 +141,7 @@ variables:
   # ── Lakebase Postgres da DQX Studio (onde as REGRAS vivem) ────────────────
   # Defaults espelham o bundle da Studio — deploy padrão dela não exige nada aqui.
   # Ver app/backend/dqx_lakebase.py. O acesso exige dois passos além destas vars:
-  # o role Postgres (resources/lakebase_role.yml) e o GRANT manual
+  # o role Postgres (resources/app/lakebase_role.yml) e o GRANT manual
   # (notebooks/setup/grant_dqx_lakebase_access.sql).
   dqx_lakebase_project:
     description: |

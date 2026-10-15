@@ -66,8 +66,13 @@ regulatory-data-governance/
 │
 ├── docker/                        # App em container — alternativa ao Databricks Apps, fora do bundle
 │   ├── Dockerfile                 #   build da SPA + runtime Python 3.11; contexto de build = app/
-│   ├── compose.yaml               #   sem docker/.env sobe em mock; publica só em 127.0.0.1
-│   └── .env.example               #   SP OAuth M2M + as mesmas vars de resources/app.yml
+│   ├── compose.yaml               #   exige .env + .env.bundle (sem mock); publica só em 127.0.0.1
+│   ├── setup.sh                   #   modo container: deploy sem o App + .env.bundle
+│   │                              #   + grant_sp.sh + compose up (NÃO roda o job)
+│   ├── render_env.py              #   .env.bundle = bloco env do app.yml resolvido pelo bundle summary
+│   ├── grant_sp.sh                #   grants do SP do container (warehouse, UC, Lakebase, --byol)
+│   ├── destroy.sh                 #   inverso do setup: compose down + bundle destroy (+ --revoke-grants)
+│   └── .env.example               #   SÓ o que é do container: SP OAuth M2M, porta, mirrors
 │
 ├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
 │   ├── bronze/transformations/    # SDP/DLT mode: @dlt.table notebooks
@@ -113,15 +118,16 @@ regulatory-data-governance/
 │                                  #   scripts/gen_ddr2011_sample.py, validado no XSD
 │
 ├── resources/                     # DAB resources of the accelerator (no demo jobs here)
-│   ├── app.yml                    # App resource — USE_MOCK_BACKEND=false via apps.config.env
+│   ├── app/                       # Databricks App (default, included; fora com app_hosting=container):
+│   │   ├── app.yml                #   App resource — USE_MOCK_BACKEND=false via apps.config.env
+│   │   └── lakebase_role.yml      #   Role Postgres do SP do app no Lakebase da Studio
+│   │                              #     (para LER dq_resolved_rules). GRANT é MANUAL.
 │   ├── catalog.yml                # ${var.catalog} (default rc18_catalog)
 │   ├── warehouse.yml              # Serverless 2X-Small warehouse, default for ${var.warehouse_id}
 │   ├── setup_job.yml              # 5 tasks: setup_reference + setup_reference_2011
 │   │                              #   + setup_reference_4060
 │   │                              #   + load_sample_xmls + setup_byol_lineage
 │   ├── uc_assets.yml              # landing/reference schemas + scr_xml/_checkpoints volumes
-│   ├── lakebase_role.yml          # Role Postgres do SP do app no Lakebase da Studio
-│   │                              #   (para LER dq_resolved_rules). GRANT é MANUAL.
 │   ├── postgres_catalogs.yml      # Registra o Lakebase da Studio como catálogo UC
 │   │                              #   read-only — só para os dashboards Lakeview.
 │   ├── classical/                 # CLASSICAL mode (default, included): jobs bronze/silver/gold
@@ -166,12 +172,12 @@ regulatory-data-governance/
 ### Path conventions
 
 **Core bundle** (root `databricks.yml`): relative paths in `resources/**/*.yml` are resolved from each YAML's location:
-- `resources/app.yml` → `../app/backend`
+- `resources/app/app.yml` → `../../app/backend`
 - `resources/pipelines/*.yml` → `../../pipelines/...` (SDP mode, incl. `orchestration_job.yml` → `../../notebooks/setup/...`)
 - `resources/classical/*.yml` → `../../pipelines/classical/...` and `../../notebooks/setup/...` (classical mode, default)
 - `resources/analytics/dashboard_*.yml` → `../../dashboards/*.lvdash.json`
 
-Note: `databricks.yml`'s `include:` no longer uses the broad `resources/**/*.yml` glob. It lists `resources/*.yml` + `resources/analytics/*.yml` (always on) plus exactly one of `resources/classical/*.yml` (default) / `resources/pipelines/*.yml` (opt-in). See "Two pipeline modes".
+Note: `databricks.yml`'s `include:` no longer uses the broad `resources/**/*.yml` glob. It lists `resources/*.yml` + `resources/analytics/*.yml` (always on), `resources/app/*.yml` (on unless the app runs in a container — see the `app_hosting` gotcha), plus exactly one of `resources/classical/*.yml` (default) / `resources/pipelines/*.yml` (opt-in). See "Two pipeline modes".
 
 **Demo bundle** (`demo/databricks.yml`): self-contained — only `include`s `resources/*.yml` from `demo/resources/`. Paths in demo's resource YAMLs:
 - `demo/resources/app.yml` → `../../app/backend` (shared app source)
@@ -195,7 +201,7 @@ Note: `databricks.yml`'s `include:` no longer uses the broad `resources/**/*.yml
 cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r build ../backend/frontend_dist
 
 # App em container (alternativa ao Databricks Apps) — runbook em docker/README.md
-docker compose -f docker/compose.yaml up --build        # mock sem docker/.env; dados reais: cp docker/.env.example docker/.env
+./docker/setup.sh -t <target>                           # exige app_hosting: container + include sem resources/app/*.yml (worktree próprio)
 
 # === Implementation deploy (accelerator — self-contained sandbox) ===
 # Default: provisions catalog + serverless warehouse + CLASSICAL pipeline jobs
@@ -264,7 +270,7 @@ databricks bundle run synthetic_data_loader -t dev-azure  # populate ${var.catal
 
 For LOCAL dev, asset IDs are configured via `.env` (see [.env.example](.env.example)).
 On DEPLOY, the bundle provisions the assets and injects their IDs into the app via
-`resources/app.yml` `apps.config.env` — dashboards resolve via
+`resources/app/app.yml` `apps.config.env` — dashboards resolve via
 `${resources.dashboards.*.id}`. The Genie Space is a separate opt-in bundle
 (`genie/`) — its ID reaches the app via `var.genie_space_id` set in the core
 `target.yml` (default `__unset__` = Genie disabled). The env vars below are the
@@ -352,6 +358,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - **Genie Space `serialized_space` must be INLINE, not `file_path`, for `${var.catalog}` to interpolate** — the `genie_spaces` resource accepts the definition as `file_path: <x>.geniespace.json` OR inline under `serialized_space:`. DABs treats a `file_path` JSON as **opaque** (no variable substitution — same as `.lvdash.json` dashboards), so `${var.catalog}` stays literal and BYOC customers get tables pointing at a nonexistent catalog. Inlining as native YAML under `serialized_space:` DOES interpolate `${var.catalog}`/`${var.warehouse_id}`. `genie/resources/genie_space.yml` uses the inline form on purpose. After `databricks bundle generate genie-space --resource rc18_genie --force`, convert the regenerated `file_path` back to inline `serialized_space` and re-replace `rc18_catalog` → `${var.catalog}` in the table identifiers. Never hardcode the space ID (it changes on every recreation).
 - **Approved domains for iframe embedding** — the app embeds Lakeview dashboards (`/dashboards`) and Genie (`/genie`) via `iframe`. Databricks blocks these iframes (blank page / `X-Frame-Options` refusal) until the **deployed app's own domain** is added to the workspace allowlist at **Settings → Security → Approved domains**. This is a manual, admin-only, once-per-workspace step done AFTER deploy (not expressible in the bundle). Get the host via `databricks apps get r18_compliance_app | grep url` (e.g. `rc18-starter-kit-dev-<workspace-id>.<region>.databricksapps.com`). The rest of the app works without it — only dashboard/Genie embeds are affected. The DQX Studio embed at `/rules` is a separate Databricks App; if it also renders blank, add its domain to the same allowlist. Documented in README "Aprovar o domínio do app".
 - **Classical vs SDP pipeline mode is a structural `include:` toggle, not a runtime variable.** DABs cannot conditionally drop a resource by variable value, so "deploy zero SDP resources" can ONLY be achieved by NOT including the SDP YAMLs. `databricks.yml` includes exactly one of `resources/classical/*.yml` (default) / `resources/pipelines/*.yml`; `var.pipeline_mode` (`classical`|`sdp`) only documents the choice. Both sets reuse the same resource keys (`bronze`/`silver`/`gold`/`rc18_end_to_end`) on purpose — run commands stay identical AND leaving both includes active is a hard validate error that prevents an ambiguous deploy. Classical notebooks live in `pipelines/classical/**` (no `import dlt`); they must stay output-equivalent to the DLT notebooks — if you change a transform in one, change the other.
+- **`app_hosting` (Databricks App vs container) é outro toggle estrutural de `include:`, como classical/SDP.** `resources/app/*.yml` (App + role Lakebase do SP dele) sai do include no modo container; `var.app_hosting` (`databricks_app`|`container`) diz ao task `grant_warehouse_perms` o que esperar. Por isso o task recebe `app_name: ${var.app_name}-${bundle.target}` (interpolação), nunca `${resources.apps…}` — que não resolve sem o recurso. O notebook aplica o GRANT REVERSO (SP da DQX Studio) PRIMEIRO, nos dois modos, e só então os grants do SP do App; em `container` encerra ali. As duas metades do toggle são checadas: linha comentada com a var em `databricks_app` → o task falha por não achar o App; var em `container` com o App ainda deployado → o task falha em vez de deixar o App sem grants (o caso silencioso), e o `setup.sh` recusa os dois. ⚠️ Comentar a linha num deployment existente faz o próximo `deploy` APAGAR o App e o SP dele. ⚠️ O `include:` vale para TODOS os targets da cópia (DABs não tem include por target, e os nomes dos targets vivem no `target.yml` git-ignored): com targets em `databricks_app` e em `container` no mesmo `target.yml`, o modo container roda num `git worktree` próprio — `./docker/setup.sh -t <target>`.
 - **Classical bronze uses a DISTINCT Auto Loader checkpoint/schema path** (`_checkpoints/classical_bronze_3040_*` / `classical_bronze_3050_*`) from the DLT pipeline's paths. Auto Loader state is format- and pipeline-specific; sharing a path across modes corrupts state. Switching modes on an already-populated landing volume re-ingests from the classical checkpoints (independent of the DLT ones).
 - DLT `@dlt.table(schema=...)` is **column DDL**, not the target schema — every DLT pipeline writes to a SINGLE schema (its `schema:` config). To write to multiple schemas, split into multiple pipelines. (Classical mode has no such limit — a single job task writes wherever `saveAsTable` points, which is why a classical silver notebook can cover several tables of the same CADOC: `scr3040.py` writes 5, `scr2011.py` writes 3.)
 - `dlt.read("name")` only works for tables defined in the **same** pipeline, with an unqualified name. For cross-pipeline reads (e.g., gold reading silver tables), use `spark.table(f"{catalog}.{schema}.{table}")`. The classical notebooks use `spark.table` everywhere (no `dlt.read`); the gold `processing_state` same-pipeline dependency becomes a separate task that `spark.table`-reads the positions written by its predecessor tasks.
@@ -385,7 +392,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - Stale `terraform.tfstate` from a previous workspace will fail with `workspace_id mismatch`. Destroy the target against its original workspace first; only then wipe `.databricks/bundle/<target>/` before redeploying that target elsewhere.
 - **Direct-engine state is target-scoped, not profile-scoped** — this repository has one default target fixed as `dev`. Before changing `workspace.profile` in `target.yml`, destroy the existing deployment against the original workspace; otherwise resources can be orphaned.
 - **Dois bugs dos dashboards que sobreviveram porque ninguém cruzava o SQL com o dado.** `status IN ('active','approved')` tinha ramo morto (a Studio removeu `active`), e o `ds_regras_por_dimensao` do `monitor_criticas` juntava o tag `dimensao_r18` (**arábico**, `"6"`) direto em `reference.dimensoes_r18.dimensao_id` (**romano**, `VI`) sem conversão — esse painel mostrava 0 regras em toda dimensão desde antes da migração. O `conformidade_r18` já tinha o `CASE`. Ambos corrigidos nos 4 JSONs; se criar dataset novo que use o tag, o `CASE` arábico→romano é obrigatório.
-- **O GRANT do Lakebase é o único acesso que o bundle NÃO reaplica, e ele quebra a cada `destroy` + `deploy`.** `resources/lakebase_role.yml` cria o role do SP do app, mas role dá LOGIN, não privilégio de objeto: o `GRANT USAGE`/`SELECT` só pode vir de quem é dono das tabelas (SP da Studio, ou `DATABRICKS_SUPERUSER` no branch). O task `grant_warehouse_perms` não cobre — roda COMO o SP do RC18, que não concede a si mesmo. Então `notebooks/setup/grant_dqx_lakebase_access.sql` é manual e refeito sempre que o client id mudar. Sintoma: Críticas SCR e dimensões vazias, com `permission denied for table dq_resolved_rules` no log (não 500 — degrada de propósito). Dar `DATABRICKS_SUPERUSER` ao role do RC18 automatizaria, mas concede escrita irrestrita no estado da Studio.
+- **O GRANT do Lakebase é o único acesso que o bundle NÃO reaplica, e ele quebra a cada `destroy` + `deploy`.** `resources/app/lakebase_role.yml` cria o role do SP do app, mas role dá LOGIN, não privilégio de objeto: o `GRANT USAGE`/`SELECT` só pode vir de quem é dono das tabelas (SP da Studio, ou `DATABRICKS_SUPERUSER` no branch). O task `grant_warehouse_perms` não cobre — roda COMO o SP do RC18, que não concede a si mesmo. Então `notebooks/setup/grant_dqx_lakebase_access.sql` é manual e refeito sempre que o client id mudar. Sintoma: Críticas SCR e dimensões vazias, com `permission denied for table dq_resolved_rules` no log (não 500 — degrada de propósito). Dar `DATABRICKS_SUPERUSER` ao role do RC18 automatizaria, mas concede escrita irrestrita no estado da Studio.
 - **Workspace-local target configuration** — root `databricks.yml` includes the git-ignored `target.yml`. Copy `target.yml.example`, then fill the CLI profile and required DQX Studio URL. Azure/AWS/GCP selection belongs to the profile, never to the target name. The direct engine is set via `bundle.engine: direct` in `databricks.yml` (no wrapper); `.env` is exclusively for local app development.
 
 ## Key Decisions & Constraints
@@ -394,9 +401,12 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
 - Databricks does NOT own full XML generation — app validates/displays XML, does not produce certified XML
 - R.18 covers ALL BCB reporting (50+ documents), not just SCR — scope limited to SCR for MVP
 - Mock mode enables local development without Databricks connectivity
-- **App em container (`docker/`) é alternativa de hospedagem, não um terceiro bundle** — nada do bundle referencia `docker/`, e o Databricks App continua deployado (role Lakebase e grants dependem do SP dele). Não óbvio:
+- **App em container (`docker/`) é alternativa de hospedagem, não um terceiro bundle** — nada do bundle referencia `docker/`; o `setup.sh` é que chama o bundle. Com `app_hosting: container` o core deploya tudo menos o App (ver o gotcha do `app_hosting`). Não óbvio:
   - Sem SSO: os `X-Forwarded-*` que o app grava como autor vêm do proxy do Databricks Apps; no container só um proxy com SSO os fornece, daí o compose publicar em `127.0.0.1`.
-  - O bundle só concede acesso ao SP do app: o SP do container recebe os GRANTs de UC/Lakebase/BYOL à mão — mas o role Lakebase dele não é recriado a cada deploy.
+  - O bundle só concede acesso ao SP do App: o SP do container recebe os GRANTs de UC/Lakebase/BYOL pelo `docker/grant_sp.sh` — mas o role Lakebase dele não é recriado a cada deploy, então o GRANT não cai.
+  - **A config do app tem fonte única, o `target.yml`.** `docker/render_env.py` lê o bloco `env` de `resources/app/app.yml` e resolve cada `${...}` contra o `bundle summary` → `docker/.env.bundle` (git-ignored, carregado POR ÚLTIMO no compose, então vence). O `docker/.env` guarda só SP/porta/mirrors. Variável nova no `app.yml` chega ao container sem código; não reintroduza lista de variáveis à mão.
+  - **O `setup.sh` pula o espelho do Lakebase quando ele já existe.** Um database Lakebase aceita UM catálogo UC (o 2º registro falha com `already registered by catalog ID`, e reusar o nome com `CATALOG_ALREADY_EXISTS`), e o bundle não pula recurso declarado. Então, se outro catálogo já espelha o mesmo branch+database (`postgres get-catalog`) e o recurso não está no estado do target, o setup tira `resources/postgres_catalogs.yml` só durante o deploy (restaura via `trap`). `bundle deploy` direto, fora do setup, continua dando o erro.
+  - **Sem mock no container**: o default do backend é mock (`USE_MOCK_BACKEND` ausente ⇒ `true`), por isso o Dockerfile fixa `false` e o compose exige `.env` + `.env.bundle`. Mock fica no `./run_local.sh`.
   - O `COPY` do backend é lista explícita (pacote novo precisa entrar no Dockerfile) e o `WORKDIR` tem 3 níveis porque `main.py` lê `parents[2]/.env` — com o código em `/app`, o import quebra.
 - Synthetic data has intentional quality issues (3% nulls, 2% out-of-domain, 5% cross-doc divergences)
 - Quality trend improves over 3 months (Jan 82% → Feb 91% → Mar 96%) for compelling demo
@@ -408,7 +418,7 @@ SCR XML files → Bronze (parsed structs) → Silver (normalized) → Gold (cura
   - `check` é palavra reservada e a Studio declara a coluna assim (`"check" JSONB`): toda referência precisa de aspas duplas (`dqx_lakebase.CHECK_COLUMN`). O JSONB volta do psycopg já como `dict` — `parse_check_defs()` aceita dict/str/list.
   - **`status IN ('active','approved')` está morto**: o enum atual é `draft|pending_approval|approved|rejected`, com CHECK constraint. Só `approved` conta (`dqx_lakebase.ACTIVE_STATUS`).
   - Nenhuma composição regra×execução pode ser um JOIN SQL único — são engines distintas. Os 5 read sites já eram statements separados, o que é o que tornou a migração viável.
-  - **Acesso = role Postgres + GRANT manual.** `resources/lakebase_role.yml` cria o role do SP do app (declarativo, exige CLI ≥ 1.4.0 + entitlement *Lakebase: Manager*); o `GRANT USAGE/SELECT` roda DENTRO do Postgres (`notebooks/setup/grant_dqx_lakebase_access.sql`) e é MANUAL — ver o gotcha em "Bundle gotchas".
+  - **Acesso = role Postgres + GRANT manual.** `resources/app/lakebase_role.yml` cria o role do SP do app (declarativo, exige CLI ≥ 1.4.0 + entitlement *Lakebase: Manager*); o `GRANT USAGE/SELECT` roda DENTRO do Postgres (`notebooks/setup/grant_dqx_lakebase_access.sql`) e é MANUAL — ver o gotcha em "Bundle gotchas".
   - **Dashboards leem o Lakebase por um catálogo UC registrado** (`resources/postgres_catalogs.yml`, var `dqx_rules_catalog`) — Lakeview não fala Postgres. Verificado por experimento: `check` (JSONB) chega como **STRING** e o acessor `check:name::string` continua valendo, então os datasets mudaram só o FQN (parâmetro `dqx_rules_schema`; `dqx_schema` segue servindo runs/metrics em Delta). Join numa query só entre o catálogo registrado e tabelas Delta funciona. Exige warehouse **Serverless** (Pro/Classic → `PERMISSION_DENIED`) e `embed_credentials: true` nos 4 dashboards, senão cada viewer precisaria de grant no catálogo. O catálogo NÃO é sufixado por target: com vários deployments na mesma Studio, um gerencia o recurso e os outros só apontam a var.
 - **O preço da degradação graciosa é um diagnóstico explícito: `app/backend/diagnostics.py` + `GET /api/v1/diagnostics/prereqs`.** Como as leituras devolvem `[]` sem acesso, "falta permissão" e "não há regra" dão a MESMA tela vazia. O módulo classifica a causa e devolve o comando **já preenchido com o client id do app** (`dqx_lakebase.identity()`). `PrereqAlert.svelte` só consulta quando a tela vem vazia e traz "Re-verificar" — funciona sem restart porque o pool é lazy. Regra de ouro: **prescrição só quando a causa é conhecida** (Postgres por SQLSTATE `42501`, UC por `_UC_ACCESS_ERRORS`); outro erro vira `failed` SEM comando, porque prescrever GRANT para warehouse parado é pior que não diagnosticar. O check `rules_materialized` codifica a pegadinha do fluxo novo: YAML importado vira regra no Registry, e só chega em `dq_resolved_rules` quando o vínculo da tabela é PUBLICADO em Tabelas.
 - **As leituras de `dq_resolved_rules` são escopadas por catálogo E indexadas por `(table_fqn, check_name)` — via `app/backend/dqx_rules.py`.** A tabela de regras da DQX Studio é compartilhada por todos os deployments que apontam para a mesma Studio (antes metastore-wide em UC, agora um schema Postgres único): ela contém as regras de todos. Duas defesas, ambas no módulo: `scope_clause()` restringe às tabelas deste deployment (`<catalog>.%` ∪ `cadoc_tabelas`) e `RuleIndex` indexa pelo PAR, porque **`check_name` não é único** em `dq_resolved_rules` (o grão real é tabela+regra). Sem isso, uma regra homônima de outro projeto sobrescrevia o `user_metadata` e trocava a dimensão R.18 exibida, sem erro. O `RuleIndex.get()` tenta o par e cai para o nome só se o par não casar (`source_table_fqn` dos runs e `table_fqn` das regras vêm de caminhos diferentes da Studio e podem divergir; sem o fallback, divergência de formatação zeraria a tela). Efeito colateral por desenho: regras com `table_fqn` que não é tabela (`__sql_check__/<name>`, para checks de SQL puro) ficam fora — registre a tabela em `cadoc_tabelas` se precisar delas. Histórico: as leituras nasceram quando a DQX era LOCAL ao catálogo RC18 (o fallback `DQX_CATALOG = os.getenv("DQX_CATALOG", CATALOG)` ainda testemunha isso, hoje só para as tabelas Delta); a Studio externa chegou depois, e a migração para Lakebase depois disso.

@@ -18,10 +18,10 @@ RUN npm run build
 FROM python:3.11-slim
 # Mirror PyPI interno, idem.
 ARG PIP_INDEX_URL
-# Sem env de workspace o app sobe em mock. Workers via WEB_CONCURRENCY (2, como o app.yaml).
+# Sem mock no container: o default do backend é mock, então fixa false aqui. Workers via WEB_CONCURRENCY (2, como o app.yaml).
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    USE_MOCK_BACKEND=true \
+    USE_MOCK_BACKEND=false \
     WEB_CONCURRENCY=2
 # 3 níveis de profundidade de propósito: main.py lê `parents[2]/.env` e quebra com o código em /app.
 WORKDIR /opt/rc18/app/backend
@@ -43,6 +43,6 @@ RUN useradd --uid 10001 --gid 0 --no-create-home rc18 \
 USER 10001
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=300s --timeout=5s --start-period=20s --retries=3 \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/openapi.json', timeout=4)"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

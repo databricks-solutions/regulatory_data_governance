@@ -1,5 +1,5 @@
-# App RC18 em container. Sem docker/.env sobe em modo mock.
-#   docker compose -f docker/compose.yaml up --build
+# App RC18 em container. Suba pelo ./docker/setup.sh, que gera o docker/.env.bundle.
+#   docker compose -f docker/compose.yaml up -d --build   # depois do setup
 name: rc18
 
 services:
@@ -12,9 +12,13 @@ services:
         - PIP_INDEX_URL
         - NPM_CONFIG_REGISTRY
     image: rc18-app:local
+    # .env = só o que é do container (SP, porta, mirrors). .env.bundle = config do
+    # app, gerada pelo setup.sh a partir do target.yml — por último, então vence.
     env_file:
       - path: .env
-        required: false
+        required: true
+      - path: .env.bundle
+        required: true
     # Só loopback: o app não autentica usuário. Para expor, ponha um proxy com SSO na frente (docker/README.md).
     ports:
       - "127.0.0.1:${RC18_PORT:-8000}:8000"
