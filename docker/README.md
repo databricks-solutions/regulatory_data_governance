@@ -90,6 +90,21 @@ O inverso do setup — o equivalente ao `databricks bundle destroy`:
 - `--revoke-grants` revoga o que o `grant_sp.sh` deu fora do bundle (grants na DQX Studio, GRANT e role no Lakebase). Use só se o SP do container não servir a outro deployment: esses grants são por SP, não por target. Os do catálogo e do warehouse do target somem com o destroy.
 - Ficam de fora: o `docker/.env` (SP do container) e a imagem `rc18-app:local`. A linhagem externa (`rc18_*`) também — é do metastore e compartilhada entre deployments; remova à mão se for o caso (CLAUDE.md, seção Lineage).
 
+## Deploy no AKS
+
+Alternativa ao compose. Exige Azure CLI (`az login`) e `kubectl`.
+
+```bash
+./docker/setup.sh -t <target> --no-up
+./docker/deploy_aks.sh -g <rg> -r <acr> -l <região> [--dry-run]
+kubectl --context <cluster> -n rc18 port-forward svc/rc18-app 8010:8000
+```
+
+- Cria o que faltar (resource group, ACR, cluster) e roda uma réplica `ClusterIP`, sem exposição externa (o app não autentica usuário). Rode de novo para publicar código ou config.
+- `-c dqx-studio` usa o cluster da DQX Studio.
+- O API server só aceita `--api-server-ip-ranges` (default: seu IP); mudou de IP, rode de novo.
+- O build no ACR usa PyPI/npm públicos; sem ACR Tasks, `--local-build` ou `--image`.
+
 ## Problemas comuns
 
 - `unknown shorthand flag: 'f'`: o plugin Compose não está registrado (comum com Colima via Homebrew). Adicione `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]` ao `~/.docker/config.json`, ou use `docker-compose` com os mesmos argumentos.

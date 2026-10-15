@@ -72,6 +72,7 @@ regulatory-data-governance/
 │   ├── render_env.py              #   .env.bundle = bloco env do app.yml resolvido pelo bundle summary
 │   ├── grant_sp.sh                #   grants do SP do container (warehouse, UC, Lakebase, --byol)
 │   ├── destroy.sh                 #   inverso do setup: compose down + bundle destroy (+ --revoke-grants)
+│   ├── deploy_aks.sh              #   o mesmo container no AKS (depois do setup.sh --no-up)
 │   └── .env.example               #   SÓ o que é do container: SP OAuth M2M, porta, mirrors
 │
 ├── pipelines/                     # Transform code for CADOC 3040/3050 (two modes)
@@ -202,6 +203,7 @@ cd app/frontend && npm run build && rm -rf ../backend/frontend_dist && cp -r bui
 
 # App em container (alternativa ao Databricks Apps) — runbook em docker/README.md
 ./docker/setup.sh -t <target>                           # exige app_hosting: container + include sem resources/app/*.yml (worktree próprio)
+./docker/deploy_aks.sh -g <rg> -r <acr> -l <região>     # (alt ao compose) AKS
 
 # === Implementation deploy (accelerator — self-contained sandbox) ===
 # Default: provisions catalog + serverless warehouse + CLASSICAL pipeline jobs
