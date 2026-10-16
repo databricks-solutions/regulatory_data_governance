@@ -19,8 +19,8 @@
 #
 # O perfil do CLI vem do `workspace.profile` do target. Pré-requisitos: o target
 # com `app_hosting: container` e a linha `resources/app/*.yml` comentada no
-# databricks.yml — a linha vale para TODOS os targets, então use um worktree só
-# para o container (docker/README.md); docker/.env com o SP do container;
+# databricks.yml (a linha vale para TODOS os targets do repositório);
+# docker/.env com o SP do container;
 # Databricks CLI, python3 e Docker.
 
 set -euo pipefail

@@ -1,130 +1,202 @@
-# App RC18 em container (Docker)
+# App RC18 em Docker
 
-Roda o app (FastAPI + SPA) numa imagem Docker, no lugar do Databricks Apps. Catálogo, pipelines e dashboards continuam no bundle; a DQX Studio segue como app Databricks à parte.
+Roda o app RC18 (o FastAPI e a SPA) num único container, no lugar do Databricks
+Apps — num Docker local (Colima, Docker Desktop) ou numa plataforma de
+containers.
 
-## Quick start
+> O container não é standalone: usa um workspace Databricks (SQL warehouse, Unity
+> Catalog, DQX Studio) e se autentica como um service principal (SP). Catálogo,
+> pipelines e dashboards continuam no bundle; só o App sai dele.
 
-Pré-requisitos: DQX Studio deployada no workspace, Databricks CLI autenticada num perfil, Docker com Compose v2.24+ e `python3`.
+## Pré-requisitos
 
-1. **Worktree só para o container** — a linha do App no `include:` (passo 3) vale para **todos** os targets da cópia, e um deploy de target com Databricks App a partir dela apagaria o App. Separe:
+- Docker com Compose v2.24+ e `python3`. Com Colima: `colima start`.
+- DQX Studio deployada no workspace.
+- Um perfil do Databricks CLI da sua identidade (`<seu-perfil>` abaixo), que
+  possa fazer `bundle deploy`, seja owner do warehouse e conceda nos catálogos do
+  RC18 e da DQX Studio.
+
+## Setup
+
+Rode tudo da raiz do repositório, com o seu perfil.
+
+1. **Crie o service principal do container:**
+
    ```bash
-   git worktree add --detach ../rc18-container <branch>   # --detach: a branch já está ativa no repo principal
-   cd ../rc18-container
+   databricks service-principals create --display-name rc18-container -p <seu-perfil> -o json
    ```
-   O estado do bundle é por target, então este worktree e o repo principal deployam no mesmo workspace sem conflito. Para atualizar o código: `git checkout --detach <branch>` no worktree. Num repo que só roda em container, pule este passo.
-2. **`target.yml`** — `cp target.yml.example target.yml` (o `target.yml` é git-ignored, não vem no worktree). Deixe nele **só** os targets de container — com um target de Databricks App aqui, um `bundle deploy` sem `-t` o apagaria:
-   ```yaml
-   targets:
-     container:
-       default: true
-       workspace:
-         profile: <perfil-do-cli>
-       variables:
-         dqx_studio_url: https://<host-da-dqx-studio>
-         app_hosting: container
-         # Recomendado: SP da DQX Studio (run_as dos jobs de validação). Sem ele, os
-         # checks com subquery dão 100% de violação em silêncio.
-         # dqx_studio_sp: <uuid-do-sp-da-dqx-studio>
-         # Só se a Studio não usar os defaults (dqx / dqx_studio):
-         # dqx_catalog: <catalogo-da-dqx>
-         # dqx_schema: <schema-da-dqx>
-   ```
-   Catálogo, Genie e módulos ocultos seguem as demais opções do `target.yml.example`, iguais às do fluxo com o Databricks App. Com vários deployments no mesmo workspace, dê ao target do container um `catalog` próprio — é o catálogo que os separa.
-3. **`databricks.yml`** — comente a linha do App no `include:`:
-   ```yaml
-     # - resources/app/*.yml
-   ```
-   ⚠️ Num target que já tem o Databricks App, o próximo deploy o **apaga** (e o SP dele).
-4. **SP do container** — Settings → Identity and access → Service principals: crie um e gere um OAuth secret com scope `all-apis`.
-5. **`docker/.env`** — `cp docker/.env.example docker/.env` e preencha `DATABRICKS_CLIENT_ID` (o *Application ID*) e `DATABRICKS_CLIENT_SECRET`.
-6. **Setup** — da raiz do worktree:
+
+2. **Crie um OAuth secret para ele.** `<id>` é o `id` numérico do passo 1, e o
+   secret só é mostrado uma vez.
+
    ```bash
-   ./docker/setup.sh -t container
+   databricks service-principal-secrets-proxy create <id> -p <seu-perfil> -o json
    ```
-   O perfil do CLI vem do `workspace.profile` do target; sem `-t`, vale o target default.
-   Faz deploy, gera o `docker/.env.bundle`, concede os grants e sobe o container. Abra http://localhost:8000.
-7. **Pipeline** — o setup só cria os recursos; rode o job e, ao fim, os grants das tabelas que ele cria:
+
+3. **Preencha o `docker/.env` e o `target.yml`.** No `docker/.env`, copiado do
+   template, defina `DATABRICKS_CLIENT_ID` (o `applicationId` do SP) e
+   `DATABRICKS_CLIENT_SECRET`; ele é git-ignored e nunca entra na imagem. No
+   `target.yml`, crie um target com `app_hosting: container` e `dqx_studio_url`
+   (recomendado também `dqx_studio_sp`), e comente `- resources/app/*.yml` no
+   `include:` do `databricks.yml`. Os comentários dos arquivos explicam cada
+   valor.
+
    ```bash
-   databricks bundle run rc18_end_to_end -t container
-   ./docker/grant_sp.sh -p <perfil-do-cli>
+   cp docker/.env.example docker/.env
    ```
-   Até lá, o setup marca como `PENDENTE` os grants em `governance.*` (incidentes e vínculos), que só existem depois do job.
 
-## Setup em detalhe
+   ⚠️ A linha do `include:` vale para todos os targets do repositório: num
+   deployment que já tem o Databricks App, o próximo `bundle deploy` o **apaga**.
 
-O `./docker/setup.sh` faz o mesmo `bundle deploy` do fluxo com o Databricks App — catálogo, warehouse, jobs, dashboards —, menos o App, e configura o container. A configuração do app tem **uma fonte só, o `target.yml`**: o setup gera `docker/.env.bundle` a partir do bundle, e o `docker/.env` guarda só o que é do container.
+4. **Crie os recursos e conceda as permissões:**
 
-| Arquivo | Quem escreve | Conteúdo |
+   ```bash
+   ./docker/setup.sh -t <target> --no-up
+   ```
+
+5. **Suba** e abra <http://localhost:8000>. O diagnóstico do app mostra o que
+   ainda faltar. A primeira vez também builda a imagem.
+
+   ```bash
+   docker compose -f docker/compose.yaml up
+   ```
+
+O script pode ser reexecutado e lista o que não conseguiu fazer. Ele faz o mesmo
+`bundle deploy` do fluxo com o Databricks App (catálogo, warehouse, jobs,
+dashboards), menos o App, e gera o `docker/.env.bundle` com a configuração do app
+resolvida do `target.yml` (não edite). Sem `--no-up`, ele mesmo sobe o container.
+Depois concede ao SP:
+
+| Recurso | SP do container |
+|---|---|
+| Workspace | entitlements `workspace-access`, `databricks-sql-access` |
+| SQL warehouse | `CAN_USE` |
+| Execuções da DQX Studio (`dqx_catalog`.`dqx_schema`) | `USE CATALOG`, `USE SCHEMA`; `SELECT` em `dq_validation_runs`, `dq_metrics`, `dq_quarantine_records` |
+| Catálogo do RC18 | `USE CATALOG`; `USE SCHEMA` + `SELECT` em `bronze`, `silver`, `gold`, `reference` |
+| `governance` | `USE SCHEMA`; `SELECT` + `MODIFY` nas tabelas que o app grava (incidentes e vínculos) |
+| Metastore (só com `--byol`) | `CREATE EXTERNAL METADATA`; `MODIFY` em `bronze` e `gold` |
+
+O setup não roda o pipeline, e as tabelas de `governance` só existem depois dele
+— até lá ficam como `PENDENTE`. Rode o job e conceda o que faltou:
+
+```bash
+databricks bundle run rc18_end_to_end -t <target>
+./docker/grant_sp.sh -p <seu-perfil>
+```
+
+No modo container, o task `grant_warehouse_perms` do job aplica só o grant
+reverso (SP da DQX Studio); os grants do SP do container vêm do
+[`grant_sp.sh`](grant_sp.sh).
+
+### DQX Studio também em Docker
+
+A Studio em Docker usa dois SPs (os IDs estão no `.env` dela), e os dois
+precisam de acesso ao catálogo do RC18:
+
+| SP da Studio | Para quê | O que conceder |
 |---|---|---|
-| `target.yml` | você | perfil, catálogo, DQX Studio (`dqx_studio_url`, `dqx_catalog`…), Genie |
-| `docker/.env` | você | SP do container, porta, mirrors |
-| `docker/.env.bundle` | o setup (não edite) | a config do app, resolvida do bloco `env` de `resources/app/app.yml` + `bundle summary` |
+| App (`DATABRICKS_CLIENT_ID`) | ver o catálogo em *Monitorar tabelas* e fazer profiling | `USE CATALOG` no catálogo; `USE SCHEMA` + `SELECT` em `silver`, `gold`, `reference` |
+| Task runner (`DQX_TASK_RUNNER_CLIENT_ID`) | executar as validações | entitlement `workspace-access`; e `dqx_studio_sp: <application-id-dele>` no `target.yml` — o `rc18_end_to_end` concede o resto |
 
-`app_hosting: container` e a linha comentada no `include:` andam juntas: o setup recusa rodar com só uma das duas.
-
-O `docker/.env.bundle` é um só por cópia do repo — um worktree por target de container.
-
-```bash
-./docker/setup.sh -t <target>                            # tudo
-./docker/setup.sh -t <target> --skip-deploy              # só regenera .env.bundle, grants e sobe
-./docker/setup.sh -t <target> --byol                     # + linhagem gravável (admin do metastore)
-./docker/setup.sh -t <target> --no-up                    # não sobe o container
+```sql
+GRANT USE CATALOG ON CATALOG <catalogo> TO `<sp-app-da-studio>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA <catalogo>.silver    TO `<sp-app-da-studio>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA <catalogo>.gold      TO `<sp-app-da-studio>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA <catalogo>.reference TO `<sp-app-da-studio>`;
 ```
 
-No fim ele mostra o `/api/v1/diagnostics/prereqs`; cada acesso faltante vem com o comando pronto. Para mudar a configuração do app, edite o `target.yml` e rode o setup de novo.
-
-Quem roda o setup precisa poder fazer o `bundle deploy` e, para os grants ([`grant_sp.sh`](grant_sp.sh)), ser owner do warehouse e conceder nos catálogos do RC18 e da DQX.
-
-## Remover
-
-O inverso do setup — o equivalente ao `databricks bundle destroy`:
-
 ```bash
-./docker/destroy.sh -t <target>                   # compose down + bundle destroy + apaga .env.bundle
-./docker/destroy.sh -t <target> --revoke-grants   # + revoga os grants do SP fora do bundle
-./docker/destroy.sh -t <target> --yes             # sem a confirmação do destroy
+# <id> é o id numérico do SP do runner no workspace (databricks service-principals list).
+databricks service-principals patch <id> -p <seu-perfil> --json \
+  '{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"entitlements","value":[{"value":"workspace-access"}]}]}'
 ```
 
-- Exige `-t` e só aceita target com `app_hosting: container`: para targets com Databricks App, use `databricks bundle destroy`.
-- O `bundle destroy` apaga o catálogo do target **com os dados**, além de warehouse, jobs e dashboards.
-- `--revoke-grants` revoga o que o `grant_sp.sh` deu fora do bundle (grants na DQX Studio). Use só se o SP do container não servir a outro deployment: esses grants são por SP, não por target. Os do catálogo e do warehouse do target somem com o destroy.
-- Ficam de fora: o `docker/.env` (SP do container) e a imagem `rc18-app:local`. A linhagem externa (`rc18_*`) também — é do metastore e compartilhada entre deployments; remova à mão se for o caso (CLAUDE.md, seção Lineage).
+Sem o `workspace-access`, a validação falha com *does not have access to
+Databricks Workspace*; sem o `dqx_studio_sp`, os checks com subquery marcam 100%
+de violação.
 
-## Deploy no AKS
+## Autenticação
 
-Alternativa ao compose. Exige Azure CLI (`az login`) e `kubectl`.
+O container atende **toda requisição como o SP**: não há o login por usuário que
+o Databricks Apps faz. O app grava como autor de incidentes e vínculos os headers
+`X-Forwarded-Email`/`-User`/`-Preferred-Username`, que lá vêm do SSO da
+plataforma e aqui qualquer cliente escolhe. Por isso o compose publica só em
+`127.0.0.1`.
 
-```bash
-./docker/setup.sh -t <target> --no-up
-./docker/deploy_aks.sh -g <rg> -r <acr> -l <região> [--dry-run]
-kubectl --context <cluster> -n rc18 port-forward svc/rc18-app 8010:8000
-```
+Antes de expor além de uma rede confiável, ponha um proxy com autenticação na
+frente (ex.: oauth2-proxy, com o Databricks como provedor OIDC), que defina esses
+headers e descarte os que o cliente mandar. Guarde o `DATABRICKS_CLIENT_SECRET`
+no secret manager da plataforma.
 
-- Cria o que faltar (resource group, ACR, cluster) e roda uma réplica `ClusterIP`, sem exposição externa (o app não autentica usuário). Rode de novo para publicar código ou config.
-- `-c dqx-studio` usa o cluster da DQX Studio.
-- O API server só aceita `--api-server-ip-ranges` (default: seu IP); mudou de IP, rode de novo.
-- O build no ACR usa PyPI/npm públicos; sem ACR Tasks, `--local-build` ou `--image`.
+## Uso diário
 
-## Problemas comuns
+- App: <http://localhost:8000> · API: <http://localhost:8000/api/docs> ·
+  diagnóstico: <http://localhost:8000/api/v1/diagnostics/prereqs>
+- Logs: `docker compose -f docker/compose.yaml logs -f` · parar:
+  `docker compose -f docker/compose.yaml down`
+- Mudança de configuração: edite o `target.yml` e rode o setup de novo. Mudança de
+  código: `docker compose -f docker/compose.yaml up -d --build`.
 
-- `unknown shorthand flag: 'f'`: o plugin Compose não está registrado (comum com Colima via Homebrew). Adicione `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]` ao `~/.docker/config.json`, ou use `docker-compose` com os mesmos argumentos.
-- Porta 8000 ocupada: `RC18_PORT=8010` no `docker/.env`.
-- Rede sem acesso ao PyPI/npm públicos: `PIP_INDEX_URL` e `NPM_CONFIG_REGISTRY` no `docker/.env` — o compose repassa ao build.
-
-## Diferenças para o Databricks Apps
-
-- **Sem autenticação de usuário.** No Databricks Apps a plataforma faz o SSO e injeta `X-Forwarded-Email`/`-User`/`-Preferred-Username`, que o app grava como autor de incidentes e vínculos. No container, quem alcança a porta age com os privilégios do SP e escolhe esses headers — por isso o compose publica só em `127.0.0.1`. Para expor, use um proxy com SSO que sobrescreva esses headers (ex.: oauth2-proxy, que envia os mesmos nomes).
-- **Embeds de dashboard e Genie:** o host do container precisa estar em Approved domains ([Aprovar o domínio do app](../README.md#aprovar-o-domínio-do-app)), e o navegador precisa de sessão ativa no workspace.
-- **DQX Studio:** o embed em `/rules` não é tratado por este modo.
-- **Branding** (logo/tema) fica no filesystem do container e some ao recriá-lo, como no Databricks Apps.
-- **Grants:** o task `grant_warehouse_perms` do `rc18_end_to_end` só aplica o grant reverso (SP da DQX Studio) com `app_hosting: container`; os do SP do container vêm do `grant_sp.sh`.
-
-## Sem compose
+Sem Compose, da raiz do repositório:
 
 ```bash
 docker build -f docker/Dockerfile -t rc18-app app
 docker run --rm -p 127.0.0.1:8000:8000 --env-file docker/.env --env-file docker/.env.bundle rc18-app
 ```
 
-- Build em Mac Apple Silicon gera imagem arm64; para servidor x86, `--platform linux/amd64`.
-- Rede restrita: aqui os mirrors vão por `--build-arg NPM_CONFIG_REGISTRY=<mirror>` e `--build-arg PIP_INDEX_URL=<mirror>`; proxy corporativo via `--build-arg HTTPS_PROXY=<proxy>`.
+## Remover
+
+O inverso do setup — o equivalente ao `databricks bundle destroy`:
+
+```bash
+./docker/destroy.sh -t <target>                     # compose down + bundle destroy + apaga .env.bundle
+./docker/destroy.sh -t <target> --revoke-grants     # + revoga os grants na DQX Studio
+```
+
+- Só aceita target com `app_hosting: container`; para os demais, `databricks bundle destroy`.
+- O `bundle destroy` apaga o catálogo do target **com os dados**, além de warehouse, jobs e dashboards.
+- `--revoke-grants` só se o SP não servir a outro deployment: os grants na DQX Studio são por SP, não por target.
+- Ficam de fora o `docker/.env`, a imagem `rc18-app:local` e a linhagem externa (`rc18_*`, do metastore — CLAUDE.md, seção Lineage).
+
+## Deploy no Azure Kubernetes Service
+
+Exige Azure CLI (`az login`) e `kubectl`. Rode o [Setup](#setup) até o passo 4.
+
+```bash
+./docker/deploy_aks.sh -g <rg> -r <nome-do-acr> -l <região> --dry-run   # prévia
+./docker/deploy_aks.sh -g <rg> -r <nome-do-acr> -l <região>
+```
+
+O script cria o que faltar (resource group, registry, cluster AKS), builda a
+imagem no ACR, guarda `docker/.env` + `docker/.env.bundle` num Secret do
+Kubernetes e roda uma réplica. Rode de novo para publicar código ou configuração.
+
+- **Região:** use a do workspace.
+- **Acesso:** o Service é `ClusterIP`, nada fica exposto. Abra o app com:
+
+  ```bash
+  az aks get-credentials -g <rg> -n rc18
+  kubectl -n rc18 port-forward svc/rc18-app 8000:8000
+  ```
+
+- **Cluster:** `-c dqx-studio` usa o cluster da DQX Studio.
+- **API server:** só `--api-server-ip-ranges` o alcança (default: seu IP público); mudou de IP, rode de novo.
+- **Build:** sobe só o que o git não ignora em `app/` — nenhum `.env`. Sem ACR Tasks, use `--local-build` ou `--image`.
+
+## Notas
+
+- **Embeds de dashboard e Genie:** o host do container precisa estar em Approved
+  domains ([Aprovar o domínio do app](../README.md#aprovar-o-domínio-do-app)), e o
+  navegador precisa de sessão ativa no workspace. O embed da DQX Studio em
+  `/rules` não é tratado por este modo.
+- **Branding** (logo/tema) fica no filesystem do container e some ao recriá-lo,
+  como no Databricks Apps.
+- **Porta 8000 ocupada:** `RC18_PORT=8010` no `docker/.env`.
+- **Rede sem PyPI/npm públicos:** `PIP_INDEX_URL` e `NPM_CONFIG_REGISTRY` no
+  `docker/.env`; o compose os repassa ao build (sem Compose:
+  `--build-arg`).
+- **Colima via Homebrew** (`unknown shorthand flag: 'f'`): registre o plugin
+  Compose com `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`
+  no `~/.docker/config.json`.
+- **Apple Silicon** builda `arm64` nativo; para servidor x86,
+  `--platform linux/amd64`.

@@ -2,11 +2,13 @@
 # Concede ao service principal do container (DATABRICKS_CLIENT_ID do docker/.env)
 # o que o bundle concede ao SP do Databricks App — o bundle só cuida daquele SP.
 #
-#   1. CAN_USE no warehouse (DATABRICKS_WAREHOUSE_ID)
-#   2. Unity Catalog: leitura em bronze/silver/gold/reference, leitura+escrita nas
+#   1. Entitlements workspace-access + databricks-sql-access (o SP do App os tem
+#      por padrão; um SP criado à mão pode vir sem nenhum)
+#   2. CAN_USE no warehouse (DATABRICKS_WAREHOUSE_ID)
+#   3. Unity Catalog: leitura em bronze/silver/gold/reference, leitura+escrita nas
 #      tabelas de governance que o app grava, leitura das execuções da DQX Studio
 #      (de onde saem também as definições das regras)
-#   3. (--byol) Linhagem gravável: CREATE EXTERNAL METADATA + MODIFY em bronze/gold
+#   4. (--byol) Linhagem gravável: CREATE EXTERNAL METADATA + MODIFY em bronze/gold
 #
 # Idempotente: pode ser reexecutado. O SP vem do docker/.env; warehouse e
 # catálogos, do docker/.env.bundle (gerado pelo setup.sh — que já chama este script).
@@ -16,7 +18,7 @@
 #   ./docker/grant_sp.sh -p <perfil> --byol          # + linhagem gravável
 #
 # Quem roda: owner do warehouse, com MANAGE nos catálogos do RC18 e da DQX; admin
-# do metastore (--byol). Requer Databricks CLI e python3.
+# do metastore (--byol); admin do workspace (entitlements). Requer Databricks CLI e python3.
 
 set -euo pipefail
 
@@ -27,7 +29,7 @@ BUNDLE_ENV="$DOCKER_DIR/.env.bundle"
 BYOL=0
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -76,12 +78,12 @@ fail() { echo "    FALHOU  $*"; FAILED=$((FAILED + 1)); }
 echo "==> Perfil: ${PROFILE} | SP: ${SP} | catálogo: ${CATALOG} | warehouse: ${WH_ID}"
 
 # O SP precisa existir NESTE workspace — client id de outro workspace dá invalid_client no app.
-SP_NAME="$(databricks service-principals list -p "$PROFILE" -o json \
+read -r SP_ID SP_NAME <<<"$(databricks service-principals list -p "$PROFILE" -o json \
   --filter "applicationId eq \"${SP}\"" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-print(d[0].get("displayName", "") if d else "")')"
-[[ -n "$SP_NAME" ]] || { echo "ERRO: SP ${SP} não existe no workspace do perfil ${PROFILE}." >&2; exit 1; }
+print(d[0]["id"], d[0].get("displayName", "")) if d else print("")')"
+[[ -n "${SP_NAME:-}" ]] || { echo "ERRO: SP ${SP} não existe no workspace do perfil ${PROFILE}." >&2; exit 1; }
 echo "==> Service principal: ${SP_NAME}"
 
 # Warehouse recriado (destroy + deploy) muda de id; a Permissions API ainda aceita
@@ -92,9 +94,22 @@ databricks warehouses get "$WH_ID" -p "$PROFILE" -o json >/dev/null 2>&1 || {
 }
 
 # ---------------------------------------------------------------------------
-# 1. Warehouse. update-permissions (PATCH) acrescenta à ACL, não a substitui.
+# 1. Entitlements. Sem databricks-sql-access o app não usa o warehouse ("This API
+#    is disabled for users without the databricks-sql-access…"). PATCH add é idempotente.
 # ---------------------------------------------------------------------------
-echo "==> [1/3] Warehouse"
+echo "==> [1/4] Entitlements"
+if databricks service-principals patch "$SP_ID" -p "$PROFILE" --json \
+     '{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"entitlements","value":[{"value":"workspace-access"},{"value":"databricks-sql-access"}]}]}' \
+     >/dev/null; then
+  ok "workspace-access + databricks-sql-access"
+else
+  fail "entitlements — exige admin do workspace"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Warehouse. update-permissions (PATCH) acrescenta à ACL, não a substitui.
+# ---------------------------------------------------------------------------
+echo "==> [2/4] Warehouse"
 if databricks warehouses update-permissions "$WH_ID" -p "$PROFILE" -o json \
      --json "{\"access_control_list\": [{\"service_principal_name\": \"${SP}\", \"permission_level\": \"CAN_USE\"}]}" \
      >/dev/null; then
@@ -104,7 +119,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Unity Catalog, executado no próprio warehouse do container.
+# 3. Unity Catalog, executado no próprio warehouse do container.
 # ---------------------------------------------------------------------------
 run_sql() {
   local out state
@@ -125,7 +140,7 @@ except Exception:
   if [[ "$state" == SUCCEEDED* ]]; then ok "$1"; else fail "$1"; echo "            ${state}"; fi
 }
 
-echo "==> [2/3] Unity Catalog"
+echo "==> [3/4] Unity Catalog"
 UC=(
   # Execuções da DQX Studio (Delta) — leitura.
   "GRANT USE CATALOG ON CATALOG \`${DQX_CATALOG}\` TO \`${SP}\`"
@@ -156,9 +171,9 @@ for t in incidents cadoc_documentos cadoc_tabelas regra_vinculos; do
 done
 
 # ---------------------------------------------------------------------------
-# 3. Linhagem gravável (opcional). CREATE EXTERNAL METADATA é de metastore.
+# 4. Linhagem gravável (opcional). CREATE EXTERNAL METADATA é de metastore.
 # ---------------------------------------------------------------------------
-echo "==> [3/3] Linhagem gravável (BYOL)"
+echo "==> [4/4] Linhagem gravável (BYOL)"
 if [[ "$BYOL" -eq 1 ]]; then
   run_sql "GRANT CREATE EXTERNAL METADATA ON METASTORE TO \`${SP}\`"
   for s in "$SCHEMA_BRONZE" "$SCHEMA_GOLD"; do
