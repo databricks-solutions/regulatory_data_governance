@@ -4,7 +4,7 @@ Roda o app (FastAPI + SPA) numa imagem Docker, no lugar do Databricks Apps. Cat�
 
 ## Quick start
 
-Pré-requisitos: DQX Studio deployada no workspace, Databricks CLI autenticada num perfil, Docker com Compose v2.24+, `python3` e `psql`.
+Pré-requisitos: DQX Studio deployada no workspace, Databricks CLI autenticada num perfil, Docker com Compose v2.24+ e `python3`.
 
 1. **Worktree só para o container** — a linha do App no `include:` (passo 3) vale para **todos** os targets da cópia, e um deploy de target com Databricks App a partir dela apagaria o App. Separe:
    ```bash
@@ -29,7 +29,7 @@ Pré-requisitos: DQX Studio deployada no workspace, Databricks CLI autenticada n
          # dqx_catalog: <catalogo-da-dqx>
          # dqx_schema: <schema-da-dqx>
    ```
-   Catálogo, Lakebase, Genie e módulos ocultos seguem as demais opções do `target.yml.example`, iguais às do fluxo com o Databricks App. Com vários deployments no mesmo workspace, dê ao target do container um `catalog` próprio — é o catálogo que os separa.
+   Catálogo, Genie e módulos ocultos seguem as demais opções do `target.yml.example`, iguais às do fluxo com o Databricks App. Com vários deployments no mesmo workspace, dê ao target do container um `catalog` próprio — é o catálogo que os separa.
 3. **`databricks.yml`** — comente a linha do App no `include:`:
    ```yaml
      # - resources/app/*.yml
@@ -56,13 +56,13 @@ O `./docker/setup.sh` faz o mesmo `bundle deploy` do fluxo com o Databricks App 
 
 | Arquivo | Quem escreve | Conteúdo |
 |---|---|---|
-| `target.yml` | você | perfil, catálogo, DQX Studio (`dqx_studio_url`, `dqx_catalog`…), Lakebase, Genie |
+| `target.yml` | você | perfil, catálogo, DQX Studio (`dqx_studio_url`, `dqx_catalog`…), Genie |
 | `docker/.env` | você | SP do container, porta, mirrors |
 | `docker/.env.bundle` | o setup (não edite) | a config do app, resolvida do bloco `env` de `resources/app/app.yml` + `bundle summary` |
 
 `app_hosting: container` e a linha comentada no `include:` andam juntas: o setup recusa rodar com só uma das duas.
 
-O espelho UC do Lakebase (`resources/postgres_catalogs.yml`, usado pelos dashboards) é um por database: se outro deployment já o registrou, o setup deixa o arquivo de fora do deploy deste target e usa o existente. O `docker/.env.bundle` é um só por cópia do repo — um worktree por target de container.
+O `docker/.env.bundle` é um só por cópia do repo — um worktree por target de container.
 
 ```bash
 ./docker/setup.sh -t <target>                            # tudo
@@ -73,7 +73,7 @@ O espelho UC do Lakebase (`resources/postgres_catalogs.yml`, usado pelos dashboa
 
 No fim ele mostra o `/api/v1/diagnostics/prereqs`; cada acesso faltante vem com o comando pronto. Para mudar a configuração do app, edite o `target.yml` e rode o setup de novo.
 
-Quem roda o setup precisa poder fazer o `bundle deploy` e, para os grants ([`grant_sp.sh`](grant_sp.sh)), ser owner do warehouse, conceder nos catálogos do RC18 e da DQX e ter `DATABRICKS_SUPERUSER` no branch Lakebase da Studio. O role Postgres do SP do container não é recriado por `bundle deploy`, então o GRANT do Lakebase não cai a cada deploy — ao contrário do SP do App.
+Quem roda o setup precisa poder fazer o `bundle deploy` e, para os grants ([`grant_sp.sh`](grant_sp.sh)), ser owner do warehouse e conceder nos catálogos do RC18 e da DQX.
 
 ## Remover
 
@@ -86,8 +86,8 @@ O inverso do setup — o equivalente ao `databricks bundle destroy`:
 ```
 
 - Exige `-t` e só aceita target com `app_hosting: container`: para targets com Databricks App, use `databricks bundle destroy`.
-- O `bundle destroy` apaga o catálogo do target **com os dados**, além de warehouse, jobs e dashboards. O espelho do Lakebase só é apagado se for deste target — se o setup o pulou, ele é de outro deployment e fica.
-- `--revoke-grants` revoga o que o `grant_sp.sh` deu fora do bundle (grants na DQX Studio, GRANT e role no Lakebase). Use só se o SP do container não servir a outro deployment: esses grants são por SP, não por target. Os do catálogo e do warehouse do target somem com o destroy.
+- O `bundle destroy` apaga o catálogo do target **com os dados**, além de warehouse, jobs e dashboards.
+- `--revoke-grants` revoga o que o `grant_sp.sh` deu fora do bundle (grants na DQX Studio). Use só se o SP do container não servir a outro deployment: esses grants são por SP, não por target. Os do catálogo e do warehouse do target somem com o destroy.
 - Ficam de fora: o `docker/.env` (SP do container) e a imagem `rc18-app:local`. A linhagem externa (`rc18_*`) também — é do metastore e compartilhada entre deployments; remova à mão se for o caso (CLAUDE.md, seção Lineage).
 
 ## Deploy no AKS

@@ -60,13 +60,6 @@ async def lifespan(app: FastAPI):
         close_pool()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha ao fechar connection pool no shutdown: %s", exc)
-    # Idem para o pool do Lakebase (lazy, e tem a task de refresh de token).
-    try:
-        from dqx_lakebase import close_pool as close_lakebase_pool
-
-        await close_lakebase_pool()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Falha ao fechar pool do Lakebase no shutdown: %s", exc)
     logger.info("R.18 Compliance Accelerator shutting down")
 
 

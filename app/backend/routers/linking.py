@@ -29,7 +29,6 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import dqx_lakebase
 from db import (
     CATALOG,
     DQX_METRICS_TABLE,
@@ -37,6 +36,7 @@ from db import (
     SCHEMA_SILVER,
     USE_MOCK,
 )
+from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
 # Strict variant for writes (must surface real errors, e.g. permission denied).
 from db import execute_query as execute_query_strict
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
@@ -94,19 +94,15 @@ def _validate_table_fqn(table_fqn: str) -> str:
     return fqn
 
 
-def _in_clause(values: list[str], prefix: str, paramstyle: str = "named") -> tuple[str, dict]:
+def _in_clause(values: list[str], prefix: str) -> tuple[str, dict]:
     """Build a parameterized ``IN (:p0, :p1, ...)`` clause + params dict.
 
     Never interpolate values (esp. user-supplied `table_fqn`) directly into
     SQL — that is a SQL-injection vector. Returns ("(:p0,:p1)", {"p0":..}).
     Caller must guard against an empty list (produces "()", invalid SQL).
-
-    `paramstyle`: regras vêm do Lakebase (`%(nome)s`), runs/métricas do
-    Databricks SQL (`:nome`).
     """
     keys = [f"{prefix}{i}" for i in range(len(values))]
-    marker = (lambda k: f"%({k})s") if paramstyle == "pyformat" else (lambda k: f":{k}")
-    placeholders = ",".join(marker(k) for k in keys)
+    placeholders = ",".join(f":{k}" for k in keys)
     return f"({placeholders})", {k: v for k, v in zip(keys, values)}
 
 
@@ -401,7 +397,7 @@ async def browse_schema_tables(
 # ── Linkable rules (DQX rules + effective check_name + link status) ──────────
 
 def _parse_check_def(chk_raw) -> list[dict]:
-    """Coerce dq_resolved_rules.check (JSONB → dict, or JSON str) into check dicts."""
+    """Coerce a rule row's check (dict, or JSON str) into check dicts."""
     try:
         parsed = json.loads(chk_raw) if isinstance(chk_raw, str) else (chk_raw or [])
     except (json.JSONDecodeError, TypeError):
@@ -412,7 +408,7 @@ def _parse_check_def(chk_raw) -> list[dict]:
 
 
 async def _effective_names_by_table(table_fqns: list[str]) -> dict[str, list[str]]:
-    """For each table_fqn, the check_names observed in its latest SUCCESS run.
+    """For each table_fqn, the check_names observed in its latest approved run.
 
     These are the runtime-resolved names (incl. auto-derived ones like
     `parte_not_in_range`) that the user confirms when linking a rule.
@@ -425,7 +421,7 @@ async def _effective_names_by_table(table_fqns: list[str]) -> dict[str, list[str
         "  SELECT run_id, source_table_fqn, "
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn "
         f"  FROM {DQX_VALIDATION_RUNS_TABLE} "
-        f"  WHERE status = 'SUCCESS' AND source_table_fqn IN {in_tables}"
+        f"  WHERE {PUBLISHED_RUN_FILTER} AND source_table_fqn IN {in_tables}"
         ") SELECT run_id, source_table_fqn FROM ranked WHERE rn = 1",
         tbl_params,
     )
@@ -512,16 +508,9 @@ async def list_linkable_rules(
     if not target_tables:
         return LinkableRulesResponse(rules=[])
 
-    # Regras dessas tabelas, do Lakebase. `target_tables` pode conter
-    # `table_fqn` vindo do usuário — parametrizar é obrigatório.
-    in_tables, tbl_params = _in_clause(target_tables, "t", paramstyle="pyformat")
-    rule_rows = await dqx_lakebase.query_or_empty(
-        f"SELECT rule_id, table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
-        f"FROM {dqx_lakebase.rules_table()} "
-        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND table_fqn IN {in_tables} "
-        "ORDER BY table_fqn, rule_id",
-        tbl_params,
-    )
+    # Regras em vigor dessas tabelas (as que rodaram — ver dqx_rules). Regra
+    # aprovada que ainda não rodou só aparece depois do primeiro run.
+    rule_rows = await load_executed_rules(target_tables)
     eff_names = await _effective_names_by_table(target_tables)
     link_rows = await execute_query(
         f"SELECT vinculo_id, check_name, rule_id, table_fqn, documento, dimensao_r18, "

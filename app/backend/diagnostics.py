@@ -1,23 +1,23 @@
-"""Diagnóstico dos acessos externos (DQX Studio / Lakebase / UC).
+"""Diagnóstico dos acessos externos (DQX Studio / UC).
 
 Como as leituras degradam para vazio, "falta permissão" e "não há regra" dão a
 MESMA tela. Este módulo classifica a causa e devolve o comando de correção já
 preenchido com a identidade real do app. Formato espelha o `SetupStep` da Studio.
 
-Regra de ouro: prescrição só quando a causa é conhecida (Postgres por SQLSTATE,
-UC por assinatura de mensagem). Erro não diagnosticado vira `failed` SEM comando.
+Regra de ouro: prescrição só quando a causa é conhecida (UC por assinatura de
+mensagem). Erro não diagnosticado vira `failed` SEM comando.
 
 Texto fica no frontend (i18n por `id`); daqui só sai o que é neutro de idioma.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-import dqx_lakebase
 from db import (
     DQX_METRICS_TABLE,
     DQX_VALIDATION_RUNS_TABLE,
@@ -25,7 +25,7 @@ from db import (
     execute_query,
 )
 from dqx_config import dqx_studio_base_url
-from dqx_rules import scope_clause as rule_scope_clause
+from dqx_rules import load_executed_rules
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,8 @@ SKIPPED = "skipped"                  # dependência anterior falhou
 
 # Ids estáveis = chaves i18n no frontend.
 STUDIO_URL = "studio_url"
-LAKEBASE_ENDPOINT = "lakebase_endpoint"
-LAKEBASE_CONNECTION = "lakebase_connection"
-LAKEBASE_RULES_SELECT = "lakebase_rules_select"
 DELTA_RUNS_SELECT = "delta_runs_select"
-RULES_MATERIALIZED = "rules_materialized"
+RULES_EXECUTED = "rules_executed"
 
 
 class PrereqCheck(BaseModel):
@@ -51,8 +48,8 @@ class PrereqCheck(BaseModel):
     state: str
     params: dict[str, str] = Field(default_factory=dict)  # interpolações do i18n
     remediation: str | None = None
-    remediation_kind: str | None = None  # psql | sql | shell | yaml
-    detail: str | None = None            # mensagem crua do Postgres/UC
+    remediation_kind: str | None = None  # sql | shell | yaml
+    detail: str | None = None            # mensagem crua do UC
 
 
 class PrereqReport(BaseModel):
@@ -61,33 +58,19 @@ class PrereqReport(BaseModel):
     checked_at: str
 
 
-def _grant_command(client_id: str) -> str:
-    """GRANT pronto para copiar. Aspas duplas obrigatórias: o role é um UUID."""
-    schema = dqx_lakebase.LAKEBASE_SCHEMA
-    table = dqx_lakebase.RULES_TABLE
-    role = client_id or "<client-id-do-sp-do-app>"
-    return (
-        f'GRANT USAGE ON SCHEMA {schema} TO "{role}";\n'
-        f'GRANT SELECT ON TABLE {schema}.{table} TO "{role}";'
-    )
+async def _identity() -> str:
+    """Client id do SP do app = alvo do GRANT. `""` se não der para resolver."""
+    def _me() -> str:
+        from databricks.sdk import WorkspaceClient
 
+        me = WorkspaceClient().current_user.me()
+        return me.user_name or me.id or ""
 
-def _psql_command() -> str:
-    """Como abrir o psql no projeto/branch certos."""
-    endpoint = dqx_lakebase.LAKEBASE_ENDPOINT
-    project, branch = "<projeto>", "<branch>"
-    parts = endpoint.split("/")
-    # Extrai por segmento nomeado, não por índice: endpoint fora do formato
-    # deve gerar placeholder, não comando errado.
-    for i, part in enumerate(parts):
-        if part == "projects" and i + 1 < len(parts):
-            project = parts[i + 1]
-        if part == "branches" and i + 1 < len(parts):
-            branch = parts[i + 1]
-    return (
-        f"databricks psql --project {project} --branch {branch} "
-        f"-- -d {dqx_lakebase.LAKEBASE_DATABASE} -f notebooks/setup/grant_dqx_lakebase_access.sql"
-    )
+    try:
+        return await asyncio.to_thread(_me)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Não foi possível resolver a identidade do app: %s", exc)
+        return ""
 
 
 async def _check_studio_url() -> PrereqCheck:
@@ -102,24 +85,9 @@ async def _check_studio_url() -> PrereqCheck:
     )
 
 
-async def _check_lakebase_endpoint() -> PrereqCheck:
-    if dqx_lakebase.is_configured():
-        return PrereqCheck(
-            id=LAKEBASE_ENDPOINT,
-            state=PASSED,
-            params={"endpoint": dqx_lakebase.LAKEBASE_ENDPOINT},
-        )
-    return PrereqCheck(
-        id=LAKEBASE_ENDPOINT,
-        state=ACTION_REQUIRED,
-        remediation="dqx_lakebase_endpoint: projects/<projeto>/branches/<branch>/endpoints/primary",
-        remediation_kind="yaml",
-    )
-
-
 # Único caso em que prescrever GRANT no UC é correto. Sem esse recorte, qualquer
 # falha (warehouse parado, rede) viraria "rode este GRANT". Casamos por substring
-# porque o connector não expõe código — o lado Postgres usa SQLSTATE.
+# porque o connector não expõe código.
 _UC_ACCESS_ERRORS = (
     "INSUFFICIENT_PERMISSIONS",
     "PERMISSION_DENIED",
@@ -130,9 +98,9 @@ _UC_ACCESS_ERRORS = (
 
 
 async def _check_delta_runs() -> PrereqCheck:
-    """Tabelas de EXECUÇÃO (Delta/UC) — grant de UC, reaplicável pelo job.
+    """Tabelas de EXECUÇÃO (Delta/UC) — de onde saem resultados E regras.
 
-    Separado do Lakebase: falham e se corrigem em lugares diferentes.
+    Grant de UC, reaplicável pelo job.
     """
     try:
         await execute_query(f"SELECT 1 FROM {DQX_VALIDATION_RUNS_TABLE} LIMIT 0", {})
@@ -147,7 +115,7 @@ async def _check_delta_runs() -> PrereqCheck:
             # Outro motivo (warehouse indisponível etc.): erro cru, sem prescrição.
             return PrereqCheck(id=DELTA_RUNS_SELECT, state=FAILED, params=params, detail=msg)
 
-        client_id = await dqx_lakebase.identity()
+        client_id = await _identity()
         role = client_id or "<client-id-do-sp-do-app>"
         remediation = "\n".join(
             f"GRANT SELECT ON TABLE {t} TO `{role}`;"
@@ -163,22 +131,16 @@ async def _check_delta_runs() -> PrereqCheck:
         )
 
 
-async def _check_rules_materialized() -> PrereqCheck:
-    """Há regra aprovada no escopo deste deployment? (só roda com acesso OK)
+async def _check_rules_executed() -> PrereqCheck:
+    """Há regra em vigor no escopo deste deployment? (só roda com acesso OK)
 
-    Codifica a pegadinha do fluxo novo: importar YAML cria regra no Registry, e
-    ela só chega em `dq_resolved_rules` quando o binding é PUBLICADO em Tabelas.
+    Codifica a pegadinha do fluxo novo: a regra só aparece no RC18 depois que a
+    tabela foi PUBLICADA na Studio e EXECUTADA na versão aprovada — aprovar sem
+    rodar não basta, e run de rascunho não conta.
     """
-    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
-    rows = await dqx_lakebase.query(
-        f"SELECT count(*) AS n FROM {dqx_lakebase.rules_table()} "
-        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {scope_pred}",
-        scope_params,
-    )
-    total = int((rows[0] or {}).get("n") or 0) if rows else 0
-    if total > 0:
-        return PrereqCheck(id=RULES_MATERIALIZED, state=PASSED, params={"count": str(total)})
-    return PrereqCheck(id=RULES_MATERIALIZED, state=ACTION_REQUIRED, params={"count": "0"})
+    total = len(await load_executed_rules())
+    state = PASSED if total > 0 else ACTION_REQUIRED
+    return PrereqCheck(id=RULES_EXECUTED, state=state, params={"count": str(total)})
 
 
 async def run_prereq_checks() -> PrereqReport:
@@ -189,70 +151,22 @@ async def run_prereq_checks() -> PrereqReport:
         # Devloop não tem workspace; alarme aqui seria só ruído.
         return PrereqReport(
             state=PASSED,
-            checks=[PrereqCheck(id=i, state=PASSED) for i in (STUDIO_URL, LAKEBASE_ENDPOINT)],
+            checks=[PrereqCheck(id=STUDIO_URL, state=PASSED)],
             checked_at=now,
         )
 
-    checks: list[PrereqCheck] = [await _check_studio_url(), await _check_lakebase_endpoint()]
+    checks: list[PrereqCheck] = [await _check_studio_url(), await _check_delta_runs()]
 
-    endpoint_ok = checks[-1].state == PASSED
-    if not endpoint_ok:
-        checks += [
-            PrereqCheck(id=LAKEBASE_CONNECTION, state=SKIPPED),
-            PrereqCheck(id=LAKEBASE_RULES_SELECT, state=SKIPPED),
-            PrereqCheck(id=RULES_MATERIALIZED, state=SKIPPED),
-        ]
+    if checks[-1].state == PASSED:
+        try:
+            checks.append(await _check_rules_executed())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Contagem de regras executadas falhou: %s", exc)
+            checks.append(PrereqCheck(id=RULES_EXECUTED, state=FAILED,
+                                      detail=str(exc).splitlines()[0]))
     else:
-        state, detail = await dqx_lakebase.probe_rules_access()
-        client_id = await dqx_lakebase.identity()
-
-        if state == dqx_lakebase.PROBE_OK:
-            checks.append(PrereqCheck(id=LAKEBASE_CONNECTION, state=PASSED,
-                                      params={"client_id": client_id}))
-            checks.append(PrereqCheck(id=LAKEBASE_RULES_SELECT, state=PASSED,
-                                      params={"table": dqx_lakebase.rules_table()}))
-            try:
-                checks.append(await _check_rules_materialized())
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Contagem de regras materializadas falhou: %s", exc)
-                checks.append(PrereqCheck(id=RULES_MATERIALIZED, state=FAILED,
-                                          detail=str(exc).splitlines()[0]))
-
-        elif state == dqx_lakebase.PROBE_PERMISSION_DENIED:
-            # O caso que motivou o módulo: conecta, mas não lê.
-            checks.append(PrereqCheck(id=LAKEBASE_CONNECTION, state=PASSED,
-                                      params={"client_id": client_id}))
-            checks.append(PrereqCheck(
-                id=LAKEBASE_RULES_SELECT,
-                state=ACTION_REQUIRED,
-                params={
-                    "client_id": client_id,
-                    "schema": dqx_lakebase.LAKEBASE_SCHEMA,
-                    "table": dqx_lakebase.RULES_TABLE,
-                    "psql": _psql_command(),
-                },
-                remediation=_grant_command(client_id),
-                remediation_kind="psql",
-                detail=detail or None,
-            ))
-            checks.append(PrereqCheck(id=RULES_MATERIALIZED, state=SKIPPED))
-
-        else:
-            # Role inexistente (corrige no bundle) ou erro inesperado — este
-            # último sem prescrição, para não convidar a execução à toa.
-            connect_failed = state == dqx_lakebase.PROBE_CONNECT_FAILED
-            checks.append(PrereqCheck(
-                id=LAKEBASE_CONNECTION,
-                state=ACTION_REQUIRED if connect_failed else FAILED,
-                params={"client_id": client_id, "endpoint": dqx_lakebase.LAKEBASE_ENDPOINT},
-                remediation="databricks bundle deploy" if connect_failed else None,
-                remediation_kind="shell" if connect_failed else None,
-                detail=detail or None,
-            ))
-            checks.append(PrereqCheck(id=LAKEBASE_RULES_SELECT, state=SKIPPED))
-            checks.append(PrereqCheck(id=RULES_MATERIALIZED, state=SKIPPED))
-
-    checks.append(await _check_delta_runs())
+        # Sem acesso aos runs não se sabe se há regra; prescrever as duas confunde.
+        checks.append(PrereqCheck(id=RULES_EXECUTED, state=SKIPPED))
 
     overall = PASSED if all(c.state in (PASSED, SKIPPED) for c in checks) else ACTION_REQUIRED
     if any(c.state == FAILED for c in checks):

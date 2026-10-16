@@ -1,9 +1,8 @@
 """Testes do índice/escopo de regras DQX (`app/backend/dqx_rules.py`).
 
-Protegem duas coisas: `check_name` NÃO é único em `dq_resolved_rules` (homônimos
-em tabelas diferentes colidiam e trocavam a dimensão exibida), e o predicado
-serve duas engines — marcador errado não é erro de sintaxe, o predicado só nunca
-casa, zerando as telas em silêncio.
+Protegem três coisas: `check_name` NÃO é único entre tabelas (homônimos
+colidiam e trocavam a dimensão exibida), o escopo por deployment, e o recorte
+das regras em vigor a partir dos runs.
 """
 
 import asyncio
@@ -11,9 +10,11 @@ import unittest
 from unittest.mock import patch
 
 from app.backend.dqx_rules import (
+    PUBLISHED_RUN_FILTER,
     RuleIndex,
     build_index,
     check_name_of,
+    load_executed_rules,
     parse_check_defs,
     scope_clause,
 )
@@ -183,34 +184,81 @@ class ScopeClauseTest(unittest.TestCase):
         self.assertEqual(pred, "source_table_fqn LIKE :sc_prefix")
         self.assertIn("sc_prefix", params)
 
-    # ── paramstyle: o MESMO predicado serve Lakebase (psycopg) e Databricks SQL.
-    def test_pyformat_marker_for_lakebase(self):
-        pred, params = self._run({}, paramstyle="pyformat")
-        self.assertEqual(pred, "table_fqn LIKE %(rscope_prefix)s")
-        self.assertEqual(params, {"rscope_prefix": "meu_catalog.%"})
 
-    def test_pyformat_marker_in_the_in_list(self):
-        pred, params = self._run(
-            {"3040": ["outro_catalog.silver.x"]}, paramstyle="pyformat"
-        )
-        self.assertEqual(
-            pred,
-            "(table_fqn LIKE %(rscope_prefix)s OR table_fqn IN (%(rscope0)s))",
-        )
-        self.assertEqual(params["rscope0"], "outro_catalog.silver.x")
-        self.assertNotIn("outro_catalog.silver.x", pred)
+class LoadExecutedRulesTest(unittest.TestCase):
+    """Regras em vigor = as que rodaram na última versão aprovada (contorno DQX #1575)."""
 
-    def test_param_names_are_identical_across_paramstyles(self):
-        """Só o marcador muda: permite reaproveitar o dict de params."""
-        tables = {"3040": ["c.s.a", "c.s.b"]}
-        _, named = self._run(tables)
-        _, pyformat = self._run(tables, paramstyle="pyformat")
-        self.assertEqual(named, pyformat)
+    def _run(self, rows, table_fqns=None):
+        seen = {}
 
-    def test_unknown_paramstyle_fails_loudly(self):
-        # Erro explícito > predicado que nunca casa.
-        with self.assertRaises(ValueError):
-            self._run({}, paramstyle="qmark")
+        async def fake_query(sql, params=None):
+            seen["sql"], seen["params"] = sql, params
+            return rows
+
+        async def fake_load():
+            return {}, {}
+
+        with patch("app.backend.dqx_rules.execute_query_or_empty", fake_query), \
+             patch("app.backend.dqx_rules.load_cadoc_tables", fake_load), \
+             patch("app.backend.dqx_rules.CATALOG", "c"):
+            out = asyncio.run(load_executed_rules(table_fqns))
+        return out, seen
+
+    def test_only_approved_runs_count(self):
+        """Run de rascunho e preview ad-hoc não são evidência da versão aprovada."""
+        _, seen = self._run([])
+        self.assertIn(PUBLISHED_RUN_FILTER, seen["sql"])
+        self.assertIn("run_mode'), 'published') = 'published'", PUBLISHED_RUN_FILTER)
+        self.assertIn("<> 'preview'", PUBLISHED_RUN_FILTER)
+        self.assertIn("status = 'SUCCESS'", PUBLISHED_RUN_FILTER)
+
+    def test_unions_all_runs_of_the_latest_binding_version(self):
+        """O "Run" manual pode escolher só algumas regras: o último run sozinho mostra um subconjunto."""
+        _, seen = self._run([])
+        self.assertIn("MAX(binding_version) OVER (PARTITION BY source_table_fqn)", seen["sql"])
+        self.assertIn("binding_version = latest_version OR (latest_version IS NULL AND rn = 1)", seen["sql"])
+
+    def test_default_scope_is_the_deployment(self):
+        _, seen = self._run([])
+        self.assertIn("source_table_fqn LIKE :rscope_prefix", seen["sql"])
+        self.assertEqual(seen["params"], {"rscope_prefix": "c.%"})
+
+    def test_explicit_tables_are_parameterized(self):
+        _, seen = self._run([], ["c.silver.a", "c.silver.b"])
+        self.assertIn("source_table_fqn IN (:et0,:et1)", seen["sql"])
+        self.assertEqual(seen["params"], {"et0": "c.silver.a", "et1": "c.silver.b"})
+        self.assertNotIn("c.silver.a", seen["sql"])
+
+    def test_empty_table_list_skips_the_query(self):
+        out, seen = self._run([{"table_fqn": "x", "checks": '{"name": "n"}'}], [])
+        self.assertEqual(out, [])
+        self.assertNotIn("sql", seen)
+
+    def test_dedupes_by_table_and_name_keeping_the_most_recent(self):
+        """Runs da mesma versão podem diferir em valor resolvido na hora."""
+        rows = [  # já vêm por created_at DESC
+            {"table_fqn": "c.s.a", "checks": '{"name": "n1", "user_metadata": {"pass_threshold": "90"}}'},
+            {"table_fqn": "c.s.a", "checks": '{"name": "n1", "user_metadata": {"pass_threshold": "80"}}'},
+            {"table_fqn": "c.s.b", "checks": '{"name": "n1"}'},
+        ]
+        out, _ = self._run(rows)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["checks"]["user_metadata"]["pass_threshold"], "90")
+        self.assertEqual([r["table_fqn"] for r in out], ["c.s.a", "c.s.b"])
+
+    def test_unnamed_checks_are_kept_apart(self):
+        """Sem `name`, a chave é o próprio check — dois distintos não se fundem."""
+        rows = [
+            {"table_fqn": "c.s.a", "checks": '{"check": {"function": "is_not_null"}}'},
+            {"table_fqn": "c.s.a", "checks": '{"check": {"function": "is_unique"}}'},
+        ]
+        out, _ = self._run(rows)
+        self.assertEqual(len(out), 2)
+
+    def test_rows_feed_the_index(self):
+        rows = [{"table_fqn": "c.s.a", "checks": '{"name": "n1", "user_metadata": {"dimensao_r18": "6"}}'}]
+        out, _ = self._run(rows)
+        self.assertEqual(build_index(out).get("c.s.a", "n1"), {"dimensao_r18": "6"})
 
 
 if __name__ == "__main__":

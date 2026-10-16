@@ -117,13 +117,11 @@ Notas:
      não resolve e o check marca **100% como violação** (falso-positivo silencioso: o
      run passa como SUCCESS). Ver `notebooks/setup/grant_dqx_studio_access.sql`
      (seção "GRANT REVERSO").
-   - **GRANT para o SP do RC18 ler as regras no Lakebase** (novo na DQX 0.15/0.16):
-     sem o role Postgres + `GRANT SELECT`, a Studio funciona normalmente mas as
-     telas de Críticas SCR e Qualidade R.18 ficam **vazias**. Ver
-     `notebooks/setup/grant_dqx_lakebase_access.sql`.
 4. **Aprove** (Submit → Approve) e **Execute** (Run Rules) — usando **All rows**
-   (ver o aviso sobre `sample_size` acima). O RC18 só considera regra em status
-   `approved`; um check importado e não aprovado não aparece nas telas. Revise no
+   (ver o aviso sobre `sample_size` acima). O RC18 lê as regras dos **runs** da
+   versão aprovada (`checks_json` de `dq_validation_runs`): regra aprovada que
+   ainda não rodou não aparece nas telas, e run de rascunho não conta. Publique e
+   aprove uma tabela por vez (bug DQX #1575 — ver CLAUDE.md). Revise no
    app RC18 (Críticas SCR / Qualidade R.18): cada regra aparece na sua dimensão,
    com o `critica_id`.
 

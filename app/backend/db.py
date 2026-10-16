@@ -55,8 +55,8 @@ WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 POOL_SIZE = int(os.getenv("DATABRICKS_SQL_POOL_SIZE", "5"))
 
 # Catálogo/schema DELTA da DQX Studio. ⚠️ Desde a DQX 0.15/0.16 hospeda APENAS as
-# tabelas de execução (append-only, escritas pelo task runner); as REGRAS saíram
-# do UC para o Lakebase — ver `dqx_lakebase.py`.
+# tabelas de execução (append-only, escritas pelo task runner). As definições de
+# regra também saem daqui, do `checks_json` dos runs — ver `dqx_rules.py`.
 # Vem de `var.dqx_catalog`/`var.dqx_schema`; fallback = catálogo RC18 (dev local).
 DQX_CATALOG = os.getenv("DQX_CATALOG", CATALOG)
 DQX_SCHEMA = os.getenv("DQX_SCHEMA", SCHEMA_QUALITY)

@@ -17,7 +17,7 @@
 # automaticamente.
 #
 # As regras de qualidade (Críticas SCR) são criadas pelo usuário na DQX Studio;
-# o RC18 apenas LÊ `dq_resolved_rules` (hoje em Lakebase Postgres). Não há mais
+# o RC18 apenas LÊ as que rodaram (`checks_json` de `dq_validation_runs`). Não há mais
 # seed automático de regras.
 
 resources:
@@ -77,7 +77,6 @@ resources:
             # Delta da DQX Studio para o SP do app. Necessário porque `bundle
             # destroy` recria o SP a cada ciclo e nem o ACL do warehouse nem os
             # grants no catálogo DQX persistem. Idempotente.
-            # ⚠️ NÃO cobre o Lakebase (regras) — esse GRANT é manual.
             notebook_path: ../../notebooks/setup/grant_warehouse_perms.py
             base_parameters:
               # Nome por interpolação, não `${resources.apps…}`: com o app em
@@ -88,9 +87,8 @@ resources:
               # Catálogo DESTE deployment — obrigatório. Sem ele, um segundo
               # deployment no mesmo workspace grantaria no catálogo do primeiro.
               catalog: ${var.catalog}
-              # Catálogo/schema DELTA da Studio (runs/metrics). A tabela de regras
-              # não entra: está no Lakebase e seu GRANT é manual — ver
-              # notebooks/setup/grant_dqx_lakebase_access.sql.
+              # Catálogo/schema DELTA da Studio (runs/metrics) — de onde saem
+              # também as definições das regras.
               dqx_catalog: ${var.dqx_catalog}
               dqx_schema: ${var.dqx_schema}
               dqx_studio_sp: ${var.dqx_studio_sp}

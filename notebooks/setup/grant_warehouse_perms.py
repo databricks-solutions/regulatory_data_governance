@@ -25,14 +25,8 @@
 # MAGIC        tabela `governance.incidents` (necessário para criação de
 # MAGIC        incidentes via POST /governance/incidents)
 # MAGIC
-# MAGIC ⚠️ **O grant da tabela de REGRAS não está aqui e NÃO é automatizável.**
-# MAGIC `dq_resolved_rules` saiu do Unity Catalog na DQX 0.15/0.16 e vive em Lakebase
-# MAGIC Postgres. Privilégio de objeto no Postgres precisa ser concedido pelo dono
-# MAGIC das tabelas (o SP da Studio), e este notebook roda como o SP do RC18 — que
-# MAGIC não pode conceder privilégio a si mesmo. Ou seja: exatamente o problema do
-# MAGIC "client id novo a cada destroy" que este notebook resolve para o UC continua
-# MAGIC MANUAL no lado Lakebase, e precisa ser refeito a cada destroy+deploy. Ver
-# MAGIC `notebooks/setup/grant_dqx_lakebase_access.sql`.
+# MAGIC As definições das regras também saem de `dq_validation_runs` (`checks_json`),
+# MAGIC então estes grants cobrem tudo o que o app lê da Studio — nada no Lakebase.
 # MAGIC
 # MAGIC Idempotente — re-rodar concede de novo sem efeito colateral. Pré-req:
 # MAGIC quem dispara o notebook precisa ser owner do warehouse e ter USE/SELECT no
@@ -56,9 +50,8 @@ dbutils.widgets.text("warehouse_name", "", "Nome do warehouse (ex: rc18-warehous
 # Catálogo DESTE deployment. Sem default de propósito: um default silencioso é o
 # que faria um segundo deployment grantar no catálogo do primeiro.
 dbutils.widgets.text("catalog", "", "Catálogo do deployment (ex: rc18_catalog)")
-# Catálogo/schema DELTA da DQX Studio — onde vivem as tabelas de EXECUÇÃO. A
-# tabela de regras NÃO entra aqui: está no Lakebase Postgres, cujo grant é manual
-# (grant_dqx_lakebase_access.sql).
+# Catálogo/schema DELTA da DQX Studio — onde vivem as tabelas de EXECUÇÃO (e,
+# no `checks_json` delas, as definições das regras).
 dbutils.widgets.text("dqx_catalog", "dqx", "Catálogo da DQX Studio")
 dbutils.widgets.text("dqx_schema", "dqx_studio", "Schema da DQX Studio")
 # Service principal da DQX Studio (o run_as dos jobs de validação). Precisa LER o
@@ -224,9 +217,7 @@ print(f"✓ Confirmado no ACL: {sp_entries[0].get('all_permissions')}")
 #   - USE CATALOG / USE SCHEMA — pré-requisito para qualquer SELECT no schema DQX
 #   - SELECT em validation_runs/metrics/quarantine_records — feeds para os
 #     endpoints /validations/*/results e /quality/dimensions
-# `dq_resolved_rules` NÃO está aqui: vive no Lakebase Postgres desde a DQX
-# 0.15/0.16, e grantar aqui falharia com TABLE_OR_VIEW_NOT_FOUND. Ver
-# notebooks/setup/grant_dqx_lakebase_access.sql.
+#   - as definições das regras vêm do `checks_json` de dq_validation_runs
 _DQX_READ_TABLES = ["dq_validation_runs", "dq_metrics", "dq_quarantine_records"]
 
 # Grants no catálogo do deployment (catálogo de DADOS — silver/bronze/gold/

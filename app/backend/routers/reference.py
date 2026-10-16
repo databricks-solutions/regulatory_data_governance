@@ -6,14 +6,13 @@ import json
 
 from fastapi import APIRouter, Depends, Query
 
-import dqx_lakebase
 from db import CATALOG, SCHEMA_REFERENCE, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when reference tables haven't been seeded yet (setup_job not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for, resolve_meta
-from dqx_rules import scope_clause as rule_scope_clause
+from dqx_rules import load_executed_rules
 from rc18_links import load_vinculos
 from models import (
     CalendarioDay,
@@ -113,9 +112,9 @@ _MOCK_DOMINIOS_EN = [
 ]
 
 # 4 regras iniciais do acelerador, usadas APENAS no modo mock (USE_MOCK_BACKEND).
-# Em modo real, o catálogo de Críticas é lido de `dq_resolved_rules` da DQX Studio
-# — as regras são criadas via DQX Studio (Motor de Regras) e aparecem aqui assim
-# que autoradas. O RC18 não semeia mais regras.
+# Em modo real, o catálogo de Críticas vem dos runs da DQX Studio (as regras que
+# rodaram na última versão aprovada) — as regras são criadas via DQX Studio
+# (Motor de Regras) e aparecem aqui depois da primeira execução. O RC18 não semeia mais regras.
 _MOCK_CRITICAS = [
     CriticaRule(rule_id="S20_001", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="autorzc IN ('S','N')", description="Autorzc deve pertencer ao dominio oficial {'S','N'} do leiaute SCR 3040", bcb_reference="SCR3040_Dominios.xlsx, Anexo Autorzc", layout_version="V1"),
     CriticaRule(rule_id="S20_002", document="3040", rule_type="syntactic", severity="error", dimension_r18=3, dimension_name="Adaptabilidade", expression="CASE WHEN is_pf THEN porte_cli IN ('0'..'8') WHEN is_pj THEN porte_cli IN ('0'..'4') ELSE FALSE END", description="PorteCli condicional ao tipo de cliente — PF aceita 0-8; PJ aceita 0-4", bcb_reference="SCR3040_Dominios.xlsx, Anexo PorteCli", layout_version="V1"),
@@ -226,23 +225,14 @@ async def get_criticas(
             rules = [r for r in rules if search_lower in r.description.lower()]
         return CriticasResponse(total=len(rules), rules=rules)
 
-    # Tabela autoritativa de regras, hoje no Lakebase (ver dqx_lakebase.py). A
-    # definição vive na coluna `check` (JSONB), aliasada para `checks`.
-    # Escopo por catálogo: a Studio é compartilhada, e sem o predicado regras de
-    # outro deployment entram nas Críticas (`_doc_from_table_fqn` casa em
-    # `scr3040`/`scr3050` sem olhar o catálogo).
-    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
-    rows = await dqx_lakebase.query_or_empty(
-        f"SELECT rule_id, table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks, "
-        "       status, version, source, updated_at "
-        f"FROM {dqx_lakebase.rules_table()} "
-        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' "
-        f"  AND {scope_pred} "
-        "ORDER BY table_fqn, rule_id",
-        scope_params,
-    )
+    # Regras em vigor = as que rodaram na última versão aprovada (ver
+    # dqx_rules.load_executed_rules). Escopo por catálogo: a Studio é
+    # compartilhada, e sem o predicado regras de outro deployment entram nas
+    # Críticas (`_doc_from_table_fqn` casa em `scr3040`/`scr3050` sem olhar o
+    # catálogo).
+    rows = await load_executed_rules()
     vinc_by_pair, vinc_by_rule = await load_vinculos()
-    rules = _parse_dq_resolved_rules_rows(rows, vinc_by_pair, vinc_by_rule)
+    rules = _parse_rule_rows(rows, vinc_by_pair, vinc_by_rule)
     # Apply filters in Python — set is small (10s of rules) so this is fine.
     if document:
         rules = [r for r in rules if r.document == document]
@@ -292,16 +282,17 @@ def _doc_from_table_fqn(table_fqn: str) -> str:
     return ""
 
 
-def _parse_dq_resolved_rules_rows(
+def _parse_rule_rows(
     rows: list[dict],
     vinc_by_pair: dict | None = None,
     vinc_by_rule_id: dict | None = None,
 ) -> list[CriticaRule]:
-    """Translate dq_resolved_rules rows (Studio's `check` column) → CriticaRule.
+    """Translate rule rows (`load_executed_rules`) → CriticaRule.
 
-    The `check` JSONB column comes back as a dict (a JSON string is still
-    accepted), carrying the DQX shape: `name`, `criticality`, `check`, optional
+    Each row's `checks` is one DQX check (dict, or a JSON string), carrying the
+    DQX shape: `name`, `criticality`, `check`, optional
     `filter`/`user_metadata`/`run_config_name`. A legacy array shape is tolerated.
+    Rows carry no `rule_id` (the runs don't have one): links resolve by pair.
 
     UI-created rules may omit `run_config_name` and `user_metadata` entirely
     — the binding is then the row's `table_fqn`. We accommodate both shapes.
