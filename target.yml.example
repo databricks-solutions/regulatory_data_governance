@@ -22,6 +22,13 @@ targets:
       # referência/batimento + o filtro de escopo mensal) funcionem. 
       # dqx_studio_sp: <uuid-do-sp-da-dqx-studio>
 
+      # OPTIONAL — onde o app roda: databricks_app (DEFAULT) ou container (docker/).
+      # Para container, comente também `- resources/app/*.yml` no include: do
+      # databricks.yml (vale para TODOS os targets — use um worktree próprio, ver
+      # docker/README.md) e rode ./docker/setup.sh -t <target>. As variáveis deste arquivo valem
+      # para os dois modos — no container chegam via docker/.env.bundle.
+      # app_hosting: container
+
       # OPTIONAL — catálogo/schema DELTA da Studio (dq_validation_runs,
       # dq_metrics), lidos via warehouse. Defaults: dqx / dqx_studio.
       # dqx_catalog: <your-dqx-catalog>
@@ -31,7 +38,7 @@ targets:
       # Defaults espelham o bundle dela; ajuste se usa outro projeto/branch/schema.
       #
       # ⚠️ O acesso exige dois passos fora daqui: o role Postgres
-      # (resources/lakebase_role.yml; precisa de CLI >= 1.4.0 + entitlement
+      # (resources/app/lakebase_role.yml; precisa de CLI >= 1.4.0 + entitlement
       # Lakebase Manager) e o GRANT manual, a REAPLICAR após cada destroy+deploy
       # (notebooks/setup/grant_dqx_lakebase_access.sql).
       # dqx_lakebase_project: <dqx-studio-db>

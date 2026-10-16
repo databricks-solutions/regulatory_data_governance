@@ -28,6 +28,7 @@ O que o deploy entrega:
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) autenticada, com um profile apontando para o workspace destino
 - Python 3.11+ (backend) e Node.js 18+ (frontend) — apenas para dev local
+- Docker com Compose v2.24+ — apenas para rodar o app em [container](#app-em-container-docker)
 - **[DQX Studio](https://databrickslabs.github.io/dqx/docs/installation/#dqx-studio-installation) deployment da aplicação no mesmo workspace** — provê a camada de qualidade e é utilizado como **Motor de Regras** do acelerador. **IMPORTANTE**: É pré-requisito obrigatório (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 - **Lakebase habilitado no workspace** — a DQX Studio não tem mais modo Delta, então é pré-requisito dela e, por consequência, do RC18. Quem faz o deploy também precisa de CLI **≥ 1.4.0** e do entitlement **Databricks Database (Lakebase): Manager** (ver [Camada de qualidade](#camada-de-qualidade-dqx-studio)).
 
@@ -91,6 +92,19 @@ Abra http://localhost:5173. O dev local usa `.env` (copie de [`.env.example`](.e
 
 ---
 
+## App em container (Docker)
+
+Alternativa ao Databricks Apps para hospedar o app na infraestrutura própria; o restante do acelerador continua no bundle.
+
+```bash
+./docker/setup.sh -t <target>    # deploy sem o App + grants + container (o job roda à parte)
+./docker/destroy.sh -t <target>  # inverso: compose down + bundle destroy
+```
+
+Antes, defina `app_hosting: container` no `target.yml` e comente `- resources/app/*.yml` no `include:` do `databricks.yml` — o bundle então provisiona tudo menos o Databricks App, e a config do app sai do mesmo `target.yml`. Identidade do container e diferenças para o Databricks Apps (sem SSO, embeds) em [`docker/README.md`](docker/README.md).
+
+---
+
 ## Camada de qualidade (DQX Studio)
 
 A autoria e execução de regras de qualidade são delegadas ao
@@ -114,7 +128,7 @@ Depois de instalar a Studio ([guia oficial](https://databrickslabs.github.io/dqx
 1. **Conceda os grants UC de leitura (uma vez, como admin do catálogo `dqx`):** rode [`notebooks/setup/grant_dqx_studio_access.sql`](notebooks/setup/grant_dqx_studio_access.sql), preenchendo o service principal do bundle RC18. Cobre só as tabelas Delta.
 2. **Informe a URL no `target.yml`:** `dqx_studio_url: https://<host-da-studio>` (obrigatório).
 3. **Conceda o acesso ao Lakebase (regras).** Dois passos, o segundo manual:
-   - o `bundle deploy` cria o role Postgres do SP do app ([`resources/lakebase_role.yml`](resources/lakebase_role.yml));
+   - o `bundle deploy` cria o role Postgres do SP do app ([`resources/app/lakebase_role.yml`](resources/app/lakebase_role.yml));
    - rode [`notebooks/setup/grant_dqx_lakebase_access.sql`](notebooks/setup/grant_dqx_lakebase_access.sql) contra o endpoint Lakebase, como quem deployou a Studio. **Sem isso, Críticas SCR fica vazia.**
 4. **Se a Studio usa outro catálogo/schema/projeto:** ajuste `dqx_catalog` / `dqx_schema` e as vars `dqx_lakebase_*`.
 
@@ -347,6 +361,7 @@ regulatory-data-governance/
 ├── app/                      # Aplicação
 │   ├── backend/              # API FastAPI servida pelo Databricks Apps
 │   └── frontend/             # Código-fonte SvelteKit 5
+├── docker/                   # App em container (alternativa ao Databricks Apps)
 ├── pipelines/                # Transformações bronze → silver → gold
 │   ├── {bronze,silver,gold}/ #   modo SDP/DLT (notebooks @dlt.table)
 │   └── classical/            #   modo clássico, padrão (notebooks PySpark, sem DLT)

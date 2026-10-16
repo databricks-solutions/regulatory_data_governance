@@ -1,0 +1,12 @@
+# Contexto = app/. Só reduz o que vai ao builder (BuildKit); o que entra na imagem é a lista de COPY.
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.databricks
+**/.DS_Store
+**/.env*
+frontend/build
+frontend/.svelte-kit
+backend/frontend_dist
+backend/static/brand
+backend/tests

@@ -17,6 +17,7 @@ scripts/cobol_lineage_extract.py
 .env
 .env.local
 .env.*.local
+docker/.env.bundle
 app/frontend/.env
 app/frontend/.env.local
 

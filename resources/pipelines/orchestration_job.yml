@@ -80,7 +80,10 @@ resources:
             # ⚠️ NÃO cobre o Lakebase (regras) — esse GRANT é manual.
             notebook_path: ../../notebooks/setup/grant_warehouse_perms.py
             base_parameters:
-              app_name: ${resources.apps.r18_compliance_app.name}
+              # Nome por interpolação, não `${resources.apps…}`: com o app em
+              # container (resources/app/ fora do include) o recurso não existe.
+              app_name: ${var.app_name}-${bundle.target}
+              app_hosting: ${var.app_hosting}
               warehouse_name: ${resources.sql_warehouses.rc18_warehouse.name}
               # Catálogo DESTE deployment — obrigatório. Sem ele, um segundo
               # deployment no mesmo workspace grantaria no catálogo do primeiro.
