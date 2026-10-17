@@ -10,15 +10,9 @@
 -- MAGIC      resolverem os checks de domínio/referência. **Sem ele, esses checks dão
 -- MAGIC      falso-positivo silencioso de 100%** — ver a seção para o porquê.
 -- MAGIC
--- MAGIC ⚠️ **TEM UM TERCEIRO GRANT, E ELE NÃO ESTÁ AQUI.** As REGRAS
--- MAGIC (`dq_resolved_rules`) saíram do Unity Catalog na DQX 0.15/0.16 e vivem em
--- MAGIC **Lakebase Postgres**. GRANT de UC não alcança lá: o acesso do RC18 depende
--- MAGIC de um role Postgres (`resources/app/lakebase_role.yml`) + GRANTs rodados dentro
--- MAGIC do Postgres — ver `notebooks/setup/grant_dqx_lakebase_access.sql`. Sem esse
--- MAGIC terceiro grant, os grants deste notebook não bastam: Críticas SCR fica vazia.
--- MAGIC
 -- MAGIC As regras em si são criadas pelo usuário na própria DQX Studio — o RC18 não
--- MAGIC faz mais seed automático de regras.
+-- MAGIC faz mais seed automático de regras, e lê as definições delas do `checks_json`
+-- MAGIC de `dq_validation_runs` (não do Lakebase), então os grants abaixo bastam.
 -- MAGIC
 -- MAGIC Para o service principal do bundle conseguir LER essas tabelas
 -- MAGIC (que vivem em `dqx.dqx_studio`, um catálogo/schema diferente do
@@ -62,8 +56,7 @@
 -- Substitua <RC18_SP> pelo identificador real do service principal antes de rodar.
 -- Backticks são necessários se o identificador contiver caracteres especiais.
 --
--- Só as tabelas de EXECUÇÃO aparecem aqui. `dq_resolved_rules` saiu do UC (está no
--- Lakebase Postgres) — grantar SELECT nela falharia com TABLE_OR_VIEW_NOT_FOUND.
+-- Só as tabelas de EXECUÇÃO aparecem aqui — as definições das regras vêm delas.
 
 GRANT USE CATALOG ON CATALOG dqx                                     TO `<RC18_SP>`;
 GRANT USE SCHEMA  ON SCHEMA  dqx.dqx_studio                          TO `<RC18_SP>`;
@@ -178,9 +171,7 @@ GRANT MODIFY      ON SCHEMA  <CATALOG>.gold                 TO `<RC18_APP_SP>`;
 -- MAGIC %md
 -- MAGIC ## Verificação
 -- MAGIC
--- MAGIC Confirme que os grants apareceram. Para o lado Lakebase (regras), a
--- MAGIC verificação equivalente está no fim de
--- MAGIC `notebooks/setup/grant_dqx_lakebase_access.sql`.
+-- MAGIC Confirme que os grants apareceram.
 
 -- COMMAND ----------
 

@@ -2,23 +2,23 @@
 # Concede ao service principal do container (DATABRICKS_CLIENT_ID do docker/.env)
 # o que o bundle concede ao SP do Databricks App — o bundle só cuida daquele SP.
 #
-#   1. CAN_USE no warehouse (DATABRICKS_WAREHOUSE_ID)
-#   2. Unity Catalog: leitura em bronze/silver/gold/reference, leitura+escrita nas
+#   1. Entitlements workspace-access + databricks-sql-access (o SP do App os tem
+#      por padrão; um SP criado à mão pode vir sem nenhum)
+#   2. CAN_USE no warehouse (DATABRICKS_WAREHOUSE_ID)
+#   3. Unity Catalog: leitura em bronze/silver/gold/reference, leitura+escrita nas
 #      tabelas de governance que o app grava, leitura das execuções da DQX Studio
-#   3. Lakebase: role Postgres do SP + GRANT de leitura em dq_resolved_rules
+#      (de onde saem também as definições das regras)
 #   4. (--byol) Linhagem gravável: CREATE EXTERNAL METADATA + MODIFY em bronze/gold
 #
-# Idempotente: pode ser reexecutado. O SP vem do docker/.env; warehouse, catálogos
-# e Lakebase, do docker/.env.bundle (gerado pelo setup.sh — que já chama este script).
+# Idempotente: pode ser reexecutado. O SP vem do docker/.env; warehouse e
+# catálogos, do docker/.env.bundle (gerado pelo setup.sh — que já chama este script).
 #
 # Uso:
 #   ./docker/grant_sp.sh -p <perfil>
 #   ./docker/grant_sp.sh -p <perfil> --byol          # + linhagem gravável
-#   ./docker/grant_sp.sh -p <perfil> --skip-lakebase # só warehouse + UC
 #
-# Quem roda: owner do warehouse, com MANAGE nos catálogos do RC18 e da DQX;
-# `DATABRICKS_SUPERUSER` no branch Lakebase da Studio (passo 3); admin do
-# metastore (--byol). Requer Databricks CLI, python3 e psql.
+# Quem roda: owner do warehouse, com MANAGE nos catálogos do RC18 e da DQX; admin
+# do metastore (--byol); admin do workspace (entitlements). Requer Databricks CLI e python3.
 
 set -euo pipefail
 
@@ -27,7 +27,6 @@ DOCKER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$DOCKER_DIR/.env"
 BUNDLE_ENV="$DOCKER_DIR/.env.bundle"
 BYOL=0
-SKIP_LAKEBASE=0
 
 usage() {
   sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
@@ -38,7 +37,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--profile)    PROFILE="$2"; shift 2 ;;
     --byol)          BYOL=1; shift ;;
-    --skip-lakebase) SKIP_LAKEBASE=1; shift ;;
     -h|--help)       usage 0 ;;
     *) echo "Argumento desconhecido: $1" >&2; usage 1 ;;
   esac
@@ -69,10 +67,6 @@ SCHEMA_GOLD="$(bundle_get SCHEMA_GOLD)"
 SCHEMA_REFERENCE="$(bundle_get SCHEMA_REFERENCE)"
 DQX_CATALOG="$(bundle_get DQX_CATALOG)"
 DQX_SCHEMA="$(bundle_get DQX_SCHEMA)"
-LB_ENDPOINT="$(bundle_get DQX_LAKEBASE_ENDPOINT)"
-LB_DATABASE="$(bundle_get DQX_LAKEBASE_DATABASE)"
-LB_SCHEMA="$(bundle_get DQX_LAKEBASE_SCHEMA)"
-RULES_TABLE="$(bundle_get DQX_RULES_TABLE)"
 
 [[ "$SP" =~ ^[0-9a-f-]{36}$ ]] || { echo "ERRO: DATABRICKS_CLIENT_ID ausente ou não é um application id (UUID)." >&2; exit 1; }
 [[ -n "$WH_ID" && "$WH_ID" != "<"* ]] || { echo "ERRO: DATABRICKS_WAREHOUSE_ID ausente no .env.bundle — rode ./docker/setup.sh." >&2; exit 1; }
@@ -84,12 +78,12 @@ fail() { echo "    FALHOU  $*"; FAILED=$((FAILED + 1)); }
 echo "==> Perfil: ${PROFILE} | SP: ${SP} | catálogo: ${CATALOG} | warehouse: ${WH_ID}"
 
 # O SP precisa existir NESTE workspace — client id de outro workspace dá invalid_client no app.
-SP_NAME="$(databricks service-principals list -p "$PROFILE" -o json \
+read -r SP_ID SP_NAME <<<"$(databricks service-principals list -p "$PROFILE" -o json \
   --filter "applicationId eq \"${SP}\"" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-print(d[0].get("displayName", "") if d else "")')"
-[[ -n "$SP_NAME" ]] || { echo "ERRO: SP ${SP} não existe no workspace do perfil ${PROFILE}." >&2; exit 1; }
+print(d[0]["id"], d[0].get("displayName", "")) if d else print("")')"
+[[ -n "${SP_NAME:-}" ]] || { echo "ERRO: SP ${SP} não existe no workspace do perfil ${PROFILE}." >&2; exit 1; }
 echo "==> Service principal: ${SP_NAME}"
 
 # Warehouse recriado (destroy + deploy) muda de id; a Permissions API ainda aceita
@@ -100,9 +94,22 @@ databricks warehouses get "$WH_ID" -p "$PROFILE" -o json >/dev/null 2>&1 || {
 }
 
 # ---------------------------------------------------------------------------
-# 1. Warehouse. update-permissions (PATCH) acrescenta à ACL, não a substitui.
+# 1. Entitlements. Sem databricks-sql-access o app não usa o warehouse ("This API
+#    is disabled for users without the databricks-sql-access…"). PATCH add é idempotente.
 # ---------------------------------------------------------------------------
-echo "==> [1/4] Warehouse"
+echo "==> [1/4] Entitlements"
+if databricks service-principals patch "$SP_ID" -p "$PROFILE" --json \
+     '{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"entitlements","value":[{"value":"workspace-access"},{"value":"databricks-sql-access"}]}]}' \
+     >/dev/null; then
+  ok "workspace-access + databricks-sql-access"
+else
+  fail "entitlements — exige admin do workspace"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Warehouse. update-permissions (PATCH) acrescenta à ACL, não a substitui.
+# ---------------------------------------------------------------------------
+echo "==> [2/4] Warehouse"
 if databricks warehouses update-permissions "$WH_ID" -p "$PROFILE" -o json \
      --json "{\"access_control_list\": [{\"service_principal_name\": \"${SP}\", \"permission_level\": \"CAN_USE\"}]}" \
      >/dev/null; then
@@ -112,7 +119,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Unity Catalog, executado no próprio warehouse do container.
+# 3. Unity Catalog, executado no próprio warehouse do container.
 # ---------------------------------------------------------------------------
 run_sql() {
   local out state
@@ -133,7 +140,7 @@ except Exception:
   if [[ "$state" == SUCCEEDED* ]]; then ok "$1"; else fail "$1"; echo "            ${state}"; fi
 }
 
-echo "==> [2/4] Unity Catalog"
+echo "==> [3/4] Unity Catalog"
 UC=(
   # Execuções da DQX Studio (Delta) — leitura.
   "GRANT USE CATALOG ON CATALOG \`${DQX_CATALOG}\` TO \`${SP}\`"
@@ -162,44 +169,6 @@ for t in incidents cadoc_documentos cadoc_tabelas regra_vinculos; do
     echo "    PENDENTE ${fqn} ainda não existe"
   fi
 done
-
-# ---------------------------------------------------------------------------
-# 3. Lakebase. Role dá LOGIN; o GRANT de objeto roda dentro do Postgres. Este role
-#    não é recriado por `bundle deploy` (é do SP do container), então o GRANT fica.
-# ---------------------------------------------------------------------------
-echo "==> [3/4] Lakebase (regras da DQX Studio)"
-if [[ "$SKIP_LAKEBASE" -eq 1 ]]; then
-  echo "    PULADO  --skip-lakebase"
-elif [[ -z "$LB_ENDPOINT" || "$LB_ENDPOINT" == "__unset__" ]]; then
-  echo "    PULADO  DQX_LAKEBASE_ENDPOINT não definido"
-elif ! command -v psql >/dev/null; then
-  fail "psql não encontrado (brew install libpq) — necessário para o GRANT"
-else
-  BRANCH="${LB_ENDPOINT%/endpoints/*}"   # projects/<p>/branches/<b>
-  HAS_ROLE="$(databricks postgres list-roles "$BRANCH" -p "$PROFILE" -o json | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-roles = d.get("roles", d) if isinstance(d, dict) else d
-print(any(((r.get("status") or {}).get("postgres_role") or (r.get("spec") or {}).get("postgres_role")) == sys.argv[1]
-          for r in roles))' "$SP")"
-  if [[ "$HAS_ROLE" == "True" ]]; then
-    ok "role ${SP} já existe em ${BRANCH}"
-  elif databricks postgres create-role "$BRANCH" -p "$PROFILE" -o json --role-id "sp-${SP}" \
-         --json "{\"spec\": {\"identity_type\": \"SERVICE_PRINCIPAL\", \"postgres_role\": \"${SP}\", \"auth_method\": \"LAKEBASE_OAUTH_V1\"}}" \
-         >/dev/null; then
-    ok "role ${SP} criado em ${BRANCH}"
-  else
-    fail "criar role ${SP} em ${BRANCH}"
-  fi
-
-  # Aspas duplas obrigatórias: o nome do role é um UUID.
-  PG_SQL="GRANT USAGE ON SCHEMA \"${LB_SCHEMA}\" TO \"${SP}\"; GRANT SELECT ON TABLE \"${LB_SCHEMA}\".\"${RULES_TABLE}\" TO \"${SP}\";"
-  if databricks psql "$LB_ENDPOINT" -p "$PROFILE" -- -d "$LB_DATABASE" -v ON_ERROR_STOP=1 -q -c "$PG_SQL"; then
-    ok "USAGE em ${LB_SCHEMA} + SELECT em ${LB_SCHEMA}.${RULES_TABLE}"
-  else
-    fail "GRANT no Postgres — exige DATABRICKS_SUPERUSER no branch (quem deployou a Studio)"
-  fi
-fi
 
 # ---------------------------------------------------------------------------
 # 4. Linhagem gravável (opcional). CREATE EXTERNAL METADATA é de metastore.

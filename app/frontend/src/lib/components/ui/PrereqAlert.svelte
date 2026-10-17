@@ -95,18 +95,6 @@
               </div>
               <pre>{c.remediation}</pre>
             </div>
-            {#if c.params?.psql}
-              <p class="prereq-hint">{$_('prereq.runVia')}</p>
-              <div class="prereq-cmd">
-                <div class="prereq-cmd-head">
-                  <span class="prereq-cmd-kind">shell</span>
-                  <button onclick={() => copy(c.params.psql, `${c.id}-psql`)}>
-                    {copiedId === `${c.id}-psql` ? $_('prereq.copied') : $_('prereq.copy')}
-                  </button>
-                </div>
-                <pre>{c.params.psql}</pre>
-              </div>
-            {/if}
           {/if}
 
           {#if c.detail}
@@ -157,7 +145,6 @@
   }
   .prereq-item h4 { margin: 0 0 var(--space-1); font-size: var(--font-size-sm); font-weight: 600; }
   .prereq-what, .prereq-how { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); line-height: 1.5; }
-  .prereq-hint { margin: var(--space-2) 0; font-size: var(--font-size-xs); opacity: 0.85; }
   .prereq-cmd { background: var(--surface); border-radius: var(--radius-sm); overflow: hidden; }
   .prereq-cmd-head {
     display: flex; align-items: center; justify-content: space-between;

@@ -5,8 +5,8 @@
 #   1. confere o target: exige -t e app_hosting=container (nunca derruba um target
 #      com Databricks App)
 #   2. docker compose down
-#   3. (--revoke-grants) revoga o que o grant_sp.sh deu fora do bundle: grants na
-#      DQX Studio (Delta) e o GRANT + role do SP no Lakebase
+#   3. (--revoke-grants) revoga o que o grant_sp.sh deu fora do bundle: os grants
+#      na DQX Studio (Delta)
 #   4. databricks bundle destroy -t <target> — catálogo (COM OS DADOS), warehouse,
 #      jobs, dashboards e o que mais estiver no estado deste target
 #   5. apaga o docker/.env.bundle
@@ -17,7 +17,7 @@
 #   ./docker/destroy.sh -t <target> --yes             # sem confirmação
 #
 # --revoke-grants só se o SP do container não servir a outro deployment: os grants
-# na DQX e o role no Lakebase são por SP, não por target. Fica de fora: a linhagem
+# na DQX são por SP, não por target. Fica de fora: a linhagem
 # externa (metastore-scoped, compartilhada entre deployments) — ver README.
 
 set -euo pipefail
@@ -60,15 +60,13 @@ env_get() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || 
 # ── 1. Pré-condições ────────────────────────────────────────────────────────
 step "[1/5] Conferindo o target"
 VALIDATE="$(databricks bundle validate -t "$TARGET_ARG" -o json)" || die "bundle validate falhou."
-read -r TARGET PROFILE HOSTING HAS_APP DQX_CATALOG DQX_SCHEMA LB_BRANCH LB_DATABASE LB_SCHEMA RULES_TABLE <<<"$(printf '%s' "$VALIDATE" | python3 -c '
+read -r TARGET PROFILE HOSTING HAS_APP DQX_CATALOG DQX_SCHEMA <<<"$(printf '%s' "$VALIDATE" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 v = lambda k: (d.get("variables", {}).get(k) or {}).get("value", "-")
 print(d["bundle"].get("target") or "-", d["workspace"].get("profile") or "-",
       v("app_hosting"), "sim" if d.get("resources", {}).get("apps") else "nao",
-      v("dqx_catalog"), v("dqx_schema"),
-      "projects/" + v("dqx_lakebase_project") + "/branches/" + v("dqx_lakebase_branch"),
-      v("dqx_lakebase_database"), v("dqx_lakebase_schema"), v("dqx_rules_table"))')"
+      v("dqx_catalog"), v("dqx_schema"))')"
 
 [[ "$PROFILE" != "-" ]] || die "workspace.profile não definido no target ${TARGET}."
 [[ "$HOSTING" == "container" ]] || die "target ${TARGET}: app_hosting=${HOSTING}. Este script só desfaz targets em modo container — para os demais, databricks bundle destroy."
@@ -114,25 +112,6 @@ print(json.dumps({"statement": sys.argv[1], "warehouse_id": sys.argv[2], "wait_t
   run_sql "REVOKE USE SCHEMA ON SCHEMA \`${DQX_CATALOG}\`.\`${DQX_SCHEMA}\` FROM \`${SP}\`"
   run_sql "REVOKE USE CATALOG ON CATALOG \`${DQX_CATALOG}\` FROM \`${SP}\`"
 
-  # Lakebase: revoga e remove o role (o role é do SP, criado pelo grant_sp.sh).
-  PG_SQL="REVOKE SELECT ON TABLE \"${LB_SCHEMA}\".\"${RULES_TABLE}\" FROM \"${SP}\"; REVOKE USAGE ON SCHEMA \"${LB_SCHEMA}\" FROM \"${SP}\";"
-  if databricks psql "${LB_BRANCH}/endpoints/primary" -p "$PROFILE" -- -d "$LB_DATABASE" -v ON_ERROR_STOP=1 -q -c "$PG_SQL"; then
-    echo "    OK      REVOKE em ${LB_SCHEMA}.${RULES_TABLE}"
-  else
-    echo "    FALHOU  REVOKE no Postgres — exige DATABRICKS_SUPERUSER no branch"
-  fi
-  ROLE="$(databricks postgres list-roles "$LB_BRANCH" -p "$PROFILE" -o json | python3 -c '
-import json, sys
-for r in json.load(sys.stdin):
-    if (r.get("status") or {}).get("postgres_role") == sys.argv[1]:
-        print(r["name"]); break' "$SP")"
-  if [[ -z "$ROLE" ]]; then
-    echo "    OK      role ${SP} não existe em ${LB_BRANCH}"
-  elif databricks postgres delete-role "$ROLE" -p "$PROFILE" >/dev/null; then
-    echo "    OK      role removido: ${ROLE}"
-  else
-    echo "    FALHOU  remover ${ROLE}"
-  fi
 fi
 
 # ── 4. Bundle ───────────────────────────────────────────────────────────────

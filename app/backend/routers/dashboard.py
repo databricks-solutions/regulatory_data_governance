@@ -8,14 +8,13 @@ from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
-import dqx_lakebase
 from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for
-from dqx_rules import build_index, scope_clause as rule_scope_clause
+from dqx_rules import PUBLISHED_RUN_FILTER, build_index, load_executed_rules
 from rc18_links import scope_table_clause
 from models import (
     Alert,
@@ -213,7 +212,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
-        "  WHERE status = 'SUCCESS'"
+        f"  WHERE {PUBLISHED_RUN_FILTER}"
         f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1",
@@ -239,16 +238,9 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         )
         metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
-        # `user_metadata` das regras (fonte da tag dimensao_r18), do Lakebase.
-        # Escopado ao catálogo e indexado por (tabela, check) — ver dqx_rules.
-        rule_scope_pred, rule_scope_params = await rule_scope_clause(paramstyle="pyformat")
-        rule_rows = await dqx_lakebase.query_or_empty(
-            f"SELECT table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
-            f"FROM {dqx_lakebase.rules_table()} "
-            f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {rule_scope_pred}",
-            rule_scope_params,
-        )
-        rule_um = build_index(rule_rows)
+        # `user_metadata` das regras em vigor (fonte da tag dimensao_r18), dos
+        # próprios runs. Escopado ao catálogo e indexado por (tabela, check).
+        rule_um = build_index(await load_executed_rules())
 
         for r in runs:
             total = int(r.get("total_rows") or 0)
@@ -267,11 +259,10 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
                 check_name = cmrow.get("check_name")
                 if not check_name:
                     continue
-                # Filtra runs antigos cujas regras foram deletadas de
-                # dq_resolved_rules — mesma semântica do /validations/*/results
+                # Filtra check_metrics de regras fora da versão em vigor —
+                # mesma semântica do /validations/*/results
                 # (validation.py:_fetch_studio_results). Sem isso, o dashboard
-                # contava check_metrics de regras stale (ex: source='ui' já
-                # apagadas) e divergia das Críticas SCR.
+                # contava regras já removidas e divergia das Críticas SCR.
                 um = rule_um.get(table_fqn, check_name)
                 if um is None:
                     continue

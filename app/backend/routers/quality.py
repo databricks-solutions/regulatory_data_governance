@@ -13,7 +13,6 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-import dqx_lakebase
 from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
@@ -27,7 +26,7 @@ from models import (
     Violation,
 )
 from rc18_rule_meta import meta_for, resolve_meta
-from dqx_rules import RuleIndex, build_index, scope_clause as rule_scope_clause
+from dqx_rules import PUBLISHED_RUN_FILTER, RuleIndex, build_index, load_executed_rules
 from rc18_links import load_cadoc_tables, load_vinculos, scope_table_clause
 
 router = APIRouter()
@@ -285,21 +284,14 @@ async def get_quality_dimensions(
 
 
 async def _load_rule_user_metadata() -> RuleIndex:
-    """`user_metadata` das regras aprovadas, indexado por (tabela, check).
+    """`user_metadata` das regras em vigor (executadas), indexado por (tabela, check).
 
     Honra a tag `dimensao_r18` autorada na DQX Studio (o fallback
     `RC18_RULE_META` só entra quando a tag falta). Escopado ao catálogo do
-    deployment e indexado pelo PAR — `check_name` sozinho não é único em
-    `dq_resolved_rules`. Ver `dqx_rules` e `dqx_lakebase`.
+    deployment e indexado pelo PAR — `check_name` sozinho não é único entre
+    tabelas. Ver `dqx_rules`.
     """
-    scope_pred, scope_params = await rule_scope_clause(paramstyle="pyformat")
-    rows = await dqx_lakebase.query_or_empty(
-        f"SELECT table_fqn, {dqx_lakebase.CHECK_COLUMN} AS checks "
-        f"FROM {dqx_lakebase.rules_table()} "
-        f"WHERE status = '{dqx_lakebase.ACTIVE_STATUS}' AND {scope_pred}",
-        scope_params,
-    )
-    return build_index(rows)
+    return build_index(await load_executed_rules())
 
 
 async def _aggregate_by_dimension() -> dict[int, dict]:
@@ -318,7 +310,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
         "  SELECT run_id, source_table_fqn, total_rows, created_at,"
         "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
-        "  WHERE status = 'SUCCESS'"
+        f"  WHERE {PUBLISHED_RUN_FILTER}"
         f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
         scope_params,
@@ -358,13 +350,13 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
             check_name = cmrow.get("check_name")
             if not check_name:
                 continue
-            # Filtra check_metrics de runs cujas regras foram deletadas de
-            # dq_resolved_rules — mesma semântica de /validations/*/results
-            # e /dashboard/kpis. Sem isso, dimensões podiam ser inflacionadas
-            # por execuções históricas de regras stale (source='ui' apagadas).
+            # Filtra check_metrics de regras fora da versão em vigor — mesma
+            # semântica de /validations/*/results e /dashboard/kpis. Sem isso,
+            # dimensões podiam ser inflacionadas por execuções históricas de
+            # regras já removidas.
             # EXCEÇÃO: se houver vínculo (source_table, check_name) na tela
-            # /linking, a regra conta mesmo sem entrada em dq_resolved_rules
-            # (regra criada sem `name` explícito).
+            # /linking, a regra conta mesmo sem definição casada (regra criada
+            # sem `name` explícito).
             link = vinc_by_pair.get((source_table, check_name))
             um = rule_meta_cache.get(source_table, check_name)
             if um is None and not link:
@@ -420,7 +412,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
         "           PARTITION BY source_table_fqn, SUBSTRING(date_format(created_at, 'yyyy-MM-dd'), 1, 7)"
         "           ORDER BY created_at DESC) AS rn"
         f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
-        "  WHERE status = 'SUCCESS'"
+        f"  WHERE {PUBLISHED_RUN_FILTER}"
         f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows, month FROM ranked WHERE rn = 1",
         scope_params,

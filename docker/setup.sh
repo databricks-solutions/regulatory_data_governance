@@ -19,9 +19,9 @@
 #
 # O perfil do CLI vem do `workspace.profile` do target. Pré-requisitos: o target
 # com `app_hosting: container` e a linha `resources/app/*.yml` comentada no
-# databricks.yml — a linha vale para TODOS os targets, então use um worktree só
-# para o container (docker/README.md); docker/.env com o SP do container;
-# Databricks CLI, python3, psql e Docker.
+# databricks.yml (a linha vale para TODOS os targets do repositório);
+# docker/.env com o SP do container;
+# Databricks CLI, python3 e Docker.
 
 set -euo pipefail
 
@@ -87,48 +87,10 @@ echo "    target: ${TARGET} | perfil: ${PROFILE} | app_hosting: container"
 # ── 2. Deploy ───────────────────────────────────────────────────────────────
 step "[2/5] databricks bundle deploy"
 
-# Um database Lakebase aceita UM catálogo UC: se outro deployment já o espelha, o
-# registro deste target falharia ("already registered") — então o recurso fica de
-# fora deste deploy. Se o espelho já está no estado deste target, ele é daqui e fica.
-PG_FILE="$REPO/resources/postgres_catalogs.yml"
-PG_STASH=""
-restore_pg() { [[ -z "$PG_STASH" ]] || { mv "$PG_STASH/postgres_catalogs.yml" "$PG_FILE"; rmdir "$PG_STASH"; PG_STASH=""; }; }
-
-existing_pg_mirror() {
-  local want own c
-  want="$(printf '%s' "$VALIDATE" | python3 -c '
-import json, sys
-pc = (json.load(sys.stdin)["resources"].get("postgres_catalogs") or {}).get("dqx_lakebase")
-print(pc["branch"], pc["postgres_database"]) if pc else print("")')"
-  [[ -n "$want" ]] || return 0
-  own="$(databricks bundle summary "${BUNDLE_ARGS[@]}" -o json | python3 -c '
-import json, sys
-pc = (json.load(sys.stdin)["resources"].get("postgres_catalogs") or {}).get("dqx_lakebase") or {}
-print("sim" if pc.get("id") else "")')"
-  [[ -z "$own" ]] || return 0
-  for c in $(databricks catalogs list -p "$PROFILE" -o json | python3 -c '
-import json, sys
-print(" ".join(c["name"] for c in json.load(sys.stdin) if c.get("catalog_type") == "MANAGED_ONLINE_CATALOG"))'); do
-    [[ "$(databricks postgres get-catalog "catalogs/$c" -p "$PROFILE" -o json | python3 -c '
-import json, sys
-s = json.load(sys.stdin).get("status", {})
-print(s.get("branch", ""), s.get("postgres_database", ""))')" == "$want" ]] && { echo "$c"; return 0; }
-  done
-}
-
 if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
   echo "    PULADO  --skip-deploy"
 else
-  MIRROR="$(existing_pg_mirror)"
-  if [[ -n "$MIRROR" ]]; then
-    echo "    espelho do Lakebase já existe (${MIRROR}) — pulando resources/postgres_catalogs.yml"
-    PG_STASH="$(mktemp -d)"
-    trap restore_pg EXIT
-    mv "$PG_FILE" "$PG_STASH/"
-  fi
   databricks bundle deploy "${BUNDLE_ARGS[@]}"
-  restore_pg
-  trap - EXIT
 fi
 
 # ── 3. Configuração do app ──────────────────────────────────────────────────

@@ -45,7 +45,7 @@ include:
   - resources/analytics/*.yml
 
   # ── Hospedagem do app (DEFAULT: Databricks App) ───────────────────────────
-  # App + role Lakebase do SP dele. Para rodar o app em container (docker/),
+  # Databricks App. Para rodar o app em container (docker/),
   # comente esta linha E defina `app_hosting: container` no target.yml — sem a
   # linha, o deploy APAGA o App de um deployment existente.
   - resources/app/*.yml
@@ -129,7 +129,7 @@ variables:
     description: |
       Catálogo UC da DQX Studio (env `DQX_CATALOG`). Hospeda as tabelas DELTA de
       execução que o RC18 lê via warehouse: `dq_validation_runs`, `dq_metrics`.
-      ⚠️ NÃO é mais onde as REGRAS vivem — ver as vars `dqx_lakebase_*`.
+      As definições das regras também vêm daqui, do `checks_json` de cada run.
     default: "dqx"
 
   dqx_schema:
@@ -137,55 +137,6 @@ variables:
       Schema dentro de `${var.dqx_catalog}` (env `DQX_SCHEMA`). Com o catálogo,
       forma o FQN das tabelas Delta de execução.
     default: "dqx_studio"
-
-  # ── Lakebase Postgres da DQX Studio (onde as REGRAS vivem) ────────────────
-  # Defaults espelham o bundle da Studio — deploy padrão dela não exige nada aqui.
-  # Ver app/backend/dqx_lakebase.py. O acesso exige dois passos além destas vars:
-  # o role Postgres (resources/app/lakebase_role.yml) e o GRANT manual
-  # (notebooks/setup/grant_dqx_lakebase_access.sql).
-  dqx_lakebase_project:
-    description: |
-      Id do projeto Lakebase da DQX Studio (`lakebase_project_id` no bundle dela).
-    default: "dqx-studio-db"
-
-  dqx_lakebase_branch:
-    description: |
-      Branch do projeto Lakebase que a Studio usa (`lakebase_branch` no bundle dela).
-    default: "dqx"
-
-  dqx_lakebase_endpoint:
-    description: |
-      Endpoint Lakebase (env `DQX_LAKEBASE_ENDPOINT`) — única entrada de conexão:
-      resolve host E emite a credencial OAuth, então não dessincronizam.
-      `__unset__` desliga a leitura de regras (Críticas vazia em vez de erro);
-      NÃO pode ser vazio (a Apps API rejeita env sem `value`).
-    default: projects/${var.dqx_lakebase_project}/branches/${var.dqx_lakebase_branch}/endpoints/primary
-
-  dqx_lakebase_database:
-    description: |
-      Database lógico (env `DQX_LAKEBASE_DATABASE`). A Studio não cria database
-      próprio: usa o `databricks_postgres` e isola por schema.
-    default: "databricks_postgres"
-
-  dqx_lakebase_schema:
-    description: |
-      Schema Postgres das tabelas OLTP (env `DQX_LAKEBASE_SCHEMA`) = o
-      `lakebase_schema_name` do bundle dela. Se lá foi isolado por target
-      (ex. `dqx_studio_v2`), ajuste aqui também.
-    default: "dqx_studio"
-
-  dqx_rules_table:
-    description: |
-      Tabela de regras dentro de `${var.dqx_lakebase_schema}` (env
-      `DQX_RULES_TABLE`). Override só se divergir do padrão da Studio — ex.
-      `dq_quality_rules` numa Studio anterior ao rename (DQX #1531).
-    default: "dq_resolved_rules"
-
-  dqx_rules_catalog:
-    description: |
-      Catálogo UC que expõe o Lakebase da Studio read-only, para os dashboards
-      Lakeview lerem as regras (Lakeview não fala Postgres). 
-    default: "dqx_lakebase"
 
   dqx_studio_url:
     description: |
