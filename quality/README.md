@@ -49,7 +49,10 @@ tabela ("Regras de tabela única"). Cada arquivo agrupa os checks daquela tabela
 Cada check carrega em `user_metadata`: `dimensao_r18` (1–12), `critica_id`
 (código oficial ancorado no catálogo), `descricao` e `nivel_verificacao`
 (1=sintático, 2=inter-documento, 3=negocial). Esses metadados são exatamente os
-que o app RC18 lê para montar as Críticas e o scorecard por dimensão.
+que o app RC18 lê para montar as Críticas e o scorecard por dimensão. A
+`description` (`<schema>.<tabela> — <descricao>`) é só para a coluna Descrição
+do Registry da Studio, que não mostra a tabela-alvo da regra importada; se mudar
+a `descricao`, mude a `description` junto.
 
 ## Execução mensal — escopo por data-base (via `filter`)
 

@@ -42,6 +42,7 @@
       expression: "vlr_cosif IS NULL OR vlr_cosif = 0 OR abs(pct_diferenca) <= tolerancia_pct"
       msg: "Divergência de batimento SCR 3040 × COSIF (Doc 4010) acima da tolerância (N01)."
   user_metadata:
+    description: "gold.reconciliacao_cosif — O valor agregado do SCR 3040 deve bater com o saldo COSIF do Doc 4010 dentro da tolerância."
     dimensao_r18: "8"
     critica_id: "N01"
     descricao: "O valor agregado do SCR 3040 deve bater com o saldo COSIF do Doc 4010 dentro da tolerância."
@@ -62,6 +63,7 @@
       expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_recon_status_bloqueante)"
       msg: "Batimento COSIF com status BLOQUEADO — divergência impede a remessa."
   user_metadata:
+    description: "gold.reconciliacao_cosif — Nenhuma regra de batimento COSIF pode estar em status BLOQUEADO."
     dimensao_r18: "8"
     critica_id: "N01-STATUS"
     descricao: "Nenhuma regra de batimento COSIF pode estar em status BLOQUEADO."

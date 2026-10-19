@@ -35,6 +35,7 @@
       expression: "cli_tp IS NULL OR cli_tp IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_tpcli)"
       msg: "Tipo de cliente (TpCli) fora do domínio vigente do leiaute 3040."
   user_metadata:
+    description: "silver.scr3040_clientes — Tipo de cliente deve pertencer ao domínio oficial vigente (reference.dominios)."
     dimensao_r18: "9"
     critica_id: "S17-DOM-TpCli"
     descricao: "Tipo de cliente deve pertencer ao domínio oficial vigente (reference.dominios)."
@@ -55,6 +56,7 @@
       expression: "autorzc IS NULL OR autorzc IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_autorzc)"
       msg: "Autorzc fora do domínio {S,N} do leiaute SCR 3040."
   user_metadata:
+    description: "silver.scr3040_clientes — Indicador de autorização de consulta deve ser 'S' ou 'N'."
     dimensao_r18: "3"
     critica_id: "S20_001"
     descricao: "Indicador de autorização de consulta deve ser 'S' ou 'N'."
@@ -70,6 +72,7 @@
       expression: "tp_ctrl IS NULL OR tp_ctrl IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_tpctrl)"
       msg: "TpCtrl fora do domínio oficial {'01','02','03','04'} do leiaute SCR 3040."
   user_metadata:
+    description: "silver.scr3040_clientes — Tipo de controle societário deve pertencer ao domínio oficial."
     dimensao_r18: "3"
     critica_id: "S20_003"
     descricao: "Tipo de controle societário deve pertencer ao domínio oficial."
@@ -88,6 +91,7 @@
       expression: "porte_cli IS NULL OR (is_pf AND porte_cli IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_portecli_pf)) OR (is_pj AND porte_cli IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_portecli_pj))"
       msg: "PorteCli fora do domínio condicional ao tipo (PF: 0-8; PJ: 0-4)."
   user_metadata:
+    description: "silver.scr3040_clientes — Porte do cliente deve respeitar o domínio condicional ao tipo de pessoa."
     dimensao_r18: "3"
     critica_id: "S20_002"
     descricao: "Porte do cliente deve respeitar o domínio condicional ao tipo de pessoa."

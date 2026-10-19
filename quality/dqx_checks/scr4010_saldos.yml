@@ -32,6 +32,7 @@
       expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
       msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
   user_metadata:
+    description: "silver.scr4010_saldos — O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
     dimensao_r18: "9"
     critica_id: "COSIF-FMT-CONTA"
     descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
@@ -50,6 +51,7 @@
       expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
       msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
   user_metadata:
+    description: "silver.scr4010_saldos — O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
     dimensao_r18: "2"
     critica_id: "COSIF-DV-CONTA"
     descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
@@ -66,6 +68,7 @@
       expression: "saldo IS NOT NULL"
       msg: "Conta COSIF sem saldo informado (o leiaute exige uma linha por conta e seu respectivo saldo)."
   user_metadata:
+    description: "silver.scr4010_saldos — Toda conta informada no documento deve trazer o saldo de fechamento."
     dimensao_r18: "6"
     critica_id: "COSIF-SLD-NULO"
     descricao: "Toda conta informada no documento deve trazer o saldo de fechamento."
@@ -82,6 +85,7 @@
       expression: "saldo IS NULL OR abs(saldo) < 10000000000000000"
       msg: "Saldo excede as 18 posições (16 inteiras + 2 decimais) previstas no leiaute."
   user_metadata:
+    description: "silver.scr4010_saldos — O saldo deve caber em 18 posições, sendo duas decimais."
     dimensao_r18: "2"
     critica_id: "COSIF-SLD-ESCALA"
     descricao: "O saldo deve caber em 18 posições, sendo duas decimais."
@@ -99,6 +103,7 @@
       expression: "tipo_remessa IS NULL OR tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_cosif_tiporemessa)"
       msg: "Tipo de remessa fora do domínio do leiaute (I = inclusão, S = substituição)."
   user_metadata:
+    description: "silver.scr4010_saldos — O tipo de remessa deve ser I (inclusão) ou S (substituição)."
     dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "COSIF-DOM-REMESSA"
     descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição)."
@@ -115,6 +120,7 @@
       expression: "day(dt_base) = 1"
       msg: "Data-base não normalizada no 1º dia do mês (o leiaute informa apenas AAAA-MM)."
   user_metadata:
+    description: "silver.scr4010_saldos — A data-base do documento é mensal (AAAA-MM) e deve ser normalizada no 1º dia do mês."
     dimensao_r18: "5"  # Comparabilidade: data-base normalizada é o que torna as séries comparáveis.
     critica_id: "COSIF-DTBASE-DIA"
     descricao: "A data-base do documento é mensal (AAAA-MM) e deve ser normalizada no 1º dia do mês."
@@ -131,6 +137,7 @@
       expression: "cast(documento as int) = 4010"
       msg: "Linha de outro documento COSIF materializada em scr4010_saldos."
   user_metadata:
+    description: "silver.scr4010_saldos — A tabela do Balancete deve conter exclusivamente linhas do documento 4010."
     dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "COSIF-DOC-4010"
     descricao: "A tabela do Balancete deve conter exclusivamente linhas do documento 4010."

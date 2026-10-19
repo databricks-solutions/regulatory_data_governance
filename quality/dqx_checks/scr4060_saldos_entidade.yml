@@ -37,6 +37,7 @@
       expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
       msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
     dimensao_r18: "9"
     critica_id: "COSIF-FMT-CONTA"
     descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
@@ -55,6 +56,7 @@
       expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
       msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
     dimensao_r18: "2"
     critica_id: "COSIF-DV-CONTA"
     descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
@@ -72,6 +74,7 @@
       expression: "saldo IS NOT NULL"
       msg: "Conta informada no bloco de entidade sem saldo (o leiaute exige uma linha por conta e seu saldo)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — Toda conta informada no documento deve trazer o saldo."
     dimensao_r18: "6"
     critica_id: "COSIF-SLD-NULO"
     descricao: "Toda conta informada no documento deve trazer o saldo."
@@ -88,6 +91,7 @@
       expression: "saldo IS NULL OR abs(saldo) < 10000000000000000"
       msg: "Saldo acima da escala do leiaute (18 posições, 2 decimais)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O saldo deve caber em 18 posições com 2 decimais."
     dimensao_r18: "2"
     critica_id: "COSIF-SLD-ESCALA"
     descricao: "O saldo deve caber em 18 posições com 2 decimais."
@@ -103,6 +107,7 @@
       expression: "tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4060_tiporemessa)"
       msg: "tipoRemessa fora do domínio do leiaute (I = inclusão, S = substituição)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O tipo de remessa deve ser I (inclusão) ou S (substituição de documento já validado)."
     dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "COSIF-4060-REMESSA"
     descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição de documento já validado)."
@@ -118,6 +123,7 @@
       expression: "day(dt_base) = 1"
       msg: "Data-base do 4060 deve representar o mês (dia 1), conforme o padrão AAAA-MM do leiaute."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — A data-base do documento é mensal e no leiaute vem como AAAA-MM."
     dimensao_r18: "5"  # Comparabilidade: data-base normalizada é o que torna as séries comparáveis.
     critica_id: "COSIF-4060-DTBASE"
     descricao: "A data-base do documento é mensal e no leiaute vem como AAAA-MM."
@@ -135,6 +141,7 @@
       expression: "cast(documento as int) = 4060"
       msg: "Documento diferente de 4060 na pasta do 4060 (provável arquivo do 4066 depositado por engano)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O pipeline do 4060 só deve receber documentos com codigoDocumento = 4060."
     dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "COSIF-4060-DOC"
     descricao: "O pipeline do 4060 só deve receber documentos com codigoDocumento = 4060."
@@ -152,6 +159,7 @@
       expression: "length(codigo_conglomerado) = 8 AND ascii(substring(codigo_conglomerado,1,1)) = 67 AND cast(substring(codigo_conglomerado,2,7) as bigint) IS NOT NULL"
       msg: "codigoConglomerado fora do formato do leiaute (C + 7 dígitos, conforme cadastro no Unicad)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O código do Conglomerado Prudencial tem 8 posições, iniciando por C, conforme o módulo Conglomerados do Unicad."
     dimensao_r18: "9"
     critica_id: "COSIF-4060-CONGL"
     descricao: "O código do Conglomerado Prudencial tem 8 posições, iniciando por C, conforme o módulo Conglomerados do Unicad."
@@ -168,6 +176,7 @@
       expression: "entidade_id IS NOT NULL AND length(trim(entidade_id)) > 0"
       msg: "Linha de bloco de entidade sem identificação da entidade."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — Cada balancete de entidade deve trazer a identificação da entidade (ID Bacen ou código da instalação)."
     dimensao_r18: "10"
     critica_id: "COSIF-4060-ENT-ID"
     descricao: "Cada balancete de entidade deve trazer a identificação da entidade (ID Bacen ou código da instalação)."
@@ -187,6 +196,7 @@
       expression: "entidade_id IS NULL OR (ascii(substring(entidade_id,1,1)) IN (65, 90) AND cast(substring(entidade_id,2,length(entidade_id)-1) as bigint) IS NOT NULL)"
       msg: "Identificação da entidade fora do padrão (Z + dígitos para ID Bacen, A + dígitos para instalação)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — A identificação da entidade começa por Z (ID Bacen) ou A (código de instalação), seguida de dígitos."
     dimensao_r18: "9"
     critica_id: "COSIF-4060-ENT-FMT"
     descricao: "A identificação da entidade começa por Z (ID Bacen) ou A (código de instalação), seguida de dígitos."
@@ -203,6 +213,7 @@
       expression: "tipo_assemelhada IS NULL OR cast(tipo_assemelhada as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_tipo_assemelhada)"
       msg: "tipoAssemelhada fora do domínio do Anexo 1 do leiaute."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O tipo da entidade assemelhada deve estar no Anexo 1 do leiaute (Res. BCB 168/2021 e Res. 4.280/2013)."
     dimensao_r18: "4"  # Clareza: o tipo da entidade só é legível pela descrição do Anexo 1.
     critica_id: "COSIF-4060-TIPO-ASSEM"
     descricao: "O tipo da entidade assemelhada deve estar no Anexo 1 do leiaute (Res. BCB 168/2021 e Res. 4.280/2013)."
@@ -218,6 +229,7 @@
       expression: "origem_assemelhada IS NULL OR cast(origem_assemelhada as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_origem_assemelhada)"
       msg: "origemAssemelhada fora do domínio do Anexo 2 (1 = País, 2 = Exterior)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — A origem da entidade assemelhada deve ser 1 (País) ou 2 (Exterior)."
     dimensao_r18: "6"
     critica_id: "COSIF-4060-ORIG-ASSEM"
     descricao: "A origem da entidade assemelhada deve ser 1 (País) ou 2 (Exterior)."
@@ -233,6 +245,7 @@
       expression: "motivo_consolidacao IS NULL OR cast(motivo_consolidacao as int) IN (SELECT cast(valor_codigo as int) FROM rc18_catalog.reference.v_dom_4060_motivo_consolidacao)"
       msg: "motivoConsolidacao fora do domínio do Anexo 3 do leiaute."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — O motivo da consolidação dos saldos da assemelhada deve estar no Anexo 3 do leiaute."
     dimensao_r18: "4"  # Clareza: o motivo da consolidação só é legível pela descrição do Anexo 3.
     critica_id: "COSIF-4060-MOTIVO"
     descricao: "O motivo da consolidação dos saldos da assemelhada deve estar no Anexo 3 do leiaute."
@@ -250,6 +263,7 @@
       expression: "origem_assemelhada IS NULL OR cast(origem_assemelhada as int) <> 2 OR (moeda_funcional IS NOT NULL AND length(trim(moeda_funcional)) = 3)"
       msg: "Crítica A7 — entidade com origem no exterior sem moeda funcional informada (ISO de 3 letras)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — Entidade assemelhada de origem no exterior deve informar a moeda funcional, conforme ISO com três letras."
     dimensao_r18: "6"
     critica_id: "A7"
     descricao: "Entidade assemelhada de origem no exterior deve informar a moeda funcional, conforme ISO com três letras."
@@ -266,6 +280,7 @@
       expression: "taxa_conversao IS NOT NULL AND taxa_conversao > 0"
       msg: "taxaConversao ausente ou não positiva (use 99.9999 para indicar não aplicação do campo)."
   user_metadata:
+    description: "silver.scr4060_saldos_entidade — A taxa de conversão Dólar/Real é obrigatória desde a data-base 2023-01; 99.9999 indica não aplicação."
     dimensao_r18: "6"
     critica_id: "COSIF-4060-TAXA"
     descricao: "A taxa de conversão Dólar/Real é obrigatória desde a data-base 2023-01; 99.9999 indica não aplicação."
