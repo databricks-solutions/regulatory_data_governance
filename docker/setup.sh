@@ -117,7 +117,7 @@ if [[ "$NO_UP" -eq 1 ]]; then echo "    PULADO  --no-up"; exit 0; fi
 docker compose -f "$DOCKER_DIR/compose.yaml" up -d --build --force-recreate
 
 PORT="${RC18_PORT:-$(env_get RC18_PORT)}"
-URL="http://localhost:${PORT:-8000}"
+URL="http://localhost:${PORT:-8010}"
 for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/" && break; sleep 2; done
 curl -sf -o /dev/null "$URL/" || die "o app não respondeu em ${URL} (docker compose -f docker/compose.yaml logs)."
 

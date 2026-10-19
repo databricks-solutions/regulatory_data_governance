@@ -54,7 +54,7 @@ Rode tudo da raiz do repositório, com o seu perfil.
    ./docker/setup.sh -t <target> --no-up
    ```
 
-5. **Suba** e abra <http://localhost:8000>. O diagnóstico do app mostra o que
+5. **Suba** e abra <http://localhost:8010>. O diagnóstico do app mostra o que
    ainda faltar. A primeira vez também builda a imagem.
 
    ```bash
@@ -130,8 +130,8 @@ no secret manager da plataforma.
 
 ## Uso diário
 
-- App: <http://localhost:8000> · API: <http://localhost:8000/api/docs> ·
-  diagnóstico: <http://localhost:8000/api/v1/diagnostics/prereqs>
+- App: <http://localhost:8010> · API: <http://localhost:8010/api/docs> ·
+  diagnóstico: <http://localhost:8010/api/v1/diagnostics/prereqs>
 - Logs: `docker compose -f docker/compose.yaml logs -f` · parar:
   `docker compose -f docker/compose.yaml down`
 - Mudança de configuração: edite o `target.yml` e rode o setup de novo. Mudança de
@@ -141,7 +141,7 @@ Sem Compose, da raiz do repositório:
 
 ```bash
 docker build -f docker/Dockerfile -t rc18-app app
-docker run --rm -p 127.0.0.1:8000:8000 --env-file docker/.env --env-file docker/.env.bundle rc18-app
+docker run --rm -p 127.0.0.1:8010:8000 --env-file docker/.env --env-file docker/.env.bundle rc18-app
 ```
 
 ## Remover
@@ -176,7 +176,7 @@ Kubernetes e roda uma réplica. Rode de novo para publicar código ou configura�
 
   ```bash
   az aks get-credentials -g <rg> -n rc18
-  kubectl -n rc18 port-forward svc/rc18-app 8000:8000
+  kubectl -n rc18 port-forward svc/rc18-app 8010:8000
   ```
 
 - **Cluster:** `-c dqx-studio` usa o cluster da DQX Studio.
@@ -191,7 +191,7 @@ Kubernetes e roda uma réplica. Rode de novo para publicar código ou configura�
   `/rules` não é tratado por este modo.
 - **Branding** (logo/tema) fica no filesystem do container e some ao recriá-lo,
   como no Databricks Apps.
-- **Porta 8000 ocupada:** `RC18_PORT=8010` no `docker/.env`.
+- **Porta:** o default no host é 8010, para não colidir com a DQX Studio local (8000). Ocupada? `RC18_PORT=<outra>` no `docker/.env`.
 - **Rede sem PyPI/npm públicos:** `PIP_INDEX_URL` e `NPM_CONFIG_REGISTRY` no
   `docker/.env`; o compose os repassa ao build (sem Compose:
   `--build-arg`).
