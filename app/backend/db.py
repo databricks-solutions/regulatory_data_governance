@@ -10,14 +10,14 @@ Cada `sql.connect(...)` abre uma sessão no SQL Warehouse — operação cara
 latência percebida no app. Sem pool, todo handler `await execute_query(...)`
 paga esse custo, e o devloop fica visivelmente lento.
 
-O pool mantém N conexões pré-abertas (default 5, configurável via
-`DATABRICKS_SQL_POOL_SIZE`). Cada `get_sql_cursor()` puxa uma conexão livre
-do pool, abre um cursor de curta duração, e devolve a conexão ao pool quando
-o `with` block sai. Conexões em mau estado (raise dentro do `with`) são
-fechadas e substituídas por novas — recuperação transparente.
+O pool guarda até N conexões, abertas sob demanda (default 5, configurável
+via `DATABRICKS_SQL_POOL_SIZE`). Cada `get_sql_cursor()` puxa uma conexão
+ociosa (ou abre uma), abre um cursor de curta duração, e devolve a conexão ao
+pool quando o `with` block sai. Falhas transitórias (sessão morta pelo
+auto-stop do warehouse, rede) descartam a conexão e são repetidas por
+`execute_query` — recuperação transparente.
 
-A `queue.Queue` do stdlib já é thread-safe, então o pool funciona tanto
-em uvicorn single-worker quanto em deploys multi-worker.
+O pool é por processo: cada worker do uvicorn tem o seu.
 """
 
 from __future__ import annotations
@@ -26,7 +26,9 @@ import asyncio
 import logging
 import os
 import queue
+import re
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -99,49 +101,55 @@ def _get_real_connection():
 
 
 # ─── Connection pool ────────────────────────────────────────────────────────
+# Conexões abertas sob demanda até POOL_SIZE: a primeira query espera uma
+# sessão (~2-3s), não as POOL_SIZE em sequência. LIFO reusa a mais recente.
 
-_pool: queue.Queue | None = None
-_pool_lock = threading.Lock()
+_idle: queue.LifoQueue = queue.LifoQueue()
+_slots = threading.BoundedSemaphore(POOL_SIZE)
+
+# Retry de falha transitória: sessão invalidada pelo auto-stop do warehouse
+# (todas as do pool morrem juntas) ou rede. A partida do warehouse em si o
+# conector já espera (repete 429/503 até 900s).
+_RETRY_DELAYS_S = (1.0, 3.0)
+_ERROR_CLASS_RE = re.compile(r"\[([A-Z][A-Z0-9_]+(?:\.[A-Z0-9_]+)*)\]")
+_SESSION_MARKERS = ("INVALID_HANDLE", "SessionHandle", "SESSION_NOT_FOUND", "SESSION_CLOSED")
+_READ_PREFIXES = ("SELECT", "WITH", "SHOW", "DESCRIBE")
 
 
-def _ensure_pool() -> queue.Queue:
-    """Lazily initialize the connection pool. Idempotent + thread-safe."""
-    global _pool
-    if _pool is not None:
-        return _pool
-    with _pool_lock:
-        if _pool is None:  # double-checked
-            new_pool: queue.Queue = queue.Queue(maxsize=POOL_SIZE)
-            for _ in range(POOL_SIZE):
-                try:
-                    new_pool.put_nowait(_get_real_connection())
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("Falha ao pré-abrir conexão SQL: %s", exc)
-                    raise
-            _pool = new_pool
-            logger.info("Connection pool aberto com %d conexões.", POOL_SIZE)
-    return _pool
+def _is_session_error(exc: Exception) -> bool:
+    """Sessão morta: o statement nem chegou a rodar — seguro repetir até escrita."""
+    msg = str(exc)
+    return any(m in msg for m in _SESSION_MARKERS)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Falha de conexão/sessão, não do SQL. Erro com classe Spark (`[TABLE_OR_VIEW_NOT_FOUND]`,
+    `[INSUFFICIENT_PERMISSIONS]`, ...) é determinístico e não se repete."""
+    from databricks.sql import exc as sql_exc
+
+    if not isinstance(exc, (sql_exc.Error, OSError)):
+        return False  # bug do próprio app (KeyError, TypeError...)
+    if _is_session_error(exc):
+        return True
+    return _ERROR_CLASS_RE.search(str(exc)) is None
+
+
+def _discard_idle() -> None:
+    while True:
+        try:
+            conn = _idle.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def close_pool() -> None:
-    """Close every pooled connection. Called from FastAPI lifespan shutdown."""
-    global _pool
-    with _pool_lock:
-        if _pool is None:
-            return
-        drained = 0
-        while True:
-            try:
-                conn = _pool.get_nowait()
-            except queue.Empty:
-                break
-            try:
-                conn.close()
-                drained += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Falha ao fechar conexão SQL no shutdown: %s", exc)
-        _pool = None
-        logger.info("Connection pool fechado (%d conexões liberadas).", drained)
+    """Close every idle connection. Called from FastAPI lifespan shutdown."""
+    _discard_idle()
+    logger.info("Connection pool fechado.")
 
 
 @contextmanager
@@ -149,43 +157,42 @@ def get_sql_cursor() -> Generator:
     """Context manager that yields a cursor on a pooled connection.
 
     Comportamento:
-    - Bloqueia até uma conexão estar livre (pool exausto = espera).
-    - Abre cursor de curta duração; fecha ao sair do `with`.
-    - Em caso de erro dentro do `with`, descarta a conexão (pode estar em
-      estado inconsistente) e devolve uma conexão NOVA ao pool — assim o
-      próximo caller não herda um socket morto.
+    - Bloqueia se POOL_SIZE conexões já estão em uso.
+    - Reusa uma conexão ociosa ou abre uma nova.
+    - Erro de SQL mantém a conexão (a sessão segue boa). Falha transitória a
+      descarta junto com as ociosas — se o warehouse parou, morreram todas.
     """
-    pool = _ensure_pool()
-    conn = pool.get()  # blocks if all connections are busy
-    cursor = None
+    _slots.acquire()
+    conn = None
     healthy = True
     try:
+        try:
+            conn = _idle.get_nowait()
+        except queue.Empty:
+            conn = _get_real_connection()
         cursor = conn.cursor()
-        yield cursor
-    except Exception:
-        healthy = False
-        raise
-    finally:
-        if cursor is not None:
+        try:
+            yield cursor
+        finally:
             try:
                 cursor.close()
             except Exception:  # noqa: BLE001
                 healthy = False
-        if healthy:
-            pool.put(conn)
-        else:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                pool.put(_get_real_connection(), timeout=5)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Falha ao recriar conexão para o pool: %s. "
-                    "Próxima chamada criará lazily.",
-                    exc,
-                )
+    except Exception as exc:
+        if _is_transient(exc):
+            healthy = False
+            _discard_idle()
+        raise
+    finally:
+        if conn is not None:
+            if healthy:
+                _idle.put(conn)
+            else:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        _slots.release()
 
 
 def _execute_query_sync(query: str, params: dict[str, Any] | None) -> list[dict]:
@@ -196,15 +203,31 @@ def _execute_query_sync(query: str, params: dict[str, Any] | None) -> list[dict]
         return [dict(zip(columns, row)) for row in rows]
 
 
+def _execute_with_retry(query: str, params: dict[str, Any] | None) -> list[dict]:
+    # Escrita só repete em sessão morta: com falha de rede no meio, o INSERT
+    # pode ter rodado.
+    is_read = query.lstrip().upper().startswith(_READ_PREFIXES)
+    for delay in (*_RETRY_DELAYS_S, None):
+        try:
+            return _execute_query_sync(query, params)
+        except Exception as exc:
+            retryable = _is_transient(exc) if is_read else _is_session_error(exc)
+            if delay is None or not retryable:
+                raise
+            logger.warning("Falha transitória no SQL, nova tentativa em %.0fs: %s",
+                           delay, str(exc).splitlines()[0][:200])
+            time.sleep(delay)
+
+
 async def execute_query(query: str, params: dict[str, Any] | None = None) -> list[dict]:
     """Execute a parameterized SQL query and return results as list of dicts.
 
     O conector SQL é síncrono: roda numa thread para não travar o event loop —
     sem isso o app atende uma requisição por vez e o pool nunca é usado em
-    paralelo. When USE_MOCK is True, this is not called — routers return mock
-    data directly.
+    paralelo. Falha transitória é repetida (`_execute_with_retry`). When
+    USE_MOCK is True, this is not called — routers return mock data directly.
     """
-    return await asyncio.to_thread(_execute_query_sync, query, params)
+    return await asyncio.to_thread(_execute_with_retry, query, params)
 
 
 async def execute_query_or_empty(
