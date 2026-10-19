@@ -557,10 +557,10 @@ PORT=$(env_file_value RC18_PORT)
 cat <<EOF
 
 ==> RC18 rodando em $CLUSTER, namespace $NAMESPACE, sem exposição fora do cluster.
-    Para abrir em http://localhost:${PORT:-8000}:
+    Para abrir em http://localhost:${PORT:-8010}:
 
       az aks get-credentials -g $RESOURCE_GROUP -n $CLUSTER
-      kubectl -n $NAMESPACE port-forward svc/$APP_NAME ${PORT:-8000}:8000
+      kubectl -n $NAMESPACE port-forward svc/$APP_NAME ${PORT:-8010}:8000
 
     Logs: kubectl -n $NAMESPACE logs -f deployment/$APP_NAME
 EOF
