@@ -91,12 +91,13 @@ reverso (SP da DQX Studio); os grants do SP do container vêm do
 ### DQX Studio também em Docker
 
 A Studio em Docker usa dois SPs (os IDs estão no `.env` dela), e os dois
-precisam de acesso ao catálogo do RC18:
+precisam de acesso ao catálogo do RC18. Sem OBO no container, é o SP do app que
+cria a view temporária de cada execução, então ele também precisa ler os dados:
 
 | SP da Studio | Para quê | O que conceder |
 |---|---|---|
-| App (`DATABRICKS_CLIENT_ID`) | ver o catálogo em *Monitorar tabelas* e fazer profiling | `USE CATALOG` no catálogo; `USE SCHEMA` + `SELECT` em `silver`, `gold`, `reference` |
-| Task runner (`DQX_TASK_RUNNER_CLIENT_ID`) | executar as validações | entitlement `workspace-access`; e `dqx_studio_sp: <application-id-dele>` no `target.yml` — o `rc18_end_to_end` concede o resto |
+| App (`DATABRICKS_CLIENT_ID`) | listar tabelas, profiling e criar a view temporária da execução | `USE CATALOG` no catálogo; `USE SCHEMA` + `SELECT` em `silver`, `gold`, `reference` (SQL abaixo) |
+| Task runner (`DQX_TASK_RUNNER_CLIENT_ID`) | executar as validações | entitlement `workspace-access` (comando abaixo); e `dqx_studio_sp: <application-id-dele>` no `target.yml` — o `rc18_end_to_end` concede o resto |
 
 ```sql
 GRANT USE CATALOG ON CATALOG <catalogo> TO `<sp-app-da-studio>`;
@@ -106,14 +107,20 @@ GRANT USE SCHEMA, SELECT ON SCHEMA <catalogo>.reference TO `<sp-app-da-studio>`;
 ```
 
 ```bash
-# <id> é o id numérico do SP do runner no workspace (databricks service-principals list).
+# <id> é o id numérico do SP do runner, não o application id.
+databricks service-principals list -p <seu-perfil> \
+  --filter 'applicationId eq "<application-id-do-runner>"' -o json | jq -r '.[0].id'
 databricks service-principals patch <id> -p <seu-perfil> --json \
   '{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","path":"entitlements","value":[{"value":"workspace-access"}]}]}'
 ```
 
-Sem o `workspace-access`, a validação falha com *does not have access to
-Databricks Workspace*; sem o `dqx_studio_sp`, os checks com subquery marcam 100%
-de violação.
+Sintoma de cada falta:
+
+- SP do app sem os GRANTs: *User does not have USE CATALOG on Catalog
+  '<catalogo>'* ao criar a `tmp_view_*`.
+- Runner sem `workspace-access`: *The user <application-id> does not have access
+  to Databricks Workspace*.
+- Sem o `dqx_studio_sp`: os checks com subquery marcam 100% de violação.
 
 ## Autenticação
 
