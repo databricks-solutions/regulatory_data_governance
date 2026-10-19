@@ -7,7 +7,7 @@
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import Header from '$lib/components/layout/Header.svelte';
   import BrandSettings from '$lib/components/ui/BrandSettings.svelte';
-  import { appState, toggleSidebar, setDataBase, setDataBaseOptions, toggleTheme, applyTheme } from '$lib/stores.svelte.js';
+  import { appState, toggleSidebar, setDataBase, setDataBaseOptions, markDataBaseReady, toggleTheme, applyTheme } from '$lib/stores.svelte.js';
   import { getDataBases } from '$lib/api.js';
   import '../app.css';
 
@@ -50,23 +50,31 @@
   }
 
   // Fetch latest from API in background; update cache if changed
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/v1/brand/config');
-      if (res.ok) {
-        const data = await res.json();
-        Object.assign(brandConfig, data);
-        applyBrandColors(data.primary_color, data.accent_color);
-        writeCache(data);
-      }
-    } catch (_) {}
+  onMount(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/brand/config');
+        if (res.ok) {
+          const data = await res.json();
+          Object.assign(brandConfig, data);
+          applyBrandColors(data.primary_color, data.accent_color);
+          writeCache(data);
+        }
+      } catch (_) {}
+    })();
 
     // Popula o seletor de Data-Base com o último CADOC processado + as
     // data-bases disponíveis (substitui a lista antes hardcoded no Header).
-    try {
-      const db = await getDataBases();
-      if (db) setDataBaseOptions(db);
-    } catch (_) {}
+    // Em paralelo com o brand: as telas esperam a data-base para buscar.
+    (async () => {
+      try {
+        const db = await getDataBases();
+        if (db) setDataBaseOptions(db);
+      } catch (_) {
+      } finally {
+        markDataBaseReady();
+      }
+    })();
   });
 
   function handleBrandUpdate(newConfig) {

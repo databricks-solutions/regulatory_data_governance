@@ -16,6 +16,9 @@ export const appState = $state({
   // resolve no onMount. Nada de meses hardcoded.
   dataBase: '',
   dataBaseOptions: [],
+  // true depois que o layout tentou resolver a data-base (com ou sem sucesso).
+  // Telas que filtram por data-base esperam por ele em vez de buscar duas vezes.
+  dataBaseReady: false,
   sidebarCollapsed: false,
   theme: readInitialTheme(),
   user: {
@@ -41,6 +44,10 @@ export function setDataBase(value) {
 export function setDataBaseOptions({ current, available } = {}) {
   appState.dataBaseOptions = Array.isArray(available) ? available : [];
   if (!appState.dataBase && current) appState.dataBase = current;
+}
+
+export function markDataBaseReady() {
+  appState.dataBaseReady = true;
 }
 
 export function toggleSidebar() {

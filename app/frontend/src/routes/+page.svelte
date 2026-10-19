@@ -21,23 +21,36 @@
   let dimensions = $state([]);
   let overallTrend = $state([]);
 
-  onMount(async () => {
-    try {
-      const data = await getDashboardKpis(appState.dataBase);
-      if (data) kpis = { ...kpis, ...data };
-    } catch {}
-    try {
-      const data = await getQualityDimensions(appState.dataBase);
-      if (data?.dimensions) dimensions = data.dimensions;
-    } catch {}
-    try {
+  // Até os KPIs chegarem a tela mostra "—", não os zeros iniciais: 0% de
+  // conformidade é um número, e falso. Erro só aparece se a requisição falhar
+  // depois dos retries do backend.
+  let kpisLoaded = $state(false);
+  let loadFailed = $state(false);
+
+  async function loadDashboard() {
+    loadFailed = false;
+    const [k, d, t] = await Promise.allSettled([
+      getDashboardKpis(appState.dataBase),
+      getQualityDimensions(appState.dataBase),
       // /quality/trend agrega scores de TODAS as runs DQX por mês — fonte
       // direta da Tendência de Conformidade. Antes derivávamos do trend
       // embutido em dimensions[i].trend, que nunca foi populado.
-      const data = await getQualityTrend(appState.dataBase);
-      if (Array.isArray(data?.trend)) overallTrend = data.trend;
-    } catch {}
-  });
+      getQualityTrend(appState.dataBase)
+    ]);
+    if (k.status === 'fulfilled' && k.value) {
+      kpis = { ...kpis, ...k.value };
+      kpisLoaded = true;
+    }
+    if (d.status === 'fulfilled' && d.value?.dimensions) dimensions = d.value.dimensions;
+    if (t.status === 'fulfilled' && Array.isArray(t.value?.trend)) overallTrend = t.value.trend;
+    loadFailed = [k, d, t].some((r) => r.status === 'rejected');
+  }
+
+  onMount(loadDashboard);
+
+  function shown(value) {
+    return kpisLoaded ? value : '—';
+  }
 
   function getAlertIcon(severity) {
     if (severity === 'error') return 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z';
@@ -47,6 +60,13 @@
 </script>
 
 <div class="dashboard">
+  {#if loadFailed}
+    <div class="card load-error" role="alert">
+      <span>{$_('common.requestFailed')}</span>
+      <button type="button" class="btn-secondary" onclick={loadDashboard}>{$_('common.retry')}</button>
+    </div>
+  {/if}
+
   <!-- Welcome Banner -->
   <div class="welcome-banner">
     <div class="welcome-content">
@@ -64,13 +84,13 @@
             <svg viewBox="0 0 120 120">
               <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="8" />
               <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="8"
-                stroke-dasharray="{kpis.compliance_score * 3.14} 314"
+                stroke-dasharray="{(kpisLoaded ? kpis.compliance_score : 0) * 3.14} 314"
                 stroke-dashoffset="0"
                 stroke-linecap="round"
                 transform="rotate(-90 60 60)" />
             </svg>
             <!-- 2 casas: 99,97 não pode ser exibido como 100 (ver routers/dashboard.py). -->
-            <div class="score-value">{(kpis.compliance_score ?? 0).toFixed(2)}<span>%</span></div>
+            <div class="score-value">{shown((kpis.compliance_score ?? 0).toFixed(2))}<span>%</span></div>
           </div>
           <div class="score-meta">
             <div class="score-label">{$_('dashboard.r18Index')}</div>
@@ -78,7 +98,7 @@
         </div>
         <div class="welcome-divider"></div>
         <div class="welcome-deadline">
-          <div class="deadline-days">{kpis.deadline.days_remaining}</div>
+          <div class="deadline-days">{shown(kpis.deadline.days_remaining)}</div>
           <div class="deadline-text">{$_('dashboard.daysRemaining')}</div>
         </div>
       </div>
@@ -89,21 +109,21 @@
   <div class="kpi-row">
     <KpiCard
       title={$_('dashboard.r18Index')}
-      value={(kpis.compliance_score ?? 0).toFixed(2)}
+      value={shown((kpis.compliance_score ?? 0).toFixed(2))}
       unit="%"
       status="info"
       href="/quality"
     />
     <KpiCard
       title={$_('dashboard.pendingValidations')}
-      value={kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050}
-      subtitle="3040: {kpis.pending_validations.scr3040} | 3050: {kpis.pending_validations.scr3050}"
-      status={kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050 > 0 ? 'warning' : 'success'}
+      value={shown(kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050)}
+      subtitle={kpisLoaded ? `3040: ${kpis.pending_validations.scr3040} | 3050: ${kpis.pending_validations.scr3050}` : ''}
+      status={!kpisLoaded ? 'info' : kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050 > 0 ? 'warning' : 'success'}
       href="/validations"
     />
     <KpiCard
       title={$_('dashboard.r18Deadline')}
-      value={kpis.deadline.days_remaining}
+      value={shown(kpis.deadline.days_remaining)}
       unit={$_('dashboard.daysUnit')}
       status="info"
     />
@@ -154,7 +174,11 @@
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('common.status')}</span>
-          <Badge label={kpis.last_submission.status === 'executado' ? $_('dashboard.statusExecuted') : $_('dashboard.statusPending')} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
+          {#if kpisLoaded}
+            <Badge label={kpis.last_submission.status === 'executado' ? $_('dashboard.statusExecuted') : $_('dashboard.statusPending')} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
+          {:else}
+            <span class="detail-value">—</span>
+          {/if}
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('dashboard.lastRun')}</span>
@@ -172,10 +196,10 @@
           </svg>
         </div>
         <div class="card-header">{$_('dashboard.activeAlerts')}</div>
-        <span class="alert-count">{kpis.alerts.length}</span>
+        <span class="alert-count">{shown(kpis.alerts.length)}</span>
       </div>
       <div class="alerts-list">
-        {#if kpis.alerts.length === 0}
+        {#if kpisLoaded && kpis.alerts.length === 0}
           <div class="alerts-empty">{$_('dashboard.noOpenIncidents')}</div>
         {/if}
         {#each kpis.alerts as alert}
@@ -197,6 +221,8 @@
 
 <style>
   .dashboard { display: flex; flex-direction: column; gap: var(--space-4); }
+  .load-error { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--error); font-size: var(--font-size-sm); }
+  .btn-secondary { background: var(--white); color: var(--gray-700); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); font-weight: 500; font-size: var(--font-size-sm); cursor: pointer; }
 
   /* Welcome Banner */
   .welcome-banner {
