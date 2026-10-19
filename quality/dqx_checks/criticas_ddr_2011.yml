@@ -29,6 +29,7 @@
       expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
       msg: "Crítica 4693 — Posições Vendidas (161000) < Excesso Hedge Exterior (181000)."
   user_metadata:
+    description: "gold.criticas_ddr_2011 — Conta 161000 não pode ser inferior a 181000."
     dimensao_r18: "8"
     critica_id: "4693"
     descricao: "Conta 161000 não pode ser inferior a 181000."
@@ -44,6 +45,7 @@
       expression: "status IS NULL OR status NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_crit_2011_status_bloqueante)"
       msg: "Crítica 4751 — chaves duplicadas (conta, país, moeda, posição)."
   user_metadata:
+    description: "gold.criticas_ddr_2011 — Combinação (conta, país, moeda, posição) sem repetição."
     dimensao_r18: "8"  # Consistência: unicidade de chave, não acessibilidade (rótulo corrigido).
     critica_id: "4751"
     descricao: "Combinação (conta, país, moeda, posição) sem repetição."

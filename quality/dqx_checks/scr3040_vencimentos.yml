@@ -25,6 +25,7 @@
       expression: "vertice_count >= 1 AND total_saldo > 0"
       msg: "Operação/agregação sem nenhum vencimento informado (não admitida)."
   user_metadata:
+    description: "silver.scr3040_vencimentos — Cada agregação/operação deve conter pelo menos um vencimento com saldo positivo."
     dimensao_r18: "11"  # Relevância: agregação sem vértice com saldo é número sem uso decisório.
     critica_id: "A04"
     descricao: "Cada agregação/operação deve conter pelo menos um vencimento com saldo positivo."

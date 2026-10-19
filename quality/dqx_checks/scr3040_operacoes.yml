@@ -41,6 +41,7 @@
       expression: "natu_op IS NULL OR natu_op IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_natuop)"
       msg: "NatuOp fora do domínio vigente do leiaute 3040."
   user_metadata:
+    description: "silver.scr3040_operacoes — Natureza da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
     dimensao_r18: "9"
     critica_id: "S-DOM-NatuOp"
     descricao: "Natureza da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
@@ -56,6 +57,7 @@
       expression: "mod IS NULL OR mod IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_3040_mod)"
       msg: "Modalidade (Mod) fora do domínio vigente do leiaute 3040."
   user_metadata:
+    description: "silver.scr3040_operacoes — Modalidade da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
     dimensao_r18: "9"
     critica_id: "S-DOM-Mod"
     descricao: "Modalidade da operação deve pertencer ao domínio oficial vigente (reference.dominios)."
@@ -77,6 +79,7 @@
       expression: "dia_atraso IS NULL OR dia_atraso >= 0"
       msg: "DiaAtraso negativo — valor inválido (esperado inteiro não-negativo)."
   user_metadata:
+    description: "silver.scr3040_operacoes — Dias de atraso da operação não podem ser negativos."
     dimensao_r18: "2"
     critica_id: "S10_004"
     descricao: "Dias de atraso da operação não podem ser negativos."
@@ -93,6 +96,7 @@
       expression: "dt_contr IS NULL OR dt_venc_op IS NULL OR dt_contr <= dt_venc_op"
       msg: "Data de contratação posterior à data de vencimento da operação."
   user_metadata:
+    description: "silver.scr3040_operacoes — A data de contratação deve ser anterior ou igual à data de vencimento."
     dimensao_r18: "8"
     critica_id: "S14"
     descricao: "A data de contratação deve ser anterior ou igual à data de vencimento."
@@ -109,6 +113,7 @@
       expression: "dt_contr IS NULL OR dt_contr <= dt_base"
       msg: "Data de contratação posterior à data-base da remessa."
   user_metadata:
+    description: "silver.scr3040_operacoes — A data de contratação não pode ser posterior à data-base."
     dimensao_r18: "8"
     critica_id: "S15"
     descricao: "A data de contratação não pode ser posterior à data-base."
@@ -126,6 +131,7 @@
       expression: "ipoc IS NOT NULL AND length(ipoc) = 30 AND ipoc_is_consistent"
       msg: "IPOC ausente, com tamanho != 30 ou inconsistente com CNPJ/Mod/TpCli/Cli/Contrato."
   user_metadata:
+    description: "silver.scr3040_operacoes — IPOC deve ter 30 caracteres e ser consistente com os campos que o compõem."
     dimensao_r18: "10"  # Rastreabilidade: o IPOC é a chave que segue a operação entre documentos.
     critica_id: "S87"
     descricao: "IPOC deve ter 30 caracteres e ser consistente com os campos que o compõem."
@@ -144,6 +150,7 @@
       expression: "cli_cd IS NULL OR EXISTS (SELECT 1 FROM rc18_catalog.silver.scr3040_clientes c WHERE c.cnpj_if = cnpj_if AND c.dt_base = dt_base AND c.cli_cd = cli_cd)"
       msg: "Operação referencia cliente inexistente no bloco de clientes."
   user_metadata:
+    description: "silver.scr3040_operacoes — Toda operação deve referenciar um cliente presente no documento (integridade referencial)."
     dimensao_r18: "8"
     critica_id: "REF-OP-CLI"
     descricao: "Toda operação deve referenciar um cliente presente no documento (integridade referencial)."

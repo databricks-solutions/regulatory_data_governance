@@ -23,6 +23,7 @@
       expression: "codigo_conta IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_conta)"
       msg: "Código de conta fora do domínio do Anexo 4 do leiaute do DDR."
   user_metadata:
+    description: "silver.scr2011_contas — Código da conta deve pertencer ao domínio do Anexo 4."
     dimensao_r18: "3"
     critica_id: "DDR-DOM-CONTA"
     descricao: "Código da conta deve pertencer ao domínio do Anexo 4."
@@ -38,6 +39,7 @@
       expression: "cast(documento as int) = 2011"
       msg: "Documento diferente de 2011 na pasta do DDR."
   user_metadata:
+    description: "silver.scr2011_contas — Toda linha deve vir do documento 2011."
     dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "DDR-DOC-CODIGO"
     descricao: "Toda linha deve vir do documento 2011."
@@ -53,6 +55,7 @@
       expression: "length(cnpj_if) = 8 AND cast(cnpj_if as bigint) IS NOT NULL"
       msg: "CNPJ da instituição fora do formato (exatamente 8 dígitos numéricos)."
   user_metadata:
+    description: "silver.scr2011_contas — CNPJ base deve ter 8 dígitos numéricos."
     dimensao_r18: "9"
     critica_id: "DDR-FMT-CNPJ"
     descricao: "CNPJ base deve ter 8 dígitos numéricos."
@@ -68,6 +71,7 @@
       expression: "tipo_envio IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_tipoenvio)"
       msg: "Tipo de envio fora do domínio (I ou S)."
   user_metadata:
+    description: "silver.scr2011_contas — Tipo de envio deve ser I (inclusão) ou S (substituição)."
     dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "DDR-DOM-TIPOENVIO"
     descricao: "Tipo de envio deve ser I (inclusão) ou S (substituição)."
@@ -83,6 +87,7 @@
       expression: "valor_conta IS NOT NULL"
       msg: "Conta sem valor informado."
   user_metadata:
+    description: "silver.scr2011_contas — Toda conta deve trazer seu valor."
     dimensao_r18: "6"
     critica_id: "DDR-VLR-NULO"
     descricao: "Toda conta deve trazer seu valor."
@@ -98,6 +103,7 @@
       expression: "valor_conta IS NULL OR abs(valor_conta) < 100000000000000"
       msg: "Valor da conta excede 14 dígitos inteiros."
   user_metadata:
+    description: "silver.scr2011_contas — Valor deve caber em 14 dígitos inteiros e 2 decimais."
     dimensao_r18: "2"
     critica_id: "DDR-VLR-ESCALA"
     descricao: "Valor deve caber em 14 dígitos inteiros e 2 decimais."
@@ -113,6 +119,7 @@
       expression: "bloco_ddr BETWEEN 1 AND 7"
       msg: "Bloco do DDR fora de 1..7."
   user_metadata:
+    description: "silver.scr2011_contas — Primeiro dígito do código deve identificar blocos 1..7."
     dimensao_r18: "9"
     critica_id: "DDR-BLOCO"
     descricao: "Primeiro dígito do código deve identificar blocos 1..7."
@@ -128,6 +135,7 @@
       expression: "dt_base IN (SELECT data FROM rc18_catalog.reference.v_dom_2011_data_base)"
       msg: "Data-base não é dia útil do calendário do BCB."
   user_metadata:
+    description: "silver.scr2011_contas — Data-base deve ser dia útil do calendário do BCB."
     dimensao_r18: "12"
     critica_id: "DDR-DTBASE-DU"
     descricao: "Data-base deve ser dia útil do calendário do BCB."

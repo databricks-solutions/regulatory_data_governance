@@ -26,6 +26,7 @@
       expression: "NOT is_fidejussoria OR ident IS NULL OR ident <> cli_cd"
       msg: "Garantidor fidejussório coincide com o cliente principal da operação."
   user_metadata:
+    description: "silver.scr3040_garantias — O garantidor fidejussório não pode ser o próprio cliente principal."
     dimensao_r18: "8"
     critica_id: "S13"
     descricao: "O garantidor fidejussório não pode ser o próprio cliente principal."

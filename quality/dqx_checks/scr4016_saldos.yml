@@ -34,6 +34,7 @@
       expression: "length(codigo_conta) = 10 AND cast(codigo_conta as bigint) IS NOT NULL"
       msg: "Código de conta COSIF fora do formato do leiaute (10 dígitos, somente numéricos)."
   user_metadata:
+    description: "silver.scr4016_saldos — O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
     dimensao_r18: "9"
     critica_id: "COSIF-FMT-CONTA"
     descricao: "O código da conta COSIF deve ter 10 dígitos numéricos, sem ponto nem traço."
@@ -52,6 +53,7 @@
       expression: "length(codigo_conta) <> 10 OR cast(substring(codigo_conta,10,1) as int) = mod(10 - mod(cast(substring(codigo_conta,1,1) as int)*1 + cast(substring(codigo_conta,2,1) as int)*7 + cast(substring(codigo_conta,3,1) as int)*3 + cast(substring(codigo_conta,4,1) as int)*1 + cast(substring(codigo_conta,5,1) as int)*7 + cast(substring(codigo_conta,6,1) as int)*3 + cast(substring(codigo_conta,7,1) as int)*1 + cast(substring(codigo_conta,8,1) as int)*7 + cast(substring(codigo_conta,9,1) as int)*3, 10), 10)"
       msg: "Dígito verificador da conta COSIF inconsistente com os 9 dígitos de hierarquia."
   user_metadata:
+    description: "silver.scr4016_saldos — O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
     dimensao_r18: "2"
     critica_id: "COSIF-DV-CONTA"
     descricao: "O 10º dígito do código da conta deve ser o dígito verificador COSIF calculado sobre os 9 dígitos de hierarquia."
@@ -68,6 +70,7 @@
       expression: "saldo IS NOT NULL"
       msg: "Conta COSIF sem saldo informado (o leiaute exige uma linha por conta e seu respectivo saldo)."
   user_metadata:
+    description: "silver.scr4016_saldos — Toda conta informada no documento deve trazer o saldo de fechamento."
     dimensao_r18: "6"
     critica_id: "COSIF-SLD-NULO"
     descricao: "Toda conta informada no documento deve trazer o saldo de fechamento."
@@ -84,6 +87,7 @@
       expression: "saldo IS NULL OR abs(saldo) < 10000000000000000"
       msg: "Saldo excede as 18 posições (16 inteiras + 2 decimais) previstas no leiaute."
   user_metadata:
+    description: "silver.scr4016_saldos — O saldo deve caber em 18 posições, sendo duas decimais."
     dimensao_r18: "2"
     critica_id: "COSIF-SLD-ESCALA"
     descricao: "O saldo deve caber em 18 posições, sendo duas decimais."
@@ -101,6 +105,7 @@
       expression: "tipo_remessa IS NULL OR tipo_remessa IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_cosif_tiporemessa)"
       msg: "Tipo de remessa fora do domínio do leiaute (I = inclusão, S = substituição)."
   user_metadata:
+    description: "silver.scr4016_saldos — O tipo de remessa deve ser I (inclusão) ou S (substituição)."
     dimensao_r18: "7"  # Confiabilidade: I/S distingue dado inicial de dado revisado (retrabalho).
     critica_id: "COSIF-DOM-REMESSA"
     descricao: "O tipo de remessa deve ser I (inclusão) ou S (substituição)."
@@ -117,6 +122,7 @@
       expression: "day(dt_base) = 1"
       msg: "Data-base não normalizada no 1º dia do mês (o leiaute informa apenas AAAA-MM)."
   user_metadata:
+    description: "silver.scr4016_saldos — A data-base do documento vem como AAAA-MM e deve ser normalizada no 1º dia do mês."
     dimensao_r18: "5"  # Comparabilidade: data-base normalizada é o que torna as séries comparáveis.
     critica_id: "COSIF-DTBASE-DIA"
     descricao: "A data-base do documento vem como AAAA-MM e deve ser normalizada no 1º dia do mês."
@@ -133,6 +139,7 @@
       expression: "cast(documento as int) = 4016"
       msg: "Linha de outro documento COSIF materializada em scr4016_saldos."
   user_metadata:
+    description: "silver.scr4016_saldos — A tabela do Balanço deve conter exclusivamente linhas do documento 4016."
     dimensao_r18: "1"  # Acessibilidade: a informação tem de estar no documento em que é buscada.
     critica_id: "COSIF-DOC-4016"
     descricao: "A tabela do Balanço deve conter exclusivamente linhas do documento 4016."
@@ -158,6 +165,7 @@
       expression: "grupo_cosif IS NULL OR grupo_cosif NOT IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_4016_grupo_vedado)"
       msg: "Balanço Patrimonial Analítico (4016) com conta de resultado (grupo 7 Receitas ou 8 Despesas), vedada por representar posição após a apuração do resultado."
   user_metadata:
+    description: "silver.scr4016_saldos — O Doc 4016 não deve trazer contas dos grupos 7 (Receitas) e 8 (Despesas)."
     dimensao_r18: "8"
     critica_id: "COSIF-4016-GRUPO78"
     descricao: "O Doc 4016 não deve trazer contas dos grupos 7 (Receitas) e 8 (Despesas)."
@@ -174,6 +182,7 @@
       expression: "month(dt_base) IN (6, 12)"
       msg: "Data-base fora da periodicidade semestral do 4016 (esperado apenas junho ou dezembro)."
   user_metadata:
+    description: "silver.scr4016_saldos — O Balanço Patrimonial Analítico é semestral — somente datas-base de junho e dezembro."
     dimensao_r18: "12"  # Tempestividade: o Balanço só tem janela em junho e dezembro.
     critica_id: "COSIF-4016-PERIODICIDADE"
     descricao: "O Balanço Patrimonial Analítico é semestral — somente datas-base de junho e dezembro."

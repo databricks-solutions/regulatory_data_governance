@@ -21,6 +21,7 @@
       expression: "moeda IS NULL OR moeda IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_moeda)"
       msg: "Moeda fora do domínio do Anexo 5."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Moeda deve pertencer ao domínio do Anexo 5."
     dimensao_r18: "3"
     critica_id: "DDR-DOM-MOEDA"
     descricao: "Moeda deve pertencer ao domínio do Anexo 5."
@@ -36,6 +37,7 @@
       expression: "pais IS NULL OR pais IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_pais)"
       msg: "País fora do domínio do Anexo 7."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — País deve pertencer ao domínio do Anexo 7."
     dimensao_r18: "3"
     critica_id: "DDR-DOM-PAIS"
     descricao: "País deve pertencer ao domínio do Anexo 7."
@@ -51,6 +53,7 @@
       expression: "posicao_pais_exterior IS NULL OR posicao_pais_exterior IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_posicao)"
       msg: "Posição país/exterior fora do domínio (1 ou 2)."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Posição deve ser 1 (País) ou 2 (Exterior)."
     dimensao_r18: "3"
     critica_id: "DDR-DOM-POSICAO"
     descricao: "Posição deve ser 1 (País) ou 2 (Exterior)."
@@ -66,6 +69,7 @@
       expression: "codigo_conta IN (SELECT valor_codigo FROM rc18_catalog.reference.v_dom_2011_conta)"
       msg: "Conta do detalhamento fora do domínio do Anexo 4."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Detalhamento deve pertencer a conta do domínio do Anexo 4."
     dimensao_r18: "3"
     critica_id: "DDR-DET-CONTA"
     descricao: "Detalhamento deve pertencer a conta do domínio do Anexo 4."
@@ -81,6 +85,7 @@
       expression: "valor_detalhe IS NOT NULL"
       msg: "Detalhamento sem valor informado."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Detalhamento deve trazer seu valor."
     dimensao_r18: "6"
     critica_id: "DDR-DET-VLR-NULO"
     descricao: "Detalhamento deve trazer seu valor."
@@ -96,6 +101,7 @@
       expression: "pais IS NOT NULL OR moeda IS NOT NULL OR posicao_pais_exterior IS NOT NULL"
       msg: "Detalhamento sem nenhum eixo válido (país, moeda ou posição)."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Detalhamento deve ter ao menos um eixo do Anexo 3."
     dimensao_r18: "11"  # Relevância: valor sem eixo analítico não informa decisão alguma.
     critica_id: "DDR-DET-SEM-EIXO"
     descricao: "Detalhamento deve ter ao menos um eixo do Anexo 3."
@@ -111,6 +117,7 @@
       expression: "valor_detalhe IS NULL OR abs(valor_detalhe) < 100000000000000"
       msg: "Valor do detalhamento excede 14 dígitos inteiros."
   user_metadata:
+    description: "silver.scr2011_detalhamentos — Valor deve caber em 14 dígitos inteiros e 2 decimais."
     dimensao_r18: "2"
     critica_id: "DDR-DET-ESCALA"
     descricao: "Valor deve caber em 14 dígitos inteiros e 2 decimais."
