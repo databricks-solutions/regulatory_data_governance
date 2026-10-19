@@ -9,19 +9,31 @@
   import { getValidationResults, createIncident, getCadocs, ApiError } from '$lib/api.js';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { _ } from 'svelte-i18n';
 
-  let activeTab = $state('3040');
   // Abas dirigidas pelos CADOCs cadastrados (tela de Vínculos → Gestão de
   // CADOC), não mais fixas em 3040/3050. Assim um CADOC criado pelo cliente
-  // aparece aqui automaticamente. Fallback para os dois canônicos enquanto a
-  // lista carrega (ou em mock/erro), preservando o comportamento anterior.
+  // aparece aqui automaticamente. Abre com a lista da última visita (cache) e
+  // atualiza em background; os dois canônicos só na primeira visita ou em erro.
   const FALLBACK_TABS = [
     { key: '3040', label: 'DOC 3040' },
     { key: '3050', label: 'DOC 3050' }
   ];
-  let tabs = $state(FALLBACK_TABS);
+  const TABS_CACHE_KEY = 'rc18_cadoc_tabs';
+
+  function readCachedTabs() {
+    if (!browser) return null;
+    try {
+      const cached = JSON.parse(localStorage.getItem(TABS_CACHE_KEY) || 'null');
+      return Array.isArray(cached) && cached.length ? cached : null;
+    } catch (_) { return null; }
+  }
+
+  const initialTabs = readCachedTabs() ?? FALLBACK_TABS;
+  let tabs = $state(initialTabs);
+  let activeTab = $state(initialTabs.some((t) => t.key === '3040') ? '3040' : initialTabs[0].key);
 
   const NIVEL_LABELS = $derived.by(() => ({
     1: { label: $_('validations.levelOne'), subtitle: $_('validations.levelOneSubtitle'), desc: $_('validations.levelOneDesc'), color: 'var(--primary)' },
@@ -198,14 +210,20 @@
     }
   }
 
+  // Só a resposta da busca mais recente é aplicada: trocar de aba rápido não
+  // deixa a resposta atrasada da aba anterior sobrescrever a atual.
+  let resultsSeq = 0;
+
   async function loadResults() {
+    const seq = ++resultsSeq;
     try {
       const data = await getValidationResults(activeTab, appState.dataBase, filterValues);
+      if (seq !== resultsSeq) return;
       if (data?.results) results = data.results;
       if (data?.summary) runSummary = { ...runSummary, ...data.summary, run_id: data.run_id, run_completed_at: data.run_completed_at };
       studioUrl = data?.studio_url || null;
     } catch {} finally {
-      resultsLoaded = true;  // distingue "não buscou" de "veio vazio"
+      if (seq === resultsSeq) resultsLoaded = true;  // distingue "não buscou" de "veio vazio"
     }
   }
 
@@ -220,6 +238,7 @@
         // Label = apenas o código do documento (3040, 3050, 5050...) para as
         // abas ficarem curtas; o nome completo do CADOC vive na tela de Vínculos.
         tabs = cadocs.map((c) => ({ key: c.documento, label: `DOC ${c.documento}` }));
+        try { localStorage.setItem(TABS_CACHE_KEY, JSON.stringify(tabs)); } catch (_) {}
         if (!tabs.some((t) => t.key === activeTab)) activeTab = tabs[0].key;
       }
     } catch { /* mantém FALLBACK_TABS */ }
@@ -236,12 +255,15 @@
     const doc = params.get('doc');
     pendingCheck = params.get('check');
     pendingRule = params.get('rule');
-    if (doc) activeTab = doc;     // antes do loadResults, para já buscar a aba certa
+    if (doc) activeTab = doc;     // antes do $effect, para já buscar a aba certa
     loadTabs();
-    loadResults();
   });
 
+  // Única fonte de busca dos resultados. Espera o layout resolver a data-base:
+  // buscar antes faria uma busca sem data-base, refeita logo em seguida.
+  // Re-busca quando mudam aba, data-base ou filtros (lidos em loadResults).
   $effect(() => {
+    if (!appState.dataBaseReady) return;
     activeTab;
     loadResults();
   });

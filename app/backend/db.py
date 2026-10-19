@@ -22,6 +22,7 @@ em uvicorn single-worker quanto em deploys multi-worker.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import queue
@@ -187,16 +188,23 @@ def get_sql_cursor() -> Generator:
                 )
 
 
-async def execute_query(query: str, params: dict[str, Any] | None = None) -> list[dict]:
-    """Execute a parameterized SQL query and return results as list of dicts.
-
-    When USE_MOCK is True, this is not called — routers return mock data directly.
-    """
+def _execute_query_sync(query: str, params: dict[str, Any] | None) -> list[dict]:
     with get_sql_cursor() as cursor:
         cursor.execute(query, params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
         return [dict(zip(columns, row)) for row in rows]
+
+
+async def execute_query(query: str, params: dict[str, Any] | None = None) -> list[dict]:
+    """Execute a parameterized SQL query and return results as list of dicts.
+
+    O conector SQL é síncrono: roda numa thread para não travar o event loop —
+    sem isso o app atende uma requisição por vez e o pool nunca é usado em
+    paralelo. When USE_MOCK is True, this is not called — routers return mock
+    data directly.
+    """
+    return await asyncio.to_thread(_execute_query_sync, query, params)
 
 
 async def execute_query_or_empty(
