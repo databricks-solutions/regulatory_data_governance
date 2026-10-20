@@ -166,6 +166,19 @@
     return zones;
   }
 
+  const EXT_ZONE_LAYERS = ZONES.filter(z => z.id !== 'zone-dbx').map(z => z.layers);
+  const EXT_LAYERS = new Set(EXT_ZONE_LAYERS.flat());
+  const EDGE_LABEL_MAX = 28;
+
+  // Edge label on the canvas: the source's ingestion mode when it has one
+  // (short, standard), otherwise the mechanism truncated. The full text stays
+  // in the edge side panel (data.fullLabel).
+  function edgeLabel(e, srcNode) {
+    if (e.type === 'external_lineage' && srcNode?.ingestion_mode) return ingestionLabel(srcNode.ingestion_mode);
+    if (!e.label) return undefined;
+    return e.label.length > EDGE_LABEL_MAX ? e.label.slice(0, EDGE_LABEL_MAX - 1) + '…' : e.label;
+  }
+
   // Build Svelte-Flow node/edge arrays from the API response format
   function buildFlowGraph(apiNodes, apiEdges) {
     // Group by layer for Y distribution
@@ -180,30 +193,73 @@
     // Zone bands FIRST so they render behind the real nodes.
     const flowNodes = buildZoneNodes(layerX);
 
+    // Medallion columns: stacked and vertically centered.
+    const posY = {};
     LAYER_ORDER.forEach(layer => {
+      if (EXT_LAYERS.has(layer)) return;
       const group = byLayer[layer] || [];
       if (!group.length) return;
       const totalH = group.length * (NODE_H + NODE_GAP) - NODE_GAP;
-      const startY = Math.max(60, 400 - totalH / 2); // vertically center
-      group.forEach((n, i) => {
+      const startY = Math.max(60, 400 - totalH / 2);
+      group.forEach((n, i) => { posY[n.id] = startY + i * (NODE_H + NODE_GAP); });
+    });
+
+    // External zones: each node sits beside the tables it feeds/consumes (mean
+    // Y of its neighbors), one row per node across the whole zone — so an edge
+    // from an outer column never runs through a node of the inner one.
+    const neighbors = {};
+    apiEdges.forEach(e => {
+      (neighbors[e.source] ??= []).push(e.target);
+      (neighbors[e.target] ??= []).push(e.source);
+    });
+    for (const zone of EXT_ZONE_LAYERS) {
+      const zoneNodes = zone.flatMap(l => byLayer[l]);
+      const desired = {};
+      const known = { ...posY };
+      // 2nd pass: a node linked only to another external node (origin → etl).
+      for (let pass = 0; pass < 2; pass++) {
+        for (const n of zoneNodes) {
+          if (n.id in desired) continue;
+          const ys = (neighbors[n.id] || []).map(o => known[o]).filter(y => y !== undefined);
+          if (ys.length) desired[n.id] = ys.reduce((a, b) => a + b, 0) / ys.length;
+        }
+        Object.assign(known, desired);
+      }
+      let nextY = 60;
+      zoneNodes
+        .map((n, i) => ({ n, i, y: desired[n.id] ?? Infinity }))
+        .sort((a, b) => a.y - b.y || a.i - b.i)
+        .forEach(({ n, y }) => {
+          posY[n.id] = Math.max(nextY, Number.isFinite(y) ? y : nextY);
+          nextY = posY[n.id] + NODE_H + NODE_GAP;
+        });
+    }
+
+    LAYER_ORDER.forEach(layer => {
+      (byLayer[layer] || []).forEach(n => {
         flowNodes.push({
           id: n.id,
-          position: { x: layerX[layer], y: startY + i * (NODE_H + NODE_GAP) },
+          position: { x: layerX[layer], y: posY[n.id] },
           data: { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type,
                   ingestion_mode: n.ingestion_mode, properties: n.properties, metadata: n.metadata },
           type: 'default',
+          // Fluxo da esquerda para a direita: sem isso o nó `default` conecta
+          // por baixo/cima e as arestas fazem laço em volta das caixas.
+          sourcePosition: 'right',
+          targetPosition: 'left',
           style: nodeStyle({ layer, system: n.system })
         });
       });
     });
 
+    const byId = Object.fromEntries(apiNodes.map(n => [n.id, n]));
     const flowEdges = apiEdges.map((e, i) => {
       const isByol = e.type === 'external_lineage';
       return {
         id: `e${i}`,
         source: e.source,
         target: e.target,
-        label: e.label || undefined,
+        label: edgeLabel(e, byId[e.source]),
         type: 'default',
         animated: !isByol,
         style: isByol
@@ -212,7 +268,7 @@
         labelStyle: 'font-size:10px;fill:#555;',
         labelBgStyle: 'fill:#ffffffcc;',
         markerEnd: 'url(#arrowhead)',
-        data: { column_mappings: e.column_mappings, type: e.type }
+        data: { column_mappings: e.column_mappings, type: e.type, fullLabel: e.label }
       };
     });
 
@@ -872,7 +928,7 @@
           <div class="panel-layer-badge" style="color:{isByol ? '#4A4A5A' : '#003D73'};">
             {isByol ? $_('lineage.badgeByol') : $_('lineage.badgeUc')}
           </div>
-          <h3 class="panel-title">{selectedEdge.label || $_('lineage.lineageRelation')}</h3>
+          <h3 class="panel-title">{selectedEdge.data?.fullLabel || selectedEdge.label || $_('lineage.lineageRelation')}</h3>
         </div>
         <div class="panel-body">
           <div class="panel-section">
