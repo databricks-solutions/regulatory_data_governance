@@ -16,6 +16,9 @@
         <div class="tab-indicator"></div>
       {/if}
     </button>
+  {:else}
+    <!-- Abas ainda carregando: segura a altura da barra para o conteúdo não pular. -->
+    <span class="tab placeholder" aria-hidden="true">&nbsp;</span>
   {/each}
 </div>
 
@@ -48,6 +51,10 @@
     color: var(--primary);
     background: var(--white);
     box-shadow: var(--shadow-sm);
+  }
+  .tab.placeholder {
+    visibility: hidden;
+    cursor: default;
   }
   .tab-indicator {
     display: none;
