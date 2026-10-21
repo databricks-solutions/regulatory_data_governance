@@ -1,5 +1,6 @@
 <script>
   import KpiCard from '$lib/components/ui/KpiCard.svelte';
+  import Skeleton from '$lib/components/ui/Skeleton.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import RadarChart from '$lib/components/charts/RadarChart.svelte';
   import LineChart from '$lib/components/charts/LineChart.svelte';
@@ -7,7 +8,6 @@
   import { appState } from '$lib/stores.svelte.js';
   import { getDashboardKpis, getQualityDimensions, getQualityTrend } from '$lib/api.js';
   import { formatDate, formatPercent } from '$lib/format.js';
-  import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
 
   let kpis = $state({
@@ -21,13 +21,20 @@
   let dimensions = $state([]);
   let overallTrend = $state([]);
 
-  // Até os KPIs chegarem a tela mostra "—", não os zeros iniciais: 0% de
-  // conformidade é um número, e falso. Erro só aparece se a requisição falhar
-  // depois dos retries do backend.
+  // Enquanto carrega, skeletons no lugar dos valores — não os zeros iniciais:
+  // 0% de conformidade é um número, e falso. "—" fica só para KPI que falhou
+  // depois dos retries do backend (com o aviso de erro acima).
+  let loading = $state(true);
   let kpisLoaded = $state(false);
   let loadFailed = $state(false);
 
+  // Só a resposta da busca mais recente é aplicada (troca rápida de data-base).
+  let loadSeq = 0;
+
   async function loadDashboard() {
+    const seq = ++loadSeq;
+    loading = true;
+    kpisLoaded = false;   // não mostrar KPIs da data-base anterior se esta falhar
     loadFailed = false;
     const [k, d, t] = await Promise.allSettled([
       getDashboardKpis(appState.dataBase),
@@ -37,6 +44,7 @@
       // embutido em dimensions[i].trend, que nunca foi populado.
       getQualityTrend(appState.dataBase)
     ]);
+    if (seq !== loadSeq) return;
     if (k.status === 'fulfilled' && k.value) {
       kpis = { ...kpis, ...k.value };
       kpisLoaded = true;
@@ -44,9 +52,16 @@
     if (d.status === 'fulfilled' && d.value?.dimensions) dimensions = d.value.dimensions;
     if (t.status === 'fulfilled' && Array.isArray(t.value?.trend)) overallTrend = t.value.trend;
     loadFailed = [k, d, t].some((r) => r.status === 'rejected');
+    loading = false;
   }
 
-  onMount(loadDashboard);
+  // Espera o layout resolver a data-base (buscar antes usaria a data-base
+  // padrão do backend, diferente da do seletor) e recarrega quando ela muda.
+  $effect(() => {
+    if (!appState.dataBaseReady) return;
+    appState.dataBase;
+    loadDashboard();
+  });
 
   function shown(value) {
     return kpisLoaded ? value : '—';
@@ -83,14 +98,22 @@
           <div class="score-ring">
             <svg viewBox="0 0 120 120">
               <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="8" />
-              <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="8"
-                stroke-dasharray="{(kpisLoaded ? kpis.compliance_score : 0) * 3.14} 314"
-                stroke-dashoffset="0"
-                stroke-linecap="round"
-                transform="rotate(-90 60 60)" />
+              {#if loading}
+                <!-- Carregando: arco girando no lugar do percentual. -->
+                <circle class="ring-spin" cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="8"
+                  stroke-dasharray="70 314" stroke-linecap="round" />
+              {:else}
+                <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="8"
+                  stroke-dasharray="{(kpisLoaded ? kpis.compliance_score : 0) * 3.14} 314"
+                  stroke-dashoffset="0"
+                  stroke-linecap="round"
+                  transform="rotate(-90 60 60)" />
+              {/if}
             </svg>
             <!-- 2 casas: 99,97 não pode ser exibido como 100 (ver routers/dashboard.py). -->
-            <div class="score-value">{shown((kpis.compliance_score ?? 0).toFixed(2))}<span>%</span></div>
+            <div class="score-value">
+              {#if loading}<Skeleton light width="56px" height="22px" />{:else}{shown((kpis.compliance_score ?? 0).toFixed(2))}<span>%</span>{/if}
+            </div>
           </div>
           <div class="score-meta">
             <div class="score-label">{$_('dashboard.r18Index')}</div>
@@ -98,7 +121,9 @@
         </div>
         <div class="welcome-divider"></div>
         <div class="welcome-deadline">
-          <div class="deadline-days">{shown(kpis.deadline.days_remaining)}</div>
+          <div class="deadline-days">
+            {#if loading}<Skeleton light width="52px" height="0.8em" />{:else}{shown(kpis.deadline.days_remaining)}{/if}
+          </div>
           <div class="deadline-text">{$_('dashboard.daysRemaining')}</div>
         </div>
       </div>
@@ -113,6 +138,7 @@
       unit="%"
       status="info"
       href="/quality"
+      {loading}
     />
     <KpiCard
       title={$_('dashboard.pendingValidations')}
@@ -120,12 +146,14 @@
       subtitle={kpisLoaded ? `3040: ${kpis.pending_validations.scr3040} | 3050: ${kpis.pending_validations.scr3050}` : ''}
       status={!kpisLoaded ? 'info' : kpis.pending_validations.scr3040 + kpis.pending_validations.scr3050 > 0 ? 'warning' : 'success'}
       href="/validations"
+      {loading}
     />
     <KpiCard
       title={$_('dashboard.r18Deadline')}
       value={shown(kpis.deadline.days_remaining)}
       unit={$_('dashboard.daysUnit')}
       status="info"
+      {loading}
     />
   </div>
 
@@ -141,7 +169,11 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
       </div>
-      <RadarChart {dimensions} target={90} onClick={(id) => goto(`/quality/${id}`)} size={380} />
+      {#if loading}
+        <div class="chart-skeleton"><Skeleton width="300px" height="300px" radius="50%" /></div>
+      {:else}
+        <RadarChart {dimensions} target={90} onClick={(id) => goto(`/quality/${id}`)} size={380} />
+      {/if}
     </div>
     <div class="card chart-card">
       <div class="chart-header">
@@ -150,7 +182,11 @@
           <div class="chart-subheader">{$_('dashboard.last6MonthsEvolution')}</div>
         </div>
       </div>
-      <LineChart data={overallTrend} targetValue={90} height={260} />
+      {#if loading}
+        <div class="chart-skeleton"><Skeleton height="260px" radius="var(--radius-md)" /></div>
+      {:else}
+        <LineChart data={overallTrend} targetValue={90} height={260} />
+      {/if}
     </div>
   </div>
 
@@ -167,14 +203,18 @@
         <div class="card-header">{$_('dashboard.lastDqxRun')}</div>
       </div>
       <div class="status-body">
-        <div class="status-main-value">{kpis.last_submission.document || '—'}</div>
+        <div class="status-main-value">
+          {#if loading}<Skeleton width="140px" height="0.9em" />{:else}{kpis.last_submission.document || '—'}{/if}
+        </div>
         <div class="status-detail">
           <span class="detail-label">{$_('dashboard.appBaseDate')}</span>
-          <span class="detail-value">{kpis.last_submission.data_base || '—'}</span>
+          {#if loading}<Skeleton width="72px" />{:else}<span class="detail-value">{kpis.last_submission.data_base || '—'}</span>{/if}
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('common.status')}</span>
-          {#if kpisLoaded}
+          {#if loading}
+            <Skeleton width="72px" height="20px" radius="999px" />
+          {:else if kpisLoaded}
             <Badge label={kpis.last_submission.status === 'executado' ? $_('dashboard.statusExecuted') : $_('dashboard.statusPending')} variant={kpis.last_submission.status === 'executado' ? 'success' : 'warning'} />
           {:else}
             <span class="detail-value">—</span>
@@ -182,7 +222,11 @@
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('dashboard.lastRun')}</span>
-          <span class="detail-value">{kpis.last_submission.submitted_at ? formatDate(kpis.last_submission.submitted_at) : '—'}</span>
+          {#if loading}
+            <Skeleton width="110px" />
+          {:else}
+            <span class="detail-value">{kpis.last_submission.submitted_at ? formatDate(kpis.last_submission.submitted_at) : '—'}</span>
+          {/if}
         </div>
       </div>
     </div>
@@ -196,10 +240,18 @@
           </svg>
         </div>
         <div class="card-header">{$_('dashboard.activeAlerts')}</div>
-        <span class="alert-count">{shown(kpis.alerts.length)}</span>
+        {#if loading}
+          <Skeleton width="28px" height="20px" radius="999px" />
+        {:else}
+          <span class="alert-count">{shown(kpis.alerts.length)}</span>
+        {/if}
       </div>
       <div class="alerts-list">
-        {#if kpisLoaded && kpis.alerts.length === 0}
+        {#if loading}
+          {#each [0, 1, 2] as i (i)}
+            <div class="alert-item alert-skeleton"><Skeleton width="16px" height="16px" radius="50%" /><Skeleton width="{80 - i * 15}%" /></div>
+          {/each}
+        {:else if kpisLoaded && kpis.alerts.length === 0}
           <div class="alerts-empty">{$_('dashboard.noOpenIncidents')}</div>
         {/if}
         {#each kpis.alerts as alert}
@@ -221,6 +273,10 @@
 
 <style>
   .dashboard { display: flex; flex-direction: column; gap: var(--space-4); }
+  .chart-skeleton { display: flex; align-items: center; justify-content: center; min-height: 300px; }
+  .alert-skeleton { display: flex; align-items: center; gap: var(--space-3); }
+  .ring-spin { transform-origin: 60px 60px; animation: ring-spin 1s linear infinite; }
+  @keyframes ring-spin { to { transform: rotate(360deg); } }
   .load-error { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--error); font-size: var(--font-size-sm); }
   .btn-secondary { background: var(--white); color: var(--gray-700); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); font-weight: 500; font-size: var(--font-size-sm); cursor: pointer; }
 

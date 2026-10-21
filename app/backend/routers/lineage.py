@@ -10,7 +10,9 @@ Real mode combines two sources:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from fastapi import APIRouter, Query
 
 import external_lineage_store as store
@@ -185,16 +187,24 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
         if fqn not in nodes:
             nodes[fqn] = _uc_node(fqn, catalog)
 
+    # BYOL and the CADOC anchors are independent: fetched concurrently. The
+    # graph is assembled afterwards, in a fixed order, so node/edge order (and
+    # thus the layout) doesn't depend on which call returned first.
+    byol, anchor_tables = await asyncio.gather(
+        _fetch_byol_from_rest(w), _cadoc_anchor_tables(catalog, execute_query),
+        return_exceptions=True,
+    )
+
     # 1 + 2. BYOL external metadata + relationships (namespaced to rc18_*).
     #    Isolated so ANY failure here (e.g. an older databricks-sdk without the
     #    external-lineage endpoints, or missing privileges) NEVER blocks the UC
     #    CADOC lineage below — that was the bug that left the graph blank. All
     #    calls go through the REST api_client, so there is no SDK-version symbol
     #    dependency.
-    try:
-        _add_byol_from_rest(w, nodes, edges)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("BYOL external lineage unavailable (skipping): %s", e)
+    if isinstance(byol, Exception):
+        logger.warning("BYOL external lineage unavailable (skipping): %s", byol)
+    else:
+        _add_byol(byol, nodes, edges)
 
     # 3. UC automatic lineage, ANCHORED on the CADOC-linked tables.
     #
@@ -206,15 +216,19 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
     #    special grant only account admins hold (the app SP can't read it, so the
     #    query returned empty → blank graph). The REST API only needs SELECT on
     #    the table, which the app SP already has.
-    anchor_tables = await _cadoc_anchor_tables(catalog, execute_query)
+    if isinstance(anchor_tables, Exception):
+        logger.warning("CADOC anchors unavailable: %s", anchor_tables)
+        anchor_tables = []
     for fqn in anchor_tables:
         _ensure_uc_node(fqn)
 
+    # One hop up and down from each anchor covers bronze -> silver -> gold. One
+    # call per anchor returns both directions; all anchors in parallel.
+    neighbors = await asyncio.gather(*(_rest_table_lineage(w, fqn) for fqn in anchor_tables))
     seen_uc_edges: set[tuple[str, str]] = set()
-    # One hop up and down from each anchor covers bronze -> silver -> gold.
-    for fqn in list(anchor_tables):
-        for direction in ("upstream", "downstream"):
-            for neighbor in _rest_table_lineage(w, fqn, direction):
+    for fqn, (upstreams, downstreams) in zip(anchor_tables, neighbors):
+        for direction, found in (("upstream", upstreams), ("downstream", downstreams)):
+            for neighbor in found:
                 if not _is_relevant_uc_table(neighbor, catalog):
                     continue
                 if neighbor == fqn:
@@ -258,17 +272,48 @@ def _table_info_fqn(ti: dict) -> str | None:
     return name  # fallback: at least return whatever we have
 
 
-def _add_byol_from_rest(w, nodes: dict, edges: list) -> None:
-    """Add BYOL nodes/edges from External Metadata + External Lineage, scoped to
-    the rc18_* namespace, via the REST api_client. Best-effort — the caller wraps
-    this so a failure never blocks the CADOC UC lineage."""
+# Cap on concurrent REST calls: the lineage endpoints are rate-limited per
+# workspace, and the graph fans out to ~2 calls per object + 1 per anchor.
+_REST_CONCURRENCY = 8
+_rest_slots = asyncio.Semaphore(_REST_CONCURRENCY)
+
+
+async def _rest_get(w, path: str, query: dict | None = None):
+    """Blocking SDK REST call off the event loop, bounded by `_rest_slots`."""
+    async with _rest_slots:
+        return await asyncio.to_thread(w.api_client.do, "GET", path, query=query)
+
+
+async def _fetch_byol_from_rest(w) -> tuple[list[dict], dict[tuple[str, str], dict | None]]:
+    """Fetch the rc18_* external metadata objects and, in parallel, each one's
+    relationships in both directions. A failed relationship query maps to None
+    (skipped); a failed object listing propagates to the caller."""
+    resp = await _rest_get(w, _EM_PATH)
+    metas = [d for d in (resp or {}).get("external_metadata", []) or []
+             if d.get("name") and d["name"].startswith(LINEAGE_OBJECT_PREFIX)]
+    keys = [(d["name"], direction) for d in metas for direction in ("UPSTREAM", "DOWNSTREAM")]
+
+    async def _rels(name: str, direction: str):
+        try:
+            return await _rest_get(w, _EL_PATH, {
+                "object_info.external_metadata.name": name, "lineage_direction": direction,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.debug("BYOL rel query failed %s %s: %s", name, direction, e)
+            return None
+
+    rels = await asyncio.gather(*(_rels(n, d) for n, d in keys))
+    return metas, dict(zip(keys, rels))
+
+
+def _add_byol(byol, nodes: dict, edges: list) -> None:
+    """Add BYOL nodes/edges from the External Metadata + External Lineage
+    responses fetched by `_fetch_byol_from_rest`."""
+    metas, rel_responses = byol
     # 1. rc18_* external metadata objects → nodes
-    resp = w.api_client.do("GET", _EM_PATH)
     meta_names: list[str] = []
-    for d in (resp or {}).get("external_metadata", []) or []:
-        name = d.get("name")
-        if not name or not name.startswith(LINEAGE_OBJECT_PREFIX):
-            continue
+    for d in metas:
+        name = d["name"]
         obj = ExternalMetadataObject(
             name=name,
             system_type=d.get("system_type") or "OTHER",
@@ -292,13 +337,8 @@ def _add_byol_from_rest(w, nodes: dict, edges: list) -> None:
     seen_rel: set[str] = set()
     for name in meta_names:
         for direction in ("UPSTREAM", "DOWNSTREAM"):
-            try:
-                rel_resp = w.api_client.do(
-                    "GET", _EL_PATH,
-                    query={"object_info.external_metadata.name": name, "lineage_direction": direction},
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("BYOL rel query failed %s %s: %s", name, direction, e)
+            rel_resp = rel_responses.get((name, direction))
+            if rel_resp is None:
                 continue
             for info in (rel_resp or {}).get("external_lineage_relationships", []) or []:
                 rel = info.get("external_lineage_info") or {}
@@ -357,28 +397,30 @@ async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
     keep the declared one: likelier a privilege/metadata issue than every table
     being gone, and a blank graph is the worse failure.
     """
-    try:
-        declared_rows = await execute_query(
+    # Both queries in parallel — the second doesn't depend on the first's rows.
+    declared_rows, existing_rows = await asyncio.gather(
+        execute_query(
             f"SELECT DISTINCT table_fqn FROM {catalog}.governance.cadoc_tabelas "
             "WHERE is_ativo AND table_fqn IS NOT NULL",
             {},
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Could not read cadoc_tabelas anchors: %s", e)
+        ),
+        execute_query(
+            "SELECT lower(table_catalog || '.' || table_schema || '.' || table_name) AS fqn "
+            f"FROM {catalog}.information_schema.tables",
+            {},
+        ),
+        return_exceptions=True,
+    )
+    if isinstance(declared_rows, Exception):
+        logger.warning("Could not read cadoc_tabelas anchors: %s", declared_rows)
         return []
 
     declared = [r["table_fqn"] for r in declared_rows if r.get("table_fqn")]
     if not declared:
         return []
 
-    try:
-        existing_rows = await execute_query(
-            "SELECT lower(table_catalog || '.' || table_schema || '.' || table_name) AS fqn "
-            f"FROM {catalog}.information_schema.tables",
-            {},
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("information_schema unreadable, keeping declared anchors: %s", e)
+    if isinstance(existing_rows, Exception):
+        logger.warning("information_schema unreadable, keeping declared anchors: %s", existing_rows)
         return declared
 
     existing = {r["fqn"] for r in existing_rows if r.get("fqn")}
@@ -399,37 +441,46 @@ async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
     return anchors
 
 
-def _rest_table_lineage(w, table_fqn: str, direction: str) -> list[str]:
-    """Return neighbor table FQNs via the REST table-lineage API
-    (``GET /api/2.0/lineage-tracking/table-lineage``). Uses only SELECT on the
-    table (no ``system.access`` grant needed). ``direction`` ∈ upstream|downstream."""
-    key = "upstreams" if direction == "upstream" else "downstreams"
+async def _rest_table_lineage(w, table_fqn: str) -> tuple[list[str], list[str]]:
+    """Return ``(upstreams, downstreams)`` table FQNs via the REST table-lineage
+    API (``GET /api/2.0/lineage-tracking/table-lineage``) — one call returns both
+    directions. Uses only SELECT on the table (no ``system.access`` grant needed)."""
     try:
-        resp = w.api_client.do(
-            "GET", "/api/2.0/lineage-tracking/table-lineage",
-            query={"table_name": table_fqn, "include_entity_lineage": False},
-        )
+        resp = await _rest_get(w, "/api/2.0/lineage-tracking/table-lineage",
+                               {"table_name": table_fqn, "include_entity_lineage": False})
     except Exception as e:  # noqa: BLE001
-        logger.debug("REST table-lineage failed for %s (%s): %s", table_fqn, direction, e)
-        return []
-    out: list[str] = []
-    for item in (resp or {}).get(key, []) or []:
-        ti = item.get("tableInfo") or {}
-        cat, sch, name = ti.get("catalog_name"), ti.get("schema_name"), ti.get("name")
-        if cat and sch and name:
-            out.append(f"{cat}.{sch}.{name}")
-    return out
+        logger.debug("REST table-lineage failed for %s: %s", table_fqn, e)
+        return [], []
+
+    def _fqns(key: str) -> list[str]:
+        out: list[str] = []
+        for item in (resp or {}).get(key, []) or []:
+            ti = item.get("tableInfo") or {}
+            cat, sch, name = ti.get("catalog_name"), ti.get("schema_name"), ti.get("name")
+            if cat and sch and name:
+                out.append(f"{cat}.{sch}.{name}")
+        return out
+
+    return _fqns("upstreams"), _fqns("downstreams")
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
+# Short-lived cache of the real graph: it fans out to dozens of REST calls and
+# changes rarely. `fresh=true` (sent by the app after its own BYOL writes)
+# bypasses it; writes made outside the app show up within the TTL.
+_GRAPH_TTL_S = 60
+_graph_cache: dict[str, tuple[float, LineageGraphResponse]] = {}
+
+
 @router.get("/graph", response_model=LineageGraphResponse)
 async def get_lineage_graph(
     table_name: str | None = Query(None, description="Fully qualified table name to trace"),
     direction: str = Query("both", description="upstream, downstream, or both"),
     depth: int = Query(5, ge=1, le=10),
+    fresh: bool = Query(False, description="Bypass the graph cache"),
 ):
     """Return the full end-to-end lineage graph (BYOL + UC automatic)."""
     if USE_MOCK:
@@ -446,7 +497,13 @@ async def get_lineage_graph(
             response.edges = [e for e in response.edges if e.source in relevant and e.target in relevant]
         return response
 
-    return await _fetch_real_lineage(CATALOG)
+    cached = _graph_cache.get(CATALOG)
+    if cached and not fresh and time.monotonic() - cached[0] < _GRAPH_TTL_S:
+        return cached[1]
+    graph = await _fetch_real_lineage(CATALOG)
+    if graph.nodes:  # an empty graph is likelier a transient failure (warehouse waking up)
+        _graph_cache[CATALOG] = (time.monotonic(), graph)
+    return graph
 
 
 @router.get("/column/{table_name}/{column_name}", response_model=ColumnLineageResponse)
