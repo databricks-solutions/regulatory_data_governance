@@ -31,7 +31,7 @@ async def load_cadoc_tables() -> tuple[dict[str, list[str]], dict[str, str]]:
     to their hard-coded prefix logic in that case.
     """
     rows = await execute_query(
-        f"SELECT documento, table_fqn FROM {_TBLS} WHERE is_ativo", {},
+        f"SELECT documento, table_fqn FROM {_TBLS} WHERE is_ativo", {}, cache_ns="links",
     )
     tables_by_doc: dict[str, list[str]] = {}
     doc_by_table: dict[str, str] = {}
@@ -87,6 +87,7 @@ async def load_vinculos() -> tuple[dict[tuple[str, str], dict], dict[str, dict]]
         "SELECT vinculo_id, check_name, rule_id, table_fqn, documento, dimensao_r18, "
         f"critica_id, nivel_verificacao, descricao FROM {_LINKS} WHERE is_ativo",
         {},
+        cache_ns="links",
     )
     by_pair: dict[tuple[str, str], dict] = {}
     by_rule_id: dict[str, dict] = {}

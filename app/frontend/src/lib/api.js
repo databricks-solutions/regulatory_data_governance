@@ -95,9 +95,10 @@ export function getValidationRun(runId) {
 }
 
 // Lineage
-export function getLineageGraph(tableName, direction = 'both', depth = 5) {
+export function getLineageGraph(tableName, direction = 'both', depth = 5, fresh = false) {
   const params = new URLSearchParams({ direction, depth });
   if (tableName) params.set('table_name', tableName);
+  if (fresh) params.set('fresh', 'true');
   return apiFetch(`/lineage/graph?${params}`);
 }
 

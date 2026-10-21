@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
   import {
     getLineageGraph, getColumnLineage,
@@ -12,12 +12,16 @@
   import ExternalMetadataForm from '$lib/components/domain/ExternalMetadataForm.svelte';
   import ExternalLineageForm from '$lib/components/domain/ExternalLineageForm.svelte';
   import ZoneBand from '$lib/components/domain/ZoneBand.svelte';
+  import { lineageView } from '$lib/lineageView.svelte.js';
 
-  // Custom node type for the background zone bands (external vs Databricks).
-  const nodeTypes = { zoneBand: ZoneBand };
+  // Custom node/edge types. The lineage card and edge import @xyflow/svelte, so
+  // they load together with it (dynamic import in loadFlow).
+  let nodeTypes = $state({ zoneBand: ZoneBand });
+  let edgeTypes = $state({});
 
-  let SvelteFlow, MiniMap, Controls, Background, SvelteFlowProvider;
+  let SvelteFlow, MiniMap, Controls, Background;
   let flowLoaded = $state(false);
+  let flowFailed = $state(false);
 
   let selectedNode = $state(null);
   let selectedEdge = $state(null);
@@ -42,11 +46,11 @@
   // Layer X positions (px) — left to right: origin → external sources → ETL → Databricks medallion → validators → BCB
   const LAYER_ORDER = ['origin', 'source', 'etl', 'bronze', 'silver', 'gold', 'validator', 'output'];
   const NODE_W = 200;
-  const NODE_H = 44;
+  const NODE_H = 52;
   const NODE_GAP = 24;
   const COL_GAP = 200;          // horizontal gap between adjacent (packed) layer columns —
                                 //   wide enough to spread the medallion edges and fill the canvas
-  const COL_GAP_BOUNDARY = 70;  // tighter gap at the external→Databricks crossing
+  const COL_GAP_BOUNDARY = 150; // gap at the external→Databricks crossing — fits the ingestion-mode label
 
   // Environment zones — the three vertical bands separating the external world
   // (pre-ingestion sources + post-processing delivery) from the Databricks
@@ -63,7 +67,7 @@
   const ZONE_PAD = 16;          // horizontal padding around a zone's node columns
   const ZONE_TOP = 4;           // top offset of a band
   const ZONE_MIN_WIDTH = 260;   // min band width so the icon+label header fits
-  const ZONE_HEIGHT = 760;      // fixed band height (graph canvas is ~860 tall)
+  const ZONE_MIN_HEIGHT = 300;  // bands grow with the tallest column
 
   // Resolve node color. Validators/outputs keep their layer identity; otherwise
   // the layer color drives the node (system identity is carried by the inline
@@ -81,17 +85,6 @@
   function ingestionLabel(mode) {
     if (!mode) return '';
     try { return $_(`lineageMgmt.ingestion_${mode}`); } catch { return mode; }
-  }
-
-  function nodeStyle(data) {
-    const c = nodeColors(data);
-    // max-width + ellipsis: o nome do objeto externo é escolhido pelo cliente e
-    // pode ser longo. Sem o teto, a caixa cresce até invadir a faixa vizinha.
-    return `background:${c.bg};border:2px solid ${c.border};color:${c.text};` +
-      `border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;` +
-      `box-shadow:0 2px 6px rgba(0,0,0,0.10);text-align:center;` +
-      `min-width:${NODE_W}px;max-width:${NODE_W}px;` +
-      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
   }
 
   // Normalize any backend layer to one of the 8 rendered columns. UC schemas
@@ -141,7 +134,7 @@
   }
 
   // Compute background zone bands from the ACTUAL packed X of each layer.
-  function buildZoneNodes(layerX) {
+  function buildZoneNodes(layerX, height) {
     const zones = [];
     for (const z of ZONES) {
       const cols = z.layers.filter(l => l in layerX);
@@ -157,7 +150,9 @@
         id: z.id,
         type: 'zoneBand',
         position: { x, y: ZONE_TOP },
-        data: { label: $_(z.labelKey), width, height: ZONE_HEIGHT, bg: z.bg, border: z.border, text: z.text, icon: z.icon },
+        // Explicit size: Svelte Flow renders the node without waiting to measure it.
+        width, height,
+        data: { label: $_(z.labelKey), width, height, bg: z.bg, border: z.border, text: z.text, icon: z.icon },
         draggable: false, selectable: false, connectable: false, focusable: false,
         zIndex: -1,
         style: 'pointer-events: none;'
@@ -166,9 +161,80 @@
     return zones;
   }
 
+  const EXT_ZONE_LAYERS = ZONES.filter(z => z.id !== 'zone-dbx').map(z => z.layers);
+  const EDGE_LABEL_MAX = 28;
+  const LAYOUT_TOP = 60;
+  const ROW_H = NODE_H + NODE_GAP;
+
+  // Edge label on the canvas: the source's ingestion mode when it has one
+  // (short, standard), otherwise the mechanism truncated. The full text stays
+  // in the edge side panel (data.fullLabel).
+  function edgeLabel(e, srcNode) {
+    if (e.type === 'external_lineage' && srcNode?.ingestion_mode) return ingestionLabel(srcNode.ingestion_mode);
+    if (!e.label) return undefined;
+    return e.label.length > EDGE_LABEL_MAX ? e.label.slice(0, EDGE_LABEL_MAX - 1) + '…' : e.label;
+  }
+
+  // Vertical layout over "row groups": each external zone is ONE group (one row
+  // per node across the zone, so an edge from an outer column never runs
+  // through a node of the inner one); each medallion layer is its own group.
+  // Order inside a group: barycenter sweeps (mean position of the neighbors in
+  // the adjacent groups) to cut edge crossings. Y: the tallest group stacks
+  // from the top; the others sit beside their neighbors, without overlapping.
+  function layoutY(groups, apiEdges) {
+    const neighbors = {};
+    apiEdges.forEach(e => {
+      (neighbors[e.source] ??= []).push(e.target);
+      (neighbors[e.target] ??= []).push(e.source);
+    });
+    const groupOf = {};
+    groups.forEach((g, gi) => g.forEach(id => { groupOf[id] = gi; }));
+    const order = groups.map(g => [...g]);
+    const rank = {};
+    const rerank = gi => order[gi].forEach((id, i) => { rank[id] = (i + 0.5) / order[gi].length; });
+    order.forEach((_, gi) => rerank(gi));
+
+    // side: -1 = neighbors in groups to the left, +1 = to the right.
+    const sortGroup = (gi, side) => {
+      const keyed = order[gi].map((id, i) => {
+        const rs = (neighbors[id] || [])
+          .filter(o => o in groupOf && Math.sign(groupOf[o] - gi) === side)
+          .map(o => rank[o]);
+        return { id, i, key: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : rank[id] };
+      });
+      keyed.sort((a, b) => a.key - b.key || a.i - b.i);
+      order[gi] = keyed.map(k => k.id);
+      rerank(gi);
+    };
+    for (let it = 0; it < 4; it++) {
+      for (let gi = 1; gi < order.length; gi++) sortGroup(gi, -1);
+      for (let gi = order.length - 2; gi >= 0; gi--) sortGroup(gi, +1);
+    }
+
+    const posY = {};
+    const anchor = order.reduce((best, g, gi) => (g.length > order[best].length ? gi : best), 0);
+    order[anchor].forEach((id, i) => { posY[id] = LAYOUT_TOP + i * ROW_H; });
+    const place = gi => {
+      let nextY = LAYOUT_TOP;
+      for (const id of order[gi]) {
+        const ys = (neighbors[id] || []).map(o => posY[o]).filter(y => y !== undefined);
+        const want = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : nextY;
+        posY[id] = Math.max(nextY, want);
+        nextY = posY[id] + ROW_H;
+      }
+    };
+    for (let gi = anchor + 1; gi < order.length; gi++) place(gi);
+    for (let gi = anchor - 1; gi >= 0; gi--) place(gi);
+    return posY;
+  }
+
+  function nodeSubtitle(n, layer) {
+    if (n.type === 'table') return (n.schema || n.id.split('.')[1] || layer).toUpperCase();
+    return [n.system, ingestionLabel(n.ingestion_mode)].filter(Boolean).join(' · ');
+  }
+
   // Build Svelte-Flow node/edge arrays from the API response format
   function buildFlowGraph(apiNodes, apiEdges) {
-    // Group by layer for Y distribution
     const byLayer = {};
     LAYER_ORDER.forEach(l => byLayer[l] = []);
     apiNodes.forEach(n => {
@@ -176,47 +242,51 @@
       byLayer[l].push(n);
     });
 
+    const ids = layers => layers.flatMap(l => byLayer[l].map(n => n.id));
+    const groups = [
+      ids(EXT_ZONE_LAYERS[0]),
+      ...DBX_LAYERS.map(l => ids([l])),
+      ids(EXT_ZONE_LAYERS[1]),
+    ].filter(g => g.length);
+    const posY = layoutY(groups, apiEdges);
+    const maxY = Math.max(LAYOUT_TOP, ...Object.values(posY));
+    const zoneHeight = Math.max(ZONE_MIN_HEIGHT, maxY + NODE_H + ZONE_PAD * 2 - ZONE_TOP);
+
     const layerX = packLayerX(byLayer);
     // Zone bands FIRST so they render behind the real nodes.
-    const flowNodes = buildZoneNodes(layerX);
+    const flowNodes = buildZoneNodes(layerX, zoneHeight);
 
     LAYER_ORDER.forEach(layer => {
-      const group = byLayer[layer] || [];
-      if (!group.length) return;
-      const totalH = group.length * (NODE_H + NODE_GAP) - NODE_GAP;
-      const startY = Math.max(60, 400 - totalH / 2); // vertically center
-      group.forEach((n, i) => {
+      byLayer[layer].forEach(n => {
+        const data = { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type,
+                       ingestion_mode: n.ingestion_mode, properties: n.properties, metadata: n.metadata };
         flowNodes.push({
           id: n.id,
-          position: { x: layerX[layer], y: startY + i * (NODE_H + NODE_GAP) },
-          data: { label: n.label, layer, type: n.type, system: n.system, system_type: n.system_type,
-                  ingestion_mode: n.ingestion_mode, properties: n.properties, metadata: n.metadata },
-          type: 'default',
-          style: nodeStyle({ layer, system: n.system })
+          type: 'lineage',
+          position: { x: layerX[layer], y: posY[n.id] },
+          width: NODE_W,
+          height: NODE_H,
+          data: { ...data, fullName: n.id, external: n.type !== 'table',
+                  accent: nodeColors(data).border, subtitle: nodeSubtitle(n, layer) },
         });
       });
     });
 
+    const byId = Object.fromEntries(apiNodes.map(n => [n.id, n]));
     const flowEdges = apiEdges.map((e, i) => {
-      const isByol = e.type === 'external_lineage';
+      const byol = e.type === 'external_lineage';
       return {
         id: `e${i}`,
         source: e.source,
         target: e.target,
-        label: e.label || undefined,
-        type: 'default',
-        animated: !isByol,
-        style: isByol
-          ? 'stroke:#7A7A8A;stroke-dasharray:6 4;stroke-width:2;'
-          : 'stroke:#005CA9;stroke-width:2;',
-        labelStyle: 'font-size:10px;fill:#555;',
-        labelBgStyle: 'fill:#ffffffcc;',
-        markerEnd: 'url(#arrowhead)',
-        data: { column_mappings: e.column_mappings, type: e.type }
+        type: 'lineage',
+        label: edgeLabel(e, byId[e.source]),
+        markerEnd: { type: 'arrowclosed', color: byol ? '#7A7A8A' : '#005CA9', width: 14, height: 14 },
+        data: { byol, column_mappings: e.column_mappings, type: e.type, fullLabel: e.label }
       };
     });
 
-    return { flowNodes, flowEdges };
+    return { flowNodes, flowEdges, zoneHeight };
   }
 
   // The graph is ALWAYS driven by the API (GET /lineage/graph). No embedded
@@ -227,7 +297,51 @@
 
   let nodes = $state([]);
   let edges = $state([]);
+  let zoneHeight = $state(ZONE_MIN_HEIGHT);
   let graphLoaded = $state(false);
+  let graphFailed = $state(false);
+
+  // Path highlight: hovering (or selecting) a node lights its whole upstream +
+  // downstream path and dims the rest. Published in lineageView, read by the
+  // custom node/edge — the node/edge arrays never change on hover.
+  let hoveredId = $state(null);
+  $effect(() => {
+    const focusId = hoveredId ?? selectedNode?.id ?? null;
+    lineageView.focusId = focusId;
+    if (!focusId) {
+      lineageView.pathNodes = null;
+      lineageView.pathEdges = null;
+      return;
+    }
+    const out = {}, inc = {};
+    for (const e of edges) {
+      (out[e.source] ??= []).push(e);
+      (inc[e.target] ??= []).push(e);
+    }
+    const pathNodes = new Set([focusId]);
+    const pathEdges = new Set();
+    const walk = (adj, end) => {
+      const stack = [focusId];
+      const seen = new Set(stack);
+      while (stack.length) {
+        for (const e of adj[stack.pop()] || []) {
+          pathEdges.add(e.id);
+          pathNodes.add(e[end]);
+          if (!seen.has(e[end])) { seen.add(e[end]); stack.push(e[end]); }
+        }
+      }
+    };
+    walk(out, 'target');
+    walk(inc, 'source');
+    lineageView.pathNodes = pathNodes;
+    lineageView.pathEdges = pathEdges;
+  });
+  $effect(() => { lineageView.icons = iconByType; });
+  onDestroy(() => {
+    lineageView.focusId = null;
+    lineageView.pathNodes = null;
+    lineageView.pathEdges = null;
+  });
 
   // Generic label per layer (no hardcoded system names like "Informatica" —
   // those don't necessarily exist in the customer's real graph).
@@ -328,7 +442,7 @@
     try {
       await deleteExternalLineage({ source: rel.source, target: rel.target });
       nodeRels = nodeRels.filter(r => r !== rel);
-      await refreshGraph();
+      await refreshGraph(true);
     } catch (e) {
       mgmtError = e?.message || String(e);
     }
@@ -371,16 +485,22 @@
   // any create/edit/delete. ALWAYS applies the API result — including an empty
   // graph — so a fresh (unpopulated) workspace shows the empty state instead of
   // stale data. On network error we keep whatever is on screen.
-  async function refreshGraph() {
+  // fresh=true after the app's own BYOL writes: skips the backend graph cache.
+  async function refreshGraph(fresh = false) {
     try {
-      const data = await getLineageGraph();
-      const { flowNodes, flowEdges } = buildFlowGraph(data?.nodes || [], data?.edges || []);
-      nodes = flowNodes;
-      edges = flowEdges;
+      const data = await getLineageGraph(null, 'both', 5, fresh);
+      const built = buildFlowGraph(data?.nodes || [], data?.edges || []);
+      nodes = built.flowNodes;
+      edges = built.flowEdges;
+      zoneHeight = built.zoneHeight;
       selectedNode = null;
       selectedEdge = null;
       graphLoaded = true;
-    } catch { /* keep current graph on transient failure */ }
+      graphFailed = false;
+    } catch {
+      // keep current graph on transient failure; first load shows a retry
+      if (!graphLoaded) graphFailed = true;
+    }
   }
 
   // Refresh the management data (registered objects, dropdown options, UC tables).
@@ -401,7 +521,7 @@
     showMetaForm = false;
     showRelForm = false;
     editingObject = null;
-    await Promise.all([refreshManagement(), refreshGraph()]);
+    await Promise.all([refreshManagement(), refreshGraph(true)]);
   }
 
   function openNewObject() { editingObject = null; showMetaForm = true; }
@@ -411,7 +531,7 @@
     mgmtError = '';
     try {
       await deleteExternalMetadata(name);
-      await Promise.all([refreshManagement(), refreshGraph()]);
+      await Promise.all([refreshManagement(), refreshGraph(true)]);
       return true;
     } catch (e) {
       mgmtError = e?.message || String(e);
@@ -450,21 +570,33 @@
     }
   }
 
-  onMount(async () => {
-    // Load Svelte Flow
+  async function loadFlow() {
     try {
-      const mod = await import('@xyflow/svelte');
+      const [mod, nodeMod, edgeMod] = await Promise.all([
+        import('@xyflow/svelte'),
+        import('$lib/components/domain/LineageNode.svelte'),
+        import('$lib/components/domain/LineageEdge.svelte'),
+        import('@xyflow/svelte/dist/style.css'),
+      ]);
       SvelteFlow = mod.SvelteFlow;
       MiniMap = mod.MiniMap;
       Controls = mod.Controls;
       Background = mod.Background;
-      await import('@xyflow/svelte/dist/style.css');
+      nodeTypes = { zoneBand: ZoneBand, lineage: nodeMod.default };
+      edgeTypes = { lineage: edgeMod.default };
       flowLoaded = true;
     } catch (err) {
       console.warn('Svelte Flow not available, using SVG fallback:', err);
+      flowFailed = true;
     }
+  }
 
-    await Promise.all([refreshGraph(), refreshManagement()]);
+  onMount(() => {
+    // Svelte Flow and the data load in parallel: the import doesn't hold up the
+    // graph fetch.
+    loadFlow();
+    refreshGraph();
+    refreshManagement();
   });
 
   // Side panel: derive layer label
@@ -563,18 +695,35 @@
           <p>{$_('lineageMgmt.graphEmptyBody')}</p>
           <button class="tbtn primary" onclick={openNewObject}>+ {$_('lineageMgmt.newObject')}</button>
         </div>
-      {:else if flowLoaded && SvelteFlow}
-        <svelte:component this={SvelteFlow} {nodes} {edges} {nodeTypes} fitView
+      {:else if graphFailed}
+        <div class="graph-empty">
+          <p>{$_('common.requestFailed')}</p>
+          <button class="tbtn" onclick={() => refreshGraph(true)}>{$_('common.retry')}</button>
+        </div>
+      {:else if !graphLoaded || !(flowLoaded || flowFailed)}
+        <div class="graph-loading">
+          <span class="graph-spinner"></span>
+          <span>{$_('common.loading')}</span>
+        </div>
+      {:else if flowLoaded}
+        <svelte:component this={SvelteFlow} {nodes} {edges} {nodeTypes} {edgeTypes} fitView
+          fitViewOptions={{ padding: 0.06 }} minZoom={0.2}
+          nodesDraggable={false} nodesConnectable={false}
           onnodeclick={handleNodeClick}
-          onedgeclick={handleEdgeClick}>
-          <svelte:component this={Controls} position="bottom-right" />
-          <svelte:component this={MiniMap} position="bottom-left" nodeBorderRadius={8} />
+          onedgeclick={handleEdgeClick}
+          onnodepointerenter={({ node }) => { if (node.type !== 'zoneBand') hoveredId = node.id; }}
+          onnodepointerleave={() => { hoveredId = null; }}
+          onpaneclick={() => { selectedNode = null; selectedEdge = null; }}>
+          <svelte:component this={Controls} position="bottom-right" showLock={false} />
+          <svelte:component this={MiniMap} position="bottom-left" nodeBorderRadius={6}
+            nodeColor={(n) => (n.type === 'zoneBand' ? 'transparent' : n.data?.accent)}
+            nodeStrokeColor={(n) => (n.type === 'zoneBand' ? n.data?.border : 'transparent')} />
           <svelte:component this={Background} variant="dots" gap={24} size={1} />
         </svelte:component>
       {:else}
         <!-- SVG fallback -->
         <div class="graph-fallback">
-          <svg viewBox="0 0 {svgWidth} 820" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 {svgWidth} {zoneHeight + ZONE_TOP + 40}" class="lineage-svg" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <marker id="arrow-uc"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="#005CA9" />
@@ -586,7 +735,7 @@
 
             <!-- Environment zone bands (behind everything) -->
             {#each svgZones as z}
-              <rect x={z.x} y={ZONE_TOP} width={z.width} height={ZONE_HEIGHT} rx="12"
+              <rect x={z.x} y={ZONE_TOP} width={z.width} height={zoneHeight} rx="12"
                 fill={z.bg} stroke={z.border} stroke-width="1.5" stroke-dasharray="6 4" />
               {#if z.icon}
                 <rect x={z.x + 10} y={ZONE_TOP + 6} width="22" height="22" rx="5" fill="#fff" />
@@ -872,7 +1021,7 @@
           <div class="panel-layer-badge" style="color:{isByol ? '#4A4A5A' : '#003D73'};">
             {isByol ? $_('lineage.badgeByol') : $_('lineage.badgeUc')}
           </div>
-          <h3 class="panel-title">{selectedEdge.label || $_('lineage.lineageRelation')}</h3>
+          <h3 class="panel-title">{selectedEdge.data?.fullLabel || selectedEdge.label || $_('lineage.lineageRelation')}</h3>
         </div>
         <div class="panel-body">
           <div class="panel-section">
@@ -957,15 +1106,7 @@
   .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--gray-600); white-space: nowrap; }
   .leg-line { display: inline-block; width: 28px; height: 2px; }
   .leg-line.byol { background: repeating-linear-gradient(90deg,#7A7A8A 0,#7A7A8A 6px,transparent 6px,transparent 10px); }
-  .leg-line.uc {
-    background: repeating-linear-gradient(90deg,#005CA9 0,#005CA9 6px,transparent 6px,transparent 10px);
-    background-size: 10px 2px;
-    animation: leg-dash-move 0.6s linear infinite;
-  }
-  @keyframes leg-dash-move {
-    from { background-position: 0 0; }
-    to   { background-position: 10px 0; }
-  }
+  .leg-line.uc { background: #005CA9; }
   .leg-node { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; }
 
   /* ---- Toolbar (BYOL management) ---- */
@@ -1041,6 +1182,17 @@
   .lineage-node { cursor: pointer; }
   .lineage-node:hover rect { filter: brightness(0.93); }
   .lineage-node rect.selected { stroke-width: 3; filter: drop-shadow(0 0 6px rgba(0,0,0,0.25)); }
+  .graph-loading {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+    color: var(--gray-500); font-size: var(--font-size-sm);
+  }
+  .graph-spinner {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--gray-200); border-top-color: var(--primary);
+    animation: graph-spin 0.8s linear infinite;
+  }
+  @keyframes graph-spin { to { transform: rotate(360deg); } }
   .fallback-note { font-size: var(--font-size-xs); color: var(--gray-500); margin-top: var(--space-2); }
 
   /* ---- Side Panel ---- */

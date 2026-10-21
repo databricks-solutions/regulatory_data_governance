@@ -32,6 +32,9 @@ import time
 from contextlib import contextmanager
 from typing import Any, Generator
 
+import cache
+import request_context
+
 logger = logging.getLogger(__name__)
 
 USE_MOCK = os.getenv("USE_MOCK_BACKEND", "true").lower() == "true"
@@ -227,11 +230,27 @@ async def execute_query(query: str, params: dict[str, Any] | None = None) -> lis
     paralelo. Falha transitória é repetida (`_execute_with_retry`). When
     USE_MOCK is True, this is not called — routers return mock data directly.
     """
-    return await asyncio.to_thread(_execute_with_retry, query, params)
+    started = time.perf_counter()
+    try:
+        return await asyncio.to_thread(_execute_with_retry, query, params)
+    finally:
+        stats = request_context.current()
+        if stats is not None:
+            stats.sql_count += 1
+            stats.sql_ms += (time.perf_counter() - started) * 1000
+
+
+async def _execute_query_cached(
+    namespace: str, query: str, params: dict[str, Any] | None
+) -> list[dict]:
+    key = (query, tuple(sorted((params or {}).items())))
+    rows = await cache.get_or_load(namespace, key, lambda: execute_query(query, params))
+    # Cópia rasa: quem chama pode alterar as linhas sem corromper o cache.
+    return [dict(r) for r in rows]
 
 
 async def execute_query_or_empty(
-    query: str, params: dict[str, Any] | None = None
+    query: str, params: dict[str, Any] | None = None, *, cache_ns: str | None = None
 ) -> list[dict]:
     """Like `execute_query` but returns `[]` when the target table/view does
     not exist yet.
@@ -242,8 +261,13 @@ async def execute_query_or_empty(
     until the customer runs the corresponding job; a missing table is a
     "not yet" case, not a server error — the UI should render an empty
     state instead of a 500.
+
+    `cache_ns` guarda o resultado no namespace de `cache.TTL_S` (chave = SQL +
+    params). Tabela ausente não é guardada: aparece assim que o job a criar.
     """
     try:
+        if cache_ns:
+            return await _execute_query_cached(cache_ns, query, params)
         return await execute_query(query, params)
     except Exception as exc:  # noqa: BLE001 — narrow by inspecting the message
         msg = str(exc)

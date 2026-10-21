@@ -16,7 +16,8 @@
   // Abas dirigidas pelos CADOCs cadastrados (tela de Vínculos → Gestão de
   // CADOC), não mais fixas em 3040/3050. Assim um CADOC criado pelo cliente
   // aparece aqui automaticamente. Abre com a lista da última visita (cache) e
-  // atualiza em background; os dois canônicos só na primeira visita ou em erro.
+  // atualiza em background; sem cache, a barra fica vazia até a lista chegar.
+  // Os dois canônicos só em erro ou lista vazia.
   const FALLBACK_TABS = [
     { key: '3040', label: 'DOC 3040' },
     { key: '3050', label: 'DOC 3050' }
@@ -31,9 +32,12 @@
     } catch (_) { return null; }
   }
 
-  const initialTabs = readCachedTabs() ?? FALLBACK_TABS;
-  let tabs = $state(initialTabs);
-  let activeTab = $state(initialTabs.some((t) => t.key === '3040') ? '3040' : initialTabs[0].key);
+  const cachedTabs = readCachedTabs();
+  let tabs = $state(cachedTabs ?? []);
+  // Sem cache, os resultados esperam as abas: buscar o 3040 de antemão
+  // mostraria o resultado dele sob a aba que vier a ser a ativa.
+  let tabsReady = $state(cachedTabs !== null);
+  let activeTab = $state(!cachedTabs || cachedTabs.some((t) => t.key === '3040') ? '3040' : cachedTabs[0].key);
 
   const NIVEL_LABELS = $derived.by(() => ({
     1: { label: $_('validations.levelOne'), subtitle: $_('validations.levelOneSubtitle'), desc: $_('validations.levelOneDesc'), color: 'var(--primary)' },
@@ -228,8 +232,8 @@
   }
 
   // Carrega as abas a partir dos CADOCs cadastrados. Cada CADOC vira uma aba
-  // "DOC <documento>" (usa o nome quando houver). Mantém o fallback se a lista
-  // vier vazia ou a chamada falhar, para não quebrar a tela.
+  // "DOC <documento>" (usa o nome quando houver). Usa o fallback se a lista
+  // vier vazia ou a chamada falhar e não houver cache, para não quebrar a tela.
   async function loadTabs() {
     try {
       const data = await getCadocs();
@@ -239,9 +243,15 @@
         // abas ficarem curtas; o nome completo do CADOC vive na tela de Vínculos.
         tabs = cadocs.map((c) => ({ key: c.documento, label: `DOC ${c.documento}` }));
         try { localStorage.setItem(TABS_CACHE_KEY, JSON.stringify(tabs)); } catch (_) {}
-        if (!tabs.some((t) => t.key === activeTab)) activeTab = tabs[0].key;
+      } else if (!tabs.length) {
+        tabs = FALLBACK_TABS;
       }
-    } catch { /* mantém FALLBACK_TABS */ }
+    } catch {
+      if (!tabs.length) tabs = FALLBACK_TABS;
+    } finally {
+      if (!tabs.some((t) => t.key === activeTab)) activeTab = tabs[0].key;
+      tabsReady = true;
+    }
   }
 
   // Deep-link do painel "Regras da Dimensão" (/quality/<n>): ?doc= escolhe a
@@ -263,7 +273,7 @@
   // buscar antes faria uma busca sem data-base, refeita logo em seguida.
   // Re-busca quando mudam aba, data-base ou filtros (lidos em loadResults).
   $effect(() => {
-    if (!appState.dataBaseReady) return;
+    if (!appState.dataBaseReady || !tabsReady) return;
     activeTab;
     loadResults();
   });

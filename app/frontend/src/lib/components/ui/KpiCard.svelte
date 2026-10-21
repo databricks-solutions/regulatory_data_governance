@@ -1,5 +1,8 @@
 <script>
-  let { title, value, unit = '', trend = null, trendLabel = '', status = 'info', href = '', subtitle = '' } = $props();
+  import Skeleton from './Skeleton.svelte';
+
+  let { title, value, unit = '', trend = null, trendLabel = '', status = 'info', href = '', subtitle = null, loading = false } = $props();
+  // loading: skeleton no valor e, se a prop subtitle foi passada, também na linha de baixo.
 
   let trendClass = $derived(
     trend > 0 ? 'trend-up' : trend < 0 ? 'trend-down' : 'trend-neutral'
@@ -13,9 +16,15 @@
     <div class="kpi-title">{title}</div>
   </div>
   <div class="kpi-value">
-    {value}{#if unit}<span class="kpi-unit">{unit}</span>{/if}
+    {#if loading}
+      <Skeleton width="96px" height="0.9em" />
+    {:else}
+      {value}{#if unit}<span class="kpi-unit">{unit}</span>{/if}
+    {/if}
   </div>
-  {#if subtitle}
+  {#if loading && subtitle !== null}
+    <div class="kpi-subtitle"><Skeleton width="120px" height="0.8em" /></div>
+  {:else if subtitle}
     <div class="kpi-subtitle">{subtitle}</div>
   {/if}
   {#if trend != null}

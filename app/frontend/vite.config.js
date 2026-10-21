@@ -10,6 +10,11 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true
+      },
+      // Logo enviado em Configurações (servido pelo FastAPI, ver main.py)
+      '/brand': {
+        target: `http://127.0.0.1:${backendPort}`,
+        changeOrigin: true
       }
     }
   }

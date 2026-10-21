@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
+import cache
 from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
@@ -158,6 +160,7 @@ async def get_data_bases():
         f"SELECT data_base_month FROM {CATALOG}.{SCHEMA_GOLD}.processing_state "
         "ORDER BY updated_at DESC LIMIT 1",
         {},
+        cache_ns="pipeline",
     )
     if state:
         current = state[0].get("data_base_month") or ""
@@ -169,6 +172,7 @@ async def get_data_bases():
         f"  UNION ALL SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3050"
         ") WHERE dt_base IS NOT NULL ORDER BY m DESC",
         {},
+        cache_ns="pipeline",
     )
     available = [r["m"] for r in rows if r.get("m")]
 
@@ -217,6 +221,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1",
         scope_params,
+        cache_ns="dqx",
     )
     last_run_at = ""
     last_table = ""
@@ -235,6 +240,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
             f"FROM {DQX_METRICS_TABLE} "
             f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
             {},
+            cache_ns="dqx",
         )
         metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
@@ -400,6 +406,30 @@ DASHBOARD_NAMES = {
 }
 
 
+async def _workspace_host_and_id() -> tuple[str, str]:
+    """Host e id do workspace. Em cache: cada `WorkspaceClient()` novo refaz o OAuth."""
+    def load() -> tuple[str, str]:
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        # Cloud-agnostic: get_workspace_id() works on AWS (dbc-*.cloud.databricks.com),
+        # Azure (adb-<id>.azuredatabricks.net) and GCP alike. The old `adb-(\d+)`
+        # regex only matched Azure hosts, so on AWS/GCP the embed `?o=` came out
+        # empty and the Genie/dashboard iframe failed to resolve the workspace.
+        return w.config.host.rstrip("/"), str(w.get_workspace_id())
+
+    return await cache.get_or_load("reference", "workspace_host_and_id", lambda: asyncio.to_thread(load))
+
+
+async def _dashboard_display_name(dashboard_id: str) -> str | None:
+    def load() -> str | None:
+        from databricks.sdk import WorkspaceClient
+        return WorkspaceClient().lakeview.get(dashboard_id=dashboard_id).display_name
+
+    return await cache.get_or_load(
+        "reference", ("dashboard_name", dashboard_id), lambda: asyncio.to_thread(load),
+    )
+
+
 @router.get("/embed/{key}", response_model=DashboardEmbed)
 async def get_dashboard_embed(key: str):
     """Return embed URL for a Lakeview dashboard by key or ID.
@@ -411,18 +441,10 @@ async def get_dashboard_embed(key: str):
     real_id = DASHBOARD_KEY_MAP.get(key, key)
     name = DASHBOARD_NAMES.get(key, "Dashboard")
 
-    from databricks.sdk import WorkspaceClient
-    w = None
     host = ""
     workspace_id = ""
     try:
-        w = WorkspaceClient()
-        host = w.config.host.rstrip("/")
-        # Cloud-agnostic: get_workspace_id() works on AWS (dbc-*.cloud.databricks.com),
-        # Azure (adb-<id>.azuredatabricks.net) and GCP alike. The old `adb-(\d+)`
-        # regex only matched Azure hosts, so on AWS/GCP the embed `?o=` came out
-        # empty and the Genie/dashboard iframe failed to resolve the workspace.
-        workspace_id = str(w.get_workspace_id())
+        host, workspace_id = await _workspace_host_and_id()
     except Exception:
         pass
 
@@ -437,8 +459,7 @@ async def get_dashboard_embed(key: str):
 
     if not USE_MOCK:
         try:
-            dashboard = w.lakeview.get(dashboard_id=real_id)
-            name = dashboard.display_name or name
+            name = await _dashboard_display_name(real_id) or name
         except Exception:
             pass
     return DashboardEmbed(
