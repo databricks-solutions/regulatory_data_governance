@@ -70,6 +70,14 @@
       .filter((s) => s.items.length > 0)
   );
 
+  // Logo customizado ganha o mesmo texto do DefaultLogo ao lado. Exceção: logo
+  // largo (wordmark), que já traz o nome e não deixa espaço para o texto.
+  let logoWide = $state(false);
+  function onLogoLoad(e) {
+    const img = e.currentTarget;
+    logoWide = img.naturalHeight > 0 && img.naturalWidth / img.naturalHeight > 1.6;
+  }
+
   function isActive(href, currentPath) {
     if (href === '/') return currentPath === '/';
     return currentPath.startsWith(href);
@@ -96,7 +104,18 @@
     {#if !collapsed}
       <a href="/" class="logo-area">
         {#if brandConfig.logo_url}
-          <img src={brandConfig.logo_url} alt={brandConfig.name} class="logo-custom" />
+          <img
+            src={brandConfig.logo_url}
+            alt={logoWide ? brandConfig.name : ''}
+            class="logo-custom"
+            onload={onLogoLoad}
+          />
+          {#if !logoWide}
+            <span class="logo-text" title={brandConfig.name}>
+              <span class="logo-name">{brandConfig.name}</span>
+              <span class="logo-tagline">R.18 COMPLIANCE</span>
+            </span>
+          {/if}
         {:else}
           <DefaultLogo size="full" name={brandConfig.name} />
         {/if}
@@ -202,6 +221,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    min-width: 0;
     text-decoration: none;
   }
   .logo-custom {
@@ -210,6 +230,30 @@
     width: auto;
     object-fit: contain;
     flex-shrink: 0;
+  }
+  /* Mesma tipografia do texto do DefaultLogo. */
+  .logo-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    font-family: Inter, system-ui, sans-serif;
+    line-height: 1.2;
+  }
+  .logo-name {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .logo-tagline {
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: 2.2px;
+    color: #9CA3AF;
+    white-space: nowrap;
   }
   .logo-collapsed-link {
     display: flex;
