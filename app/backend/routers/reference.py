@@ -190,6 +190,7 @@ async def get_dominios(
         "AND (:campo IS NULL OR campo = :campo) "
         "AND is_current = TRUE ORDER BY campo, valor_codigo",
         {"documento": document, "campo": field},
+        cache_ns="reference",
     )
     fields_map: dict[str, DominioField] = {}
     for r in rows:
@@ -444,6 +445,7 @@ async def get_calendario(
         f"FROM {CATALOG}.{SCHEMA_REFERENCE}.bcb_calendar "
         "WHERE ano = :year AND (:month IS NULL OR MONTH(data) = :month) ORDER BY data",
         {"year": year, "month": month},
+        cache_ns="reference",
     )
     days = [
         CalendarioDay(date=str(r["data"]), is_dia_util=r["is_dia_util"], is_ultimo_du_semana=r["is_ultimo_du_semana"], is_ultimo_du_mes=r["is_ultimo_du_mes"], feriado=r.get("nm_feriado"))
@@ -494,6 +496,7 @@ async def get_equivalencia(
         "WHERE (:mod_3040 IS NULL OR mod_3040 = :mod_3040) "
         "AND (:modalidade_3050 IS NULL OR modalidade_3050 = :modalidade_3050) ORDER BY mod_3040",
         {"mod_3040": modality_3040, "modalidade_3050": category_3050},
+        cache_ns="reference",
     )
     mappings = [
         EquivalenciaMapping(
@@ -518,6 +521,7 @@ async def get_dimensions(locale: str = Depends(get_locale)):
         "SELECT dimensao_id, nome, definicao_regulatoria, artigo_r18, "
         "metrica_implementacao, meta_padrao_pct, capacidade_databricks "
         f"FROM {CATALOG}.{SCHEMA_REFERENCE}.dimensoes_r18 ORDER BY dimensao_id",
+        cache_ns="reference",
     )
     # `dimensao_id` is stored as a Roman numeral string (I..XII) in setup_reference_tables.
     # Map to int 1..12 for the DimensionDefinition.id field (which the App's frontend expects).

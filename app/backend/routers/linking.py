@@ -36,9 +36,9 @@ from db import (
     SCHEMA_SILVER,
     USE_MOCK,
 )
+import cache
 from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
-# Strict variant for writes (must surface real errors, e.g. permission denied).
-from db import execute_query as execute_query_strict
+from db import execute_query as _execute_query
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
 from db import execute_query_or_empty as execute_query
 from i18n import get_locale
@@ -66,6 +66,15 @@ router = APIRouter()
 _DOCS = f"{CATALOG}.governance.cadoc_documentos"
 _TBLS = f"{CATALOG}.governance.cadoc_tabelas"
 _LINKS = f"{CATALOG}.governance.regra_vinculos"
+
+
+async def execute_query_strict(query: str, params: dict | None = None) -> list[dict]:
+    """Escrita: erro real sobe (ex. permissão negada) e o cache `links` é limpo
+    — só neste worker; o outro vê a mudança ao vencer o prazo (`cache.TTL_S`)."""
+    try:
+        return await _execute_query(query, params)
+    finally:
+        cache.invalidate("links")
 
 # Schemas the browser is allowed to list (data schemas the app SP can SELECT).
 _BROWSABLE_SCHEMAS = {"silver", "bronze", "gold", "reference"}

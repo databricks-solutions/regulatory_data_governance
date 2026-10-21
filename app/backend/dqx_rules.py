@@ -106,6 +106,7 @@ async def load_executed_rules(table_fqns: list[str] | None = None) -> list[dict]
         "  WHERE binding_version = latest_version OR (latest_version IS NULL AND rn = 1)"
         "  ORDER BY created_at DESC",
         params,
+        cache_ns="dqx",
     )
     # Um check por (tabela, nome), do run mais recente: runs da mesma versão
     # podem diferir em valor resolvido na hora (ex. pass_threshold default).

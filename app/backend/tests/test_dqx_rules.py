@@ -191,8 +191,8 @@ class LoadExecutedRulesTest(unittest.TestCase):
     def _run(self, rows, table_fqns=None):
         seen = {}
 
-        async def fake_query(sql, params=None):
-            seen["sql"], seen["params"] = sql, params
+        async def fake_query(sql, params=None, cache_ns=None):
+            seen["sql"], seen["params"], seen["cache_ns"] = sql, params, cache_ns
             return rows
 
         async def fake_load():
@@ -228,6 +228,11 @@ class LoadExecutedRulesTest(unittest.TestCase):
         self.assertIn("source_table_fqn IN (:et0,:et1)", seen["sql"])
         self.assertEqual(seen["params"], {"et0": "c.silver.a", "et1": "c.silver.b"})
         self.assertNotIn("c.silver.a", seen["sql"])
+
+    def test_is_cached_with_the_dqx_ttl(self):
+        """Chamada por várias telas e abas por request: tem de cair no cache `dqx`."""
+        _, seen = self._run([])
+        self.assertEqual(seen["cache_ns"], "dqx")
 
     def test_empty_table_list_skips_the_query(self):
         out, seen = self._run([{"table_fqn": "x", "checks": '{"name": "n"}'}], [])

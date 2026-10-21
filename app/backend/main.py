@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import request_context
 from routers import (
     branding,
     dashboard,
@@ -85,6 +87,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Timing por request de API: log + header Server-Timing (aba Network do browser) ---
+@app.middleware("http")
+async def request_timing(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    stats = request_context.start(fresh=request.query_params.get("fresh") in ("1", "true"))
+    started = time.perf_counter()
+    response = await call_next(request)
+    total_ms = (time.perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = (
+        f'app;dur={total_ms:.0f}, sql;dur={stats.sql_ms:.0f};desc="{stats.sql_count} stmt", '
+        f'cache;desc="{stats.cache_hits} hit {stats.cache_misses} miss"'
+    )
+    logger.info(
+        "%s %s %d %.0fms | sql %d stmt %.0fms | cache %d hit %d miss",
+        request.method, request.url.path, response.status_code, total_ms,
+        stats.sql_count, stats.sql_ms, stats.cache_hits, stats.cache_misses,
+    )
+    return response
+
 
 # --- Mount routers per API spec Section 1.4 ---
 app.include_router(health.router, prefix="/api/v1", tags=["system"])

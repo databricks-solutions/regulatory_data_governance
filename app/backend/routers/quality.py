@@ -314,6 +314,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
         f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
         scope_params,
+        cache_ns="dqx",
     )
     if not runs:
         return {}
@@ -324,6 +325,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
         f"FROM {DQX_METRICS_TABLE} "
         f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
         {},
+        cache_ns="dqx",
     )
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
@@ -416,6 +418,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
         f"    AND {scope_pred}"
         ") SELECT run_id, source_table_fqn, total_rows, month FROM ranked WHERE rn = 1",
         scope_params,
+        cache_ns="dqx",
     )
     if not runs:
         return []
@@ -426,6 +429,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
         f"FROM {DQX_METRICS_TABLE} "
         f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
         {},
+        cache_ns="dqx",
     )
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
@@ -597,5 +601,6 @@ async def get_quality_trend(
         "FROM per_run WHERE month IS NOT NULL "
         "GROUP BY month ORDER BY month",
         {},
+        cache_ns="dqx",
     )
     return {"data_base": data_base, "trend": [{"month": r["month"], "score": float(r["score"] or 0)} for r in rows]}

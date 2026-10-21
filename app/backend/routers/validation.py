@@ -430,7 +430,7 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
         ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
         "FROM ranked WHERE rn = 1"
     )
-    runs = await execute_query(runs_sql, run_params)
+    runs = await execute_query(runs_sql, run_params, cache_ns="dqx")
     if not runs:
         return [], None, None
 
@@ -442,7 +442,9 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
         f"FROM {DQX_METRICS_TABLE} "
         f"WHERE metric_name = 'check_metrics' AND run_id IN ({','.join(f':{k}' for k in rk)})"
     )
-    metrics_rows = await execute_query(metrics_sql, {k: r["run_id"] for k, r in zip(rk, runs)})
+    metrics_rows = await execute_query(
+        metrics_sql, {k: r["run_id"] for k, r in zip(rk, runs)}, cache_ns="dqx",
+    )
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
     # Step 3: definições ativas, indexadas por (tabela, check).

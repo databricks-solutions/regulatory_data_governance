@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+import cache
 from diagnostics import PrereqReport, run_prereq_checks
 
 router = APIRouter()
@@ -11,5 +12,10 @@ router = APIRouter()
 
 @router.get("/prereqs", response_model=PrereqReport)
 async def get_prereqs() -> PrereqReport:
-    """Estado dos acessos externos. Chamado só quando uma tela vem vazia."""
+    """Estado dos acessos externos. Chamado só quando uma tela vem vazia.
+
+    Limpa o cache antes: depois de um GRANT, o "Re-verificar" tem de refletir
+    nas telas, não só no diagnóstico.
+    """
+    cache.clear()
     return await run_prereq_checks()
