@@ -243,11 +243,13 @@
     font-size: 16px;
     font-weight: 800;
     letter-spacing: -0.5px;
-    color: var(--primary);
+    color: #000;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Nome fixo em preto, fora do tema de cores; branco só no modo escuro. */
+  :global([data-theme='dark']) .logo-name { color: #fff; }
   .logo-tagline {
     font-size: 8px;
     font-weight: 500;

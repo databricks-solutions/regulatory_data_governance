@@ -23,6 +23,7 @@ UPDATE via `db.execute_query`). Reads use the tolerant `execute_query_or_empty`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -486,6 +487,7 @@ async def list_linkable_rules(
     if USE_MOCK:
         rules = [
             LinkableRule(
+                key=f"{CATALOG}.silver.scr3040_clientes|b77ca2c5f49a4b34",
                 rule_id="b77ca2c5f49a4b34", definition_name="", function="is_in_range",
                 arguments_summary="column=parte, min=1, max=1",
                 table_fqn=f"{CATALOG}.silver.scr3040_clientes", documento="3040",
@@ -529,6 +531,7 @@ async def list_linkable_rules(
     links_by_pair = {(r["table_fqn"], r["check_name"]): r for r in link_rows}
 
     out: list[LinkableRule] = []
+    seen_keys: set[str] = set()
     for rr in rule_rows:
         tfqn = rr.get("table_fqn") or ""
         for chk in _parse_check_def(rr.get("checks")):
@@ -560,8 +563,15 @@ async def list_linkable_rules(
                 if tag_meta["dimension_r18"]:
                     tag_dim = tag_meta["dimension_r18"]
                     tag_dim_name = tag_meta["dimension_name"]
+            digest = hashlib.sha1(json.dumps(chk, sort_keys=True, default=str).encode()).hexdigest()[:16]
+            key = f"{tfqn}|{digest}"
+            n = 1
+            while key in seen_keys:  # definição idêntica repetida: a tela não pode ter chave igual
+                n += 1
+                key = f"{tfqn}|{digest}#{n}"
+            seen_keys.add(key)
             out.append(LinkableRule(
-                rule_id=rr.get("rule_id") or "", definition_name=def_name, function=func,
+                key=key, rule_id=rr.get("rule_id") or "", definition_name=def_name, function=func,
                 arguments_summary=arg_summary[:200], table_fqn=tfqn,
                 documento=doc_by_table.get(tfqn), effective_check_names=candidates,
                 current_link=_vinculo_from_row(cur) if cur else None,

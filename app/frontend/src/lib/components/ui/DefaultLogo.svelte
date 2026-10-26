@@ -17,7 +17,12 @@
     <text x="18" y="15.5" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="10.5" fill="white" letter-spacing="0.5">BC</text>
     <text x="18" y="28.5" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-weight="700" font-size="7.5" fill="var(--accent)" letter-spacing="0.5">BANK</text>
     <!-- Text -->
-    <text x="48" y="21" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="16" fill="var(--primary)" letter-spacing="-0.5">BankCorp</text>
+    <text x="48" y="21" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="16" fill="#000" class="logo-name" letter-spacing="-0.5">BankCorp</text>
     <text x="48" y="32" font-family="Inter,system-ui,sans-serif" font-weight="500" font-size="8" fill="#9CA3AF" letter-spacing="2.2">R.18 COMPLIANCE</text>
   </svg>
 {/if}
+
+<style>
+  /* Nome fixo em preto, fora do tema de cores; branco só no modo escuro. */
+  :global([data-theme='dark']) .logo-name { fill: #fff; }
+</style>
