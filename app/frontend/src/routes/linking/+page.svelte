@@ -290,7 +290,9 @@
             </tr>
           </thead>
           <tbody>
-            {#each rules as r (r.rule_id + r.table_fqn)}
+            <!-- `key` vem do backend: regras lidas dos runs não têm rule_id e podem
+                 não ter name; chave repetida derruba o render. -->
+            {#each rules as r (r.key)}
               {@const effName = r.current_link?.check_name || r.definition_name || (r.effective_check_names && r.effective_check_names[0]) || '—'}
               <tr>
                 <td class="mono">{r.rule_id || '—'}</td>

@@ -165,5 +165,44 @@ class LinkingRouterMockTest(unittest.TestCase):
         self.assertEqual(r.status_code, 201, r.text)
 
 
+class LinkableRuleKeyTest(unittest.TestCase):
+    """Regressão: regras lidas dos runs vêm sem `rule_id` (e as criadas na UI
+    da Studio, sem `name`). A chave antiga `rule_id + table_fqn` repetia e o
+    `{#each}` keyed da tela de Vínculo de Regras quebrava (each_key_duplicate)."""
+
+    def test_keys_unique_without_rule_id_or_name(self):
+        import asyncio
+        from app.backend.routers import linking
+
+        tbl = "rc18_catalog.silver.scr3040_operacoes"
+        checks = [
+            {"criticality": "error", "check": {"function": "is_not_null", "arguments": {"column": c}}}
+            for c in ("cd_mod", "vl_contr", "dt_contr")
+        ]
+        checks.append(dict(checks[0]))  # definição idêntica repetida
+
+        async def fake_query(sql, params=None, **kw):
+            if "cadoc_tabelas" in sql:
+                return [{"documento": "3040", "table_fqn": tbl}]
+            return []
+
+        async def fake_executed(tables):
+            return [{"table_fqn": tbl, "checks": c} for c in checks]
+
+        async def fake_eff(tables):
+            return {tbl: ["vl_contr_is_null"]}
+
+        with patch.object(linking, "USE_MOCK", False), \
+             patch.object(linking, "execute_query", fake_query), \
+             patch.object(linking, "load_executed_rules", fake_executed), \
+             patch.object(linking, "_effective_names_by_table", fake_eff):
+            resp = asyncio.run(linking.list_linkable_rules(document=None, table_fqn=None, linked=None))
+
+        keys = [r.key for r in resp.rules]
+        self.assertEqual(len(keys), 4)
+        self.assertEqual(len(set(keys)), 4, keys)
+        self.assertTrue(all(r.rule_id == "" for r in resp.rules))
+
+
 if __name__ == "__main__":
     unittest.main()

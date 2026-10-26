@@ -1029,6 +1029,9 @@ class LinksResponse(BaseModel):
 
 class LinkableRule(BaseModel):
     """Regra DQX candidata a vínculo, anotada com o estado atual do vínculo."""
+    # Chave única por (tabela, definição do check) — `rule_id` vem vazio das
+    # regras lidas dos runs e `name` pode faltar, então nenhum dos dois serve.
+    key: str
     rule_id: str
     definition_name: str = ""             # `name` da definição (vazio se ausente)
     function: str = ""                    # is_in_range, sql_expression, ...
