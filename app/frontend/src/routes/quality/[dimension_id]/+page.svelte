@@ -7,7 +7,6 @@
   import { appState } from '$lib/stores.svelte.js';
   import { getQualityDimension } from '$lib/api.js';
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
 
   let dimId = $derived(parseInt($page.params.dimension_id));
@@ -80,11 +79,23 @@
         : `<span class="status-badge status-fail">✗ ${naoConformeLabel}</span>` }
   ]);
 
-  onMount(async () => {
+  let loadSeq = 0;
+
+  async function load() {
+    const seq = ++loadSeq;
     try {
       const resp = await getQualityDimension(dimId, appState.dataBase);
-      if (resp) data = resp;
+      if (resp && seq === loadSeq) data = resp;
     } catch {}
+  }
+
+  // Espera o layout resolver o mês de referência e recarrega quando ele (ou a
+  // dimensão) muda.
+  $effect(() => {
+    if (!appState.dataBaseReady) return;
+    appState.dataBase;
+    dimId;
+    load();
   });
 
   let statusVariant = $derived(data.status === 'conforme' ? 'success' : data.status === 'atencao' ? 'warning' : 'error');

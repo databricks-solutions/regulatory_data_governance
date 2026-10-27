@@ -153,6 +153,44 @@ class DimensionDetailResponse(BaseModel):
 
 # --- Validation Results ---
 
+class TableDataBase(BaseModel):
+    """Data-base avaliada pelo último run aprovado de uma tabela (ver data_base.py)."""
+    table_fqn: str
+    data_base: str | None = None      # ISO, fim do período; nulo = não identificada
+    origin: str                       # historico | desconhecida | sem_historico
+    run_id: str | None = None
+    run_started_at: str | None = None
+
+
+class DocumentSummary(BaseModel):
+    """Um CADOC com execução na DQX: a data-base do último processamento."""
+    documento: str
+    nome: str | None = None
+    grupo: str | None = None
+    periodicidade: str | None = None
+    data_base: str | None = None      # a mais recente entre as tabelas (ISO, fim do período)
+    mixed: bool = False               # tabelas em data-bases diferentes, ou alguma não identificada
+    last_run_at: str | None = None
+    total_rules: int = 0
+    failed_rules: int = 0             # reprovadas + alertas, como no card das Críticas
+    tables: list[TableDataBase] = []
+
+
+class CadocRef(BaseModel):
+    """CADOC cadastrado sem execução na seleção (mês de referência ou geral)."""
+    documento: str
+    nome: str | None = None
+    grupo: str | None = None
+    periodicidade: str | None = None
+    ever_processed: bool = False      # tem execução, só não no mês de referência
+
+
+class DocumentsResponse(BaseModel):
+    documents: list[DocumentSummary] = []
+    # Cadastrados e ativos, sem execução aprovada na seleção.
+    unprocessed: list[CadocRef] = []
+
+
 class ValidationSummary(BaseModel):
     total_rules: int
     passed: int
@@ -195,6 +233,8 @@ class ValidationResultsResponse(BaseModel):
     pagination: Pagination
     # Linkback to DQX Studio for the whole run (no run_config_name filter applied).
     studio_url: str | None = None
+    # Documento exibido: data-base avaliada pelo último run de cada tabela.
+    document: DocumentSummary | None = None
 
 
 # --- Validation Trigger / Run ---
@@ -927,6 +967,8 @@ class CadocDocument(BaseModel):
     descricao: str | None = None
     leiaute_versao: str | None = None
     is_ativo: bool = True
+    periodicidade: str | None = None  # diaria|semanal|mensal|trimestral|semestral|anual|eventual
+    grupo: str | None = None          # agrupa o seletor de documentos das Críticas
     # Contagens derivadas (preenchidas no GET /cadocs para a tela de gestão).
     table_count: int = 0
     rule_count: int = 0
@@ -941,6 +983,8 @@ class CadocCreateRequest(BaseModel):
     nome: str
     descricao: str | None = None
     leiaute_versao: str | None = None
+    periodicidade: str | None = None
+    grupo: str | None = None
 
 
 class CadocUpdateRequest(BaseModel):
@@ -948,6 +992,8 @@ class CadocUpdateRequest(BaseModel):
     descricao: str | None = None
     leiaute_versao: str | None = None
     is_ativo: bool | None = None
+    periodicidade: str | None = None
+    grupo: str | None = None
 
 
 class CadocListResponse(BaseModel):

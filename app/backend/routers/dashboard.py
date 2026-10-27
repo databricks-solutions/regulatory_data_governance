@@ -10,13 +10,14 @@ from datetime import datetime, timezone, date
 from fastapi import APIRouter, Depends, Query
 
 import cache
-from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_GOLD, USE_MOCK, genie_space_id
+from db import CATALOG, DQX_METRICS_TABLE, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for
-from dqx_rules import PUBLISHED_RUN_FILTER, build_index, load_executed_rules
+from dqx_rules import build_index, load_executed_rules
+from data_base import available_months, reference_month, select_runs
 from rc18_links import scope_table_clause
 from models import (
     Alert,
@@ -126,15 +127,15 @@ def _mock_kpis(data_base: str, locale: str = "pt") -> DashboardKPIs:
 
 @router.get("/kpis", response_model=DashboardKPIs)
 async def get_dashboard_kpis(
-    data_base: str = Query("2026-03", description="Reference month (YYYY-MM)"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     locale: str = Depends(get_locale),
 ):
     """Return executive summary KPIs for the home page."""
     if USE_MOCK:
-        return _mock_kpis(data_base, locale)
+        return _mock_kpis(data_base or "", locale)
 
     # Real-mode: agrega das tabelas de execução do DQX Studio.
-    return await _build_kpis_from_dqx_studio(data_base)
+    return await _build_kpis_from_dqx_studio(data_base or "")
 
 
 # Data-bases mock — espelham os meses que o frontend usava hardcoded, para o
@@ -144,46 +145,17 @@ _MOCK_DATA_BASES = ["2026-03", "2026-02", "2026-01", "2025-12", "2025-11", "2025
 
 @router.get("/data-bases")
 async def get_data_bases():
-    """Data-bases disponíveis + a corrente (último CADOC processado).
+    """Meses de referência do seletor + o padrão. Formato de cada item: `AAAA-MM`.
 
-    A data-base corrente vem de `gold.processing_state` (gravada pelo pipeline
-    gold como MAX(dt_base) das posições). As disponíveis são as distintas de
-    `gold.posicao_3040`/`3050`. Em mock (ou antes dos pipelines rodarem), cai
-    para a lista mock. Formato de cada item: `YYYY-MM`.
+    Disponíveis = meses com algum run de data-base identificada (ver
+    `data_base.available_months`). Padrão = o mais recente deles; sem nenhum
+    (histórico ainda não gravado), `""` = último processamento de cada documento.
     """
     if USE_MOCK:
         return {"current": _MOCK_DATA_BASES[0], "available": _MOCK_DATA_BASES}
-
-    # data-base corrente (uma linha em processing_state)
-    current = ""
-    state = await execute_query(
-        f"SELECT data_base_month FROM {CATALOG}.{SCHEMA_GOLD}.processing_state "
-        "ORDER BY updated_at DESC LIMIT 1",
-        {},
-        cache_ns="pipeline",
-    )
-    if state:
-        current = state[0].get("data_base_month") or ""
-
-    # data-bases distintas observadas nas posições (para popular o seletor)
-    rows = await execute_query(
-        "SELECT DISTINCT date_format(dt_base, 'yyyy-MM') AS m FROM ("
-        f"  SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3040 "
-        f"  UNION ALL SELECT dt_base FROM {CATALOG}.{SCHEMA_GOLD}.posicao_3050"
-        ") WHERE dt_base IS NOT NULL ORDER BY m DESC",
-        {},
-        cache_ns="pipeline",
-    )
-    available = [r["m"] for r in rows if r.get("m")]
-
-    # Fallbacks: se processing_state ainda não existe mas há posições, usa a mais
-    # recente; se nada existe, devolve vazio (o frontend lida com isso).
-    if not current and available:
-        current = available[0]
-    if current and current not in available:
-        available = [current, *available]
-
-    return {"current": current, "available": available}
+    scope_pred, scope_params = await scope_table_clause("source_table_fqn")
+    available = await available_months(scope_pred, scope_params)
+    return {"current": available[0] if available else "", "available": available}
 
 
 # Mapping `R.18 deadline` (BACEN final date for accelerator compliance).
@@ -204,31 +176,25 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
     """Compõe KPIs a partir das tabelas de execução do DQX Studio.
 
     Reusa a mesma lógica de agregação por dimensão usada pela rota
-    /quality/dimensions (latest run per source_table_fqn → check_metrics).
+    /quality/dimensions (um run por source_table_fqn → check_metrics): o do mês
+    de referência, ou o último de cada tabela sem ele.
     Calcula contagens de violações por documento (3040/3050) e timestamp do
     último run para o card "Última Execução".
     """
-    # 1. Latest SUCCESS runs per source_table_fqn — escopo dirigido por
-    # cadoc_tabelas (inclui tabelas gold registradas), fallback silver.
+    # 1. Um run por source_table_fqn — escopo dirigido por cadoc_tabelas
+    # (inclui tabelas gold registradas), fallback silver.
     scope_pred, scope_params = await scope_table_clause("source_table_fqn")
-    runs = await execute_query(
-        "WITH ranked AS ("
-        "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at,"
-        "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
-        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
-        f"  WHERE {PUBLISHED_RUN_FILTER}"
-        f"    AND {scope_pred}"
-        ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
-        "FROM ranked WHERE rn = 1",
-        scope_params,
-        cache_ns="dqx",
-    )
+    selection = await select_runs(scope_pred, scope_params, reference_month(data_base))
+    runs = selection.runs
     last_run_at = ""
     last_table = ""
+    last_data_base = ""
     if runs:
         runs_sorted = sorted(runs, key=lambda r: str(r.get("created_at") or ""), reverse=True)
         last_run_at = str(runs_sorted[0].get("created_at") or "")
         last_table = runs_sorted[0].get("source_table_fqn") or ""
+        # Data-base que o último run avaliou, no fim do período do documento dele.
+        last_data_base = selection.tables[last_table].data_base or ""
 
     # 2. check_metrics + active rules → por-dimensão agg + pending counts.
     by_dim: dict[int, dict] = {}
@@ -324,7 +290,7 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         ),
         last_submission=LastSubmission(
             document=last_table.split(".")[-1] if last_table else "",
-            data_base=data_base,
+            data_base=last_data_base,
             status="executado" if last_run_at else "pendente",
             submitted_at=last_run_at,
         ),

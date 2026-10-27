@@ -54,7 +54,9 @@
   let cadocsLoading = $state(false);
   let cadocModalOpen = $state(false);
   let cadocEditing = $state(false);        // false = criar, true = editar
-  let cadocForm = $state({ documento: '', nome: '', descricao: '', leiaute_versao: '' });
+  let cadocForm = $state({ documento: '', nome: '', descricao: '', leiaute_versao: '', periodicidade: '', grupo: '' });
+  // Mesma lista de data_base.PERIODICIDADES no backend.
+  const PERIODICIDADES = ['diaria', 'semanal', 'mensal', 'trimestral', 'semestral', 'anual', 'eventual'];
   let cadocSaving = $state(false);
 
   async function loadCadocs() {
@@ -71,7 +73,7 @@
 
   function openNewCadoc() {
     cadocEditing = false;
-    cadocForm = { documento: '', nome: '', descricao: '', leiaute_versao: '' };
+    cadocForm = { documento: '', nome: '', descricao: '', leiaute_versao: '', periodicidade: '', grupo: '' };
     cadocModalOpen = true;
   }
 
@@ -81,7 +83,9 @@
       documento: c.documento,
       nome: c.nome || '',
       descricao: c.descricao || '',
-      leiaute_versao: c.leiaute_versao || ''
+      leiaute_versao: c.leiaute_versao || '',
+      periodicidade: c.periodicidade || '',
+      grupo: c.grupo || ''
     };
     cadocModalOpen = true;
   }
@@ -94,7 +98,9 @@
         await updateCadoc(cadocForm.documento, {
           nome: cadocForm.nome,
           descricao: cadocForm.descricao || null,
-          leiaute_versao: cadocForm.leiaute_versao || null
+          leiaute_versao: cadocForm.leiaute_versao || null,
+          periodicidade: cadocForm.periodicidade || null,
+          grupo: cadocForm.grupo || null
         });
       } else {
         await createCadoc({ ...cadocForm });
@@ -242,6 +248,8 @@
             <tr>
               <th>{$_('linking.cadocColDocument')}</th>
               <th>{$_('linking.cadocColName')}</th>
+              <th>{$_('linking.cadocColGroup')}</th>
+              <th>{$_('linking.cadocColPeriodicity')}</th>
               <th class="num">{$_('linking.cadocColTables')}</th>
               <th class="num">{$_('linking.cadocColRules')}</th>
               <th>{$_('linking.cadocColStatus')}</th>
@@ -253,6 +261,8 @@
               <tr>
                 <td class="mono">{c.documento}</td>
                 <td>{c.nome}</td>
+                <td>{c.grupo || '—'}</td>
+                <td>{c.periodicidade ? $_(`periodicity.${c.periodicidade}`) : '—'}</td>
                 <td class="num">{c.table_count}</td>
                 <td class="num">{c.rule_count}</td>
                 <td><Badge label={c.is_ativo ? $_('linking.cadocActive') : $_('linking.cadocInactive')} variant={c.is_ativo ? 'success' : 'neutral'} /></td>
@@ -342,6 +352,17 @@
     </label>
     <label>{$_('linking.fieldLayoutVersion')}
       <input type="text" bind:value={cadocForm.leiaute_versao} />
+    </label>
+    <label>{$_('linking.fieldPeriodicity')}
+      <select bind:value={cadocForm.periodicidade}>
+        <option value="">—</option>
+        {#each PERIODICIDADES as p}
+          <option value={p}>{$_(`periodicity.${p}`)}</option>
+        {/each}
+      </select>
+    </label>
+    <label>{$_('linking.fieldGroup')}
+      <input type="text" bind:value={cadocForm.grupo} placeholder={$_('linking.fieldGroupHint')} />
     </label>
     <div class="form-actions">
       <button class="btn-secondary" onclick={() => cadocModalOpen = false}>{$_('linking.cancel')}</button>

@@ -42,10 +42,17 @@ export function getDashboardKpis(dataBase) {
   return apiFetch(`/dashboard/kpis${params}`);
 }
 
-// Data-bases disponíveis + a corrente (último CADOC processado). Alimenta o
-// seletor de Data-Base no header — substitui a lista antes hardcoded.
+// Meses de referência do seletor do header + o padrão ("" = último processamento
+// de cada documento).
 export function getDataBases() {
   return apiFetch('/dashboard/data-bases');
+}
+
+// CADOCs com execução na DQX, cada um com a data-base do último processamento.
+// Alimenta o seletor de documentos das Críticas e o card "Data-bases avaliadas".
+export function getValidationDocuments(dataBase) {
+  const params = dataBase ? `?data_base=${dataBase}` : '';
+  return apiFetch(`/validations/documents${params}`);
 }
 
 // Quality

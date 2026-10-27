@@ -2,12 +2,13 @@
   import KpiCard from '$lib/components/ui/KpiCard.svelte';
   import Skeleton from '$lib/components/ui/Skeleton.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
+  import DocumentDataBases from '$lib/components/domain/DocumentDataBases.svelte';
   import RadarChart from '$lib/components/charts/RadarChart.svelte';
   import LineChart from '$lib/components/charts/LineChart.svelte';
   import { goto } from '$app/navigation';
   import { appState } from '$lib/stores.svelte.js';
   import { getDashboardKpis, getQualityDimensions, getQualityTrend } from '$lib/api.js';
-  import { formatDate, formatPercent } from '$lib/format.js';
+  import { formatDataBase, formatDate, formatPercent } from '$lib/format.js';
   import { _ } from 'svelte-i18n';
 
   let kpis = $state({
@@ -55,8 +56,8 @@
     loading = false;
   }
 
-  // Espera o layout resolver a data-base (buscar antes usaria a data-base
-  // padrão do backend, diferente da do seletor) e recarrega quando ela muda.
+  // Espera o layout resolver o mês de referência (buscar antes usaria o padrão do
+  // backend, diferente do seletor) e recarrega quando ele muda.
   $effect(() => {
     if (!appState.dataBaseReady) return;
     appState.dataBase;
@@ -208,7 +209,7 @@
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('dashboard.appBaseDate')}</span>
-          {#if loading}<Skeleton width="72px" />{:else}<span class="detail-value">{kpis.last_submission.data_base || '—'}</span>{/if}
+          {#if loading}<Skeleton width="72px" />{:else}<span class="detail-value">{formatDataBase(kpis.last_submission.data_base)}</span>{/if}
         </div>
         <div class="status-detail">
           <span class="detail-label">{$_('common.status')}</span>
@@ -269,6 +270,8 @@
       </div>
     </div>
   </div>
+
+  <DocumentDataBases />
 </div>
 
 <style>

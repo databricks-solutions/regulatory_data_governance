@@ -262,6 +262,9 @@ grants = [
         "GRANT SELECT ON TABLE `{cat}`.`governance`.`{t}` TO `{sp}`",
         "GRANT MODIFY ON TABLE `{cat}`.`governance`.`{t}` TO `{sp}`",
     )
+] + [
+    # governance.data_base_ledger — só leitura: quem grava é o job gold.
+    f"GRANT SELECT     ON TABLE  `{CATALOG}`.`governance`.`data_base_ledger` TO `{sp_client_id}`",
 ]
 for g in grants:
     spark.sql(g)
