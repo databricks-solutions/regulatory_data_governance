@@ -1,43 +1,64 @@
 <script>
-  import Tabs from '$lib/components/ui/Tabs.svelte';
+  import DocumentPicker from '$lib/components/domain/DocumentPicker.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import FilterBar from '$lib/components/data/FilterBar.svelte';
   import DataTable from '$lib/components/data/DataTable.svelte';
   import Pagination from '$lib/components/data/Pagination.svelte';
   import PrereqAlert from '$lib/components/ui/PrereqAlert.svelte';
+  import Alert from '$lib/components/ui/Alert.svelte';
+  import Skeleton from '$lib/components/ui/Skeleton.svelte';
   import { appState } from '$lib/stores.svelte.js';
-  import { getValidationResults, createIncident, getCadocs, ApiError } from '$lib/api.js';
+  import { getValidationResults, getValidationDocuments, createIncident, ApiError } from '$lib/api.js';
+  import { formatDataBase, formatMonth } from '$lib/format.js';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { _ } from 'svelte-i18n';
 
-  // Abas dirigidas pelos CADOCs cadastrados (tela de Vínculos → Gestão de
-  // CADOC), não mais fixas em 3040/3050. Assim um CADOC criado pelo cliente
-  // aparece aqui automaticamente. Abre com a lista da última visita (cache) e
-  // atualiza em background; sem cache, a barra fica vazia até a lista chegar.
-  // Os dois canônicos só em erro ou lista vazia.
-  const FALLBACK_TABS = [
-    { key: '3040', label: 'DOC 3040' },
-    { key: '3050', label: 'DOC 3050' }
-  ];
-  const TABS_CACHE_KEY = 'rc18_cadoc_tabs';
+  // Documentos (CADOCs) com execução na DQX, cada um com a data-base do último
+  // processamento — no lugar da barra de abas, que não comporta dezenas de CADOCs.
+  // Abre com a lista da última visita (cache) e atualiza em background.
+  const DOCS_CACHE_KEY = 'rc18_validation_documents';
+  const LAST_DOC_KEY = 'rc18_validation_last_doc';
 
-  function readCachedTabs() {
+  function readCache(key) {
     if (!browser) return null;
-    try {
-      const cached = JSON.parse(localStorage.getItem(TABS_CACHE_KEY) || 'null');
-      return Array.isArray(cached) && cached.length ? cached : null;
-    } catch (_) { return null; }
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (_) { return null; }
   }
 
-  const cachedTabs = readCachedTabs();
-  let tabs = $state(cachedTabs ?? []);
-  // Sem cache, os resultados esperam as abas: buscar o 3040 de antemão
-  // mostraria o resultado dele sob a aba que vier a ser a ativa.
-  let tabsReady = $state(cachedTabs !== null);
-  let activeTab = $state(!cachedTabs || cachedTabs.some((t) => t.key === '3040') ? '3040' : cachedTabs[0].key);
+  const cachedDocs = readCache(DOCS_CACHE_KEY);
+  const initialDocs = Array.isArray(cachedDocs?.documents) ? cachedDocs.documents : [];
+  let documents = $state(initialDocs);
+  let unprocessed = $state(Array.isArray(cachedDocs?.unprocessed) ? cachedDocs.unprocessed : []);
+  // Sem cache, os resultados esperam a lista: buscar um documento de antemão
+  // mostraria o resultado dele sob o documento que vier a ser o selecionado.
+  let docsReady = $state(initialDocs.length > 0);
+
+  // ?doc= da URL > último visitado > 3040 > primeiro da lista.
+  function defaultDoc(list) {
+    const last = readCache(LAST_DOC_KEY);
+    if (last && list.some((d) => d.documento === last)) return last;
+    if (!list.length || list.some((d) => d.documento === '3040')) return '3040';
+    return list[0].documento;
+  }
+  let activeTab = $state(defaultDoc(initialDocs));
+  let docFromUrl = false;
+  // Resumo do documento exibido (data-base de cada tabela), da resposta dos resultados.
+  let docSummary = $state(null);
+
+  function selectDoc(doc) {
+    activeTab = doc;
+    activeNivel = null;
+    try { localStorage.setItem(LAST_DOC_KEY, JSON.stringify(doc)); } catch (_) {}
+  }
+
+  // Data-base de cada tabela no tooltip do ⚠ (tabelas em data-bases diferentes).
+  let mixedTitle = $derived(
+    (docSummary?.tables || [])
+      .map((t) => `${t.table_fqn.split('.').slice(1).join('.')}: ${t.data_base ? formatDataBase(t.data_base) : $_('validations.dataBaseUnknown')}`)
+      .join('\n')
+  );
 
   const NIVEL_LABELS = $derived.by(() => ({
     1: { label: $_('validations.levelOne'), subtitle: $_('validations.levelOneSubtitle'), desc: $_('validations.levelOneDesc'), color: 'var(--primary)' },
@@ -48,6 +69,12 @@
   let runSummary = $state({ run_id: '', run_completed_at: '', total_rules: 0, passed: 0, failed: 0, warnings: 0, pass_rate_pct: 0 });
   let results = $state([]);
   let resultsLoaded = $state(false);
+  // Enquanto busca (warehouse ligando, troca de documento ou de mês), skeletons
+  // no lugar dos valores — não "Nenhum resultado", que pareceria dado. Falha de
+  // rede/servidor vira aviso com "Tentar novamente", nunca tela vazia.
+  let resultsLoading = $state(true);
+  let resultsFailed = $state(false);
+  let docsFailed = $state(false);
   let studioUrl = $state(null);
   let activeNivel = $state(null); // null = all levels
 
@@ -182,7 +209,7 @@
         critica_id: row.critica_id || row.rule_id,
         run_config_name: row.run_config_name || '',
         table_fqn: row.table_fqn || null,
-        data_base: appState.dataBase,
+        data_base: (docSummary?.tables || []).find((t) => t.table_fqn === row.table_fqn)?.data_base?.slice(0, 7) || '',
         severity: row.severity,
         description: row.description || row.rule_name,
         check_name: row.check_name || null,
@@ -220,37 +247,39 @@
 
   async function loadResults() {
     const seq = ++resultsSeq;
+    resultsLoading = true;
+    resultsFailed = false;
     try {
       const data = await getValidationResults(activeTab, appState.dataBase, filterValues);
       if (seq !== resultsSeq) return;
       if (data?.results) results = data.results;
       if (data?.summary) runSummary = { ...runSummary, ...data.summary, run_id: data.run_id, run_completed_at: data.run_completed_at };
       studioUrl = data?.studio_url || null;
-    } catch {} finally {
-      if (seq === resultsSeq) resultsLoaded = true;  // distingue "não buscou" de "veio vazio"
+      docSummary = data?.document || null;
+    } catch {
+      if (seq === resultsSeq) resultsFailed = true;
+    } finally {
+      if (seq === resultsSeq) {
+        resultsLoaded = true;  // distingue "não buscou" de "veio vazio"
+        resultsLoading = false;
+      }
     }
   }
 
-  // Carrega as abas a partir dos CADOCs cadastrados. Cada CADOC vira uma aba
-  // "DOC <documento>" (usa o nome quando houver). Usa o fallback se a lista
-  // vier vazia ou a chamada falhar e não houver cache, para não quebrar a tela.
-  async function loadTabs() {
+  async function loadDocuments() {
+    docsFailed = false;
     try {
-      const data = await getCadocs();
-      const cadocs = (data?.cadocs || []).filter((c) => c.is_ativo !== false);
-      if (cadocs.length) {
-        // Label = apenas o código do documento (3040, 3050, 5050...) para as
-        // abas ficarem curtas; o nome completo do CADOC vive na tela de Vínculos.
-        tabs = cadocs.map((c) => ({ key: c.documento, label: `DOC ${c.documento}` }));
-        try { localStorage.setItem(TABS_CACHE_KEY, JSON.stringify(tabs)); } catch (_) {}
-      } else if (!tabs.length) {
-        tabs = FALLBACK_TABS;
-      }
+      const data = await getValidationDocuments(appState.dataBase);
+      documents = data?.documents || [];
+      unprocessed = data?.unprocessed || [];
+      try { localStorage.setItem(DOCS_CACHE_KEY, JSON.stringify({ documents, unprocessed })); } catch (_) {}
     } catch {
-      if (!tabs.length) tabs = FALLBACK_TABS;
+      // O seletor fica com o cache (ou vazio); a tela mostra o aviso de falha.
+      docsFailed = true;
     } finally {
-      if (!tabs.some((t) => t.key === activeTab)) activeTab = tabs[0].key;
-      tabsReady = true;
+      const known = [...documents, ...unprocessed].some((d) => d.documento === activeTab);
+      if (!docFromUrl && !known) activeTab = defaultDoc(documents);
+      docsReady = true;
     }
   }
 
@@ -265,18 +294,40 @@
     const doc = params.get('doc');
     pendingCheck = params.get('check');
     pendingRule = params.get('rule');
-    if (doc) activeTab = doc;     // antes do $effect, para já buscar a aba certa
-    loadTabs();
+    if (doc) { activeTab = doc; docFromUrl = true; }  // antes do $effect, para já buscar o certo
   });
 
-  // Única fonte de busca dos resultados. Espera o layout resolver a data-base:
-  // buscar antes faria uma busca sem data-base, refeita logo em seguida.
-  // Re-busca quando mudam aba, data-base ou filtros (lidos em loadResults).
+  // A lista de documentos depende do mês de referência: recarrega quando ele muda.
   $effect(() => {
-    if (!appState.dataBaseReady || !tabsReady) return;
+    if (!appState.dataBaseReady) return;
+    appState.dataBase;
+    loadDocuments();
+  });
+
+  // Única fonte de busca dos resultados. Espera o layout resolver o mês de
+  // referência; re-busca quando mudam documento, mês ou filtros (lidos em loadResults).
+  $effect(() => {
+    if (!appState.dataBaseReady || !docsReady) return;
     activeTab;
     loadResults();
   });
+
+  let loading = $derived(resultsLoading || !docsReady);
+
+  function retry() {
+    loadDocuments();
+    loadResults();
+  }
+
+  // Documento selecionado sem execução na seleção: a tela explica o que falta
+  // em vez de mostrar resultados vazios.
+  let noRunDoc = $derived(unprocessed.find((d) => d.documento === activeTab) || null);
+  let noRunMessage = $derived(
+    !noRunDoc ? ''
+      : noRunDoc.ever_processed && appState.dataBase
+        ? $_('validations.noRunInMonth', { values: { month: formatMonth(appState.dataBase, $_('header.months').split(',')) } })
+        : $_('validations.noRun')
+  );
 
   // Expande a linha da regra apontada pelo deep-link tão logo os resultados
   // cheguem, e rola até ela (a lista pode ser longa).
@@ -297,13 +348,36 @@
 </script>
 
 <div class="validations-page">
-  <Tabs {tabs} active={activeTab} onchange={(k) => { activeTab = k; activeNivel = null; }} />
+  <DocumentPicker {documents} {unprocessed} value={activeTab} loading={!docsReady} monthSelected={!!appState.dataBase} onchange={selectDoc} />
+
+  {#if resultsFailed || docsFailed}
+    <div class="card load-error" role="alert">
+      <span>{$_('common.requestFailed')}</span>
+      <button type="button" class="btn-secondary" onclick={retry}>{$_('common.retry')}</button>
+    </div>
+  {:else if noRunDoc && !loading}
+    <Alert severity="info" message={noRunMessage} />
+  {:else}
 
   <!-- Run Summary -->
   <div class="card run-summary">
+    {#if loading}
+      <div class="run-info">
+        <span class="run-source">{$_('validations.dqxStudioResults')}</span>
+        <span class="run-sep">|</span>
+        <Skeleton width="340px" />
+      </div>
+      <div class="run-stats"><Skeleton width="380px" /></div>
+    {:else}
     <div class="run-info">
       <span class="run-source">{$_('validations.dqxStudioResults')}</span>
       <span class="run-sep">|</span>
+      {#if docSummary}
+        <span title={docSummary.mixed ? mixedTitle : ''}>
+          {$_('validations.dataBaseLabel')}: <strong>{docSummary.data_base ? formatDataBase(docSummary.data_base) : $_('validations.dataBaseUnknown')}</strong>{#if docSummary.periodicidade}{' · '}{$_(`periodicity.${docSummary.periodicidade}`)}{/if}{#if docSummary.mixed} <span class="db-mixed">⚠</span>{/if}
+        </span>
+        <span class="run-sep">|</span>
+      {/if}
       <span class="run-id">{$_('validations.runLabel')}: {runSummary.run_id ? runSummary.run_id.slice(0, 12) + '…' : '—'}</span>
       <span class="run-sep">|</span>
       <span>{$_('validations.completed')}: {runSummary.run_completed_at?.slice(0, 16).replace('T', ' ') || '—'}</span>
@@ -321,6 +395,7 @@
       <span class="run-sep">|</span>
       {$_('validations.passRate')}: <strong>{runSummary.pass_rate_pct}%</strong>
     </div>
+    {/if}
   </div>
 
   <!-- Verification Levels Pyramid -->
@@ -340,10 +415,14 @@
         </div>
         <div class="nivel-desc">{info.desc}</div>
         <div class="nivel-stats">
-          <span>{$_('validations.rulesCount', { values: { n: counts.total } })}</span>
-          <span class="run-sep">|</span>
-          {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {$_('validations.failedShort', { values: { n: counts.fail + counts.warn } })}</span>{/if}
-          <span class="stat-pass">✓ {$_('validations.passedShort', { values: { n: counts.pass } })}</span>
+          {#if loading}
+            <Skeleton width="140px" />
+          {:else}
+            <span>{$_('validations.rulesCount', { values: { n: counts.total } })}</span>
+            <span class="run-sep">|</span>
+            {#if (counts.fail + counts.warn) > 0}<span class="stat-fail">✗ {$_('validations.failedShort', { values: { n: counts.fail + counts.warn } })}</span>{/if}
+            <span class="stat-pass">✓ {$_('validations.passedShort', { values: { n: counts.pass } })}</span>
+          {/if}
         </div>
       </button>
     {/each}
@@ -361,9 +440,21 @@
 
   <!-- Vazio pode ser ausência de execução ou falta de acesso. O componente só
        desenha se alguma verificação falhar, então não gera alarme falso. -->
-  <PrereqAlert active={resultsLoaded && results.length === 0} />
+  <PrereqAlert active={!loading && resultsLoaded && results.length === 0} />
 
   <!-- Results Table -->
+  {#if loading}
+    <div class="card table-skeleton" aria-busy="true">
+      {#each [0, 1, 2, 3, 4] as i (i)}
+        <div class="sk-row">
+          <Skeleton width="14%" />
+          <Skeleton width="{48 - i * 5}%" />
+          <Skeleton width="8%" />
+          <Skeleton width="10%" />
+        </div>
+      {/each}
+    </div>
+  {:else}
   <div class="card">
     <DataTable
       {columns}
@@ -427,6 +518,8 @@
     </DataTable>
     <Pagination page={currentPage} {totalPages} onchange={(p) => currentPage = p} />
   </div>
+  {/if}
+  {/if}
 </div>
 
 {#if toast}
@@ -450,6 +543,12 @@
   .run-source { color: var(--primary); font-weight: 600; }
   .run-id { font-family: var(--font-mono); }
   .run-sep { color: var(--gray-300); margin: 0 var(--space-2); }
+  .db-mixed { color: var(--warning); cursor: help; }
+  .load-error { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--error); font-size: var(--font-size-sm); }
+  .btn-secondary { background: var(--white); color: var(--gray-700); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); font-weight: 500; font-size: var(--font-size-sm); cursor: pointer; }
+  .table-skeleton { display: flex; flex-direction: column; }
+  .sk-row { display: flex; align-items: center; gap: var(--space-5); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-color); }
+  .sk-row:last-child { border-bottom: none; }
   .run-stats { font-size: var(--font-size-sm); color: var(--gray-700); }
   .stat-pass { color: var(--success); font-weight: 600; }
   .stat-warn { color: var(--warning); font-weight: 600; }

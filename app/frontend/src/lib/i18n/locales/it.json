@@ -57,7 +57,7 @@
   },
   "dashboard": {
     "activeAlerts": "Avvisi Attivi",
-    "appBaseDate": "Data base dell'app",
+    "appBaseDate": "Data di riferimento valutata",
     "complianceTrend": "Andamento della Conformità",
     "daysRemaining": "giorni rimanenti",
     "daysUnit": " giorni",
@@ -166,11 +166,12 @@
     "alerts": "Avvisi",
     "brandSettings": "Impostazioni del marchio",
     "darkMode": "Modalità scura",
-    "dataBase": "Data Base",
+    "dataBase": "Mese di riferimento",
     "language": "Lingua",
     "lightMode": "Modalità chiara",
     "months": "Gen,Feb,Mar,Apr,Mag,Giu,Lug,Ago,Set,Ott,Nov,Dic",
-    "toggleMenu": "Attiva/disattiva menu"
+    "toggleMenu": "Attiva/disattiva menu",
+    "latestProcessing": "Ultima elaborazione"
   },
   "lineage": {
     "autoColumnMapping": "Mappatura automatica per nome di colonna",
@@ -282,7 +283,12 @@
     "errorCadocHasLinks": "Questo CADOC ha collegamenti attivi; rimuovili prima.",
     "confirmDeleteLink": "Rimuovere questo collegamento?",
     "confirmDeleteCadoc": "Rimuovere questo CADOC?",
-    "notLinked": "—"
+    "notLinked": "—",
+    "cadocColGroup": "Gruppo",
+    "cadocColPeriodicity": "Periodicità",
+    "fieldPeriodicity": "Periodicità",
+    "fieldGroup": "Gruppo",
+    "fieldGroupHint": "Es.: SCR, COSIF, Prudenziale"
   },
   "nav": {
     "complianceR18": "Conformità R.18",
@@ -489,7 +495,11 @@
     "totalRules": "Totale: {n} regole",
     "type": "Tipo",
     "viewId": "Visualizza {id}",
-    "viewInDqxStudio": "Visualizza in DQX Studio"
+    "viewInDqxStudio": "Visualizza in DQX Studio",
+    "dataBaseLabel": "Data di riferimento",
+    "dataBaseUnknown": "non identificata",
+    "noRun": "Questo documento non ha ancora esecuzioni di regole in DQX Studio. Associa le sue tabelle e collega le regole in Collegamento Regole, pubblica il collegamento della tabella in DQX Studio ed eseguilo.",
+    "noRunInMonth": "Questo documento non ha esecuzioni di regole con data di riferimento in {month}. Scegli un altro mese di riferimento nell'intestazione, oppure \"Ultima elaborazione\"."
   },
   "xml": {
     "clickElement": "Fai clic su un elemento per vedere la validazione",
@@ -602,8 +612,48 @@
         "title": "Nessuna regola eseguita per questo deployment",
         "what": "L'accesso funziona, quindi non è un permesso: nessuna tabella di questo catalogo ha un'esecuzione della versione approvata delle sue regole.",
         "how": "RC18 mostra le regole ESEGUITE nella versione approvata. In DQX Studio, pubblica il binding della tabella nella scheda Tabelle (draft → approved) ed eseguila — Run o pianificazione per tabella. Le esecuzioni di bozza non contano."
+      },
+      "data_base_history": {
+        "title": "Storico delle date di riferimento assente",
+        "what": "Senza lo storico, le schermate mostrano l'ultima validazione senza sapere quale data di riferimento abbia valutato.",
+        "how": "Lo storico viene scritto alla fine di rc18_end_to_end e del job gold. Dopo aver aggiornato l'acceleratore, esegui rc18_end_to_end una volta: crea anche la tabella e riapplica i grant."
+      },
+      "data_base_history_lag": {
+        "title": "Storico delle date di riferimento in ritardo",
+        "what": "Queste tabelle sono state riscritte dopo l'ultima registrazione dello storico: {tables}. Finché non viene aggiornato, la data di riferimento delle nuove validazioni su di esse può risultare errata.",
+        "how": "Esegui il job gold (o rc18_end_to_end). Se silver o gold vengono caricate da un altro processo, concatena il job gold alla sua fine."
+      },
+      "data_base_history_grant": {
+        "title": "Nessun permesso per leggere lo storico delle date di riferimento",
+        "what": "La tabella {table} esiste, ma l'app non ha SELECT su di essa. Le schermate funzionano, ma senza identificare la data di riferimento di ogni validazione.",
+        "how": "Esegui il GRANT qui sotto, oppure rc18_end_to_end, che riapplica i permessi dell'app (il job gold da solo crea la tabella ma non concede l'accesso)."
       }
     },
     "unexpected": "Fallito per un motivo che la diagnostica non sa prescrivere — controlla il dettaglio tecnico prima di concedere qualsiasi permesso."
+  },
+  "documentPicker": {
+    "label": "Documento",
+    "placeholder": "Seleziona un documento",
+    "search": "Cerca per codice o nome…",
+    "otherGroup": "Altri",
+    "mixed": "Le tabelle di questo documento sono su date di riferimento diverse",
+    "noMatch": "Nessun documento trovato",
+    "noRun": "non eseguito",
+    "noRunInMonth": "non eseguito nel mese"
+  },
+  "documentDataBases": {
+    "title": "Date di riferimento valutate",
+    "more": "+{count} → Critiche",
+    "hintLatest": "Ultima elaborazione di ogni documento",
+    "hintMonth": "Ultima elaborazione di ogni documento con data di riferimento in {month}"
+  },
+  "periodicity": {
+    "diaria": "Giornaliera",
+    "semanal": "Settimanale",
+    "mensal": "Mensile",
+    "trimestral": "Trimestrale",
+    "semestral": "Semestrale",
+    "anual": "Annuale",
+    "eventual": "Su evento"
   }
 }

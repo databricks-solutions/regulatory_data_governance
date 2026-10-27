@@ -57,7 +57,7 @@
   },
   "dashboard": {
     "activeAlerts": "Alertas Ativos",
-    "appBaseDate": "Data-base do app",
+    "appBaseDate": "Data-base avaliada",
     "complianceTrend": "Tendência de Conformidade",
     "daysRemaining": "dias restantes",
     "daysUnit": " dias",
@@ -166,11 +166,12 @@
     "alerts": "Alertas",
     "brandSettings": "Configurações de marca",
     "darkMode": "Modo escuro",
-    "dataBase": "Data-Base",
+    "dataBase": "Mês de referência",
     "language": "Idioma",
     "lightMode": "Modo claro",
     "months": "Jan,Fev,Mar,Abr,Mai,Jun,Jul,Ago,Set,Out,Nov,Dez",
-    "toggleMenu": "Alternar menu"
+    "toggleMenu": "Alternar menu",
+    "latestProcessing": "Último processamento"
   },
   "lineage": {
     "autoColumnMapping": "Mapeamento automático por nome de coluna",
@@ -282,7 +283,12 @@
     "errorCadocHasLinks": "Este CADOC possui vínculos ativos; remova-os primeiro.",
     "confirmDeleteLink": "Remover este vínculo?",
     "confirmDeleteCadoc": "Remover este CADOC?",
-    "notLinked": "—"
+    "notLinked": "—",
+    "cadocColGroup": "Grupo",
+    "cadocColPeriodicity": "Periodicidade",
+    "fieldPeriodicity": "Periodicidade",
+    "fieldGroup": "Grupo",
+    "fieldGroupHint": "Ex.: SCR, COSIF, Prudencial"
   },
   "nav": {
     "complianceR18": "Conformidade R.18",
@@ -489,7 +495,11 @@
     "totalRules": "Total: {n} regras",
     "type": "Tipo",
     "viewId": "Ver {id}",
-    "viewInDqxStudio": "Ver no DQX Studio"
+    "viewInDqxStudio": "Ver no DQX Studio",
+    "dataBaseLabel": "Data-base",
+    "dataBaseUnknown": "não identificada",
+    "noRun": "Este documento ainda não tem execução de regras na DQX Studio. Associe as tabelas dele e vincule as regras em Vínculo de Regras, publique o vínculo da tabela na DQX Studio e execute-o.",
+    "noRunInMonth": "Este documento não tem execução de regras com data-base em {month}. Escolha outro mês de referência no cabeçalho, ou \"Último processamento\"."
   },
   "xml": {
     "clickElement": "Clique em um elemento para ver validação",
@@ -602,8 +612,48 @@
         "title": "Nenhuma regra executada para este deployment",
         "what": "O acesso está OK, então não é permissão: nenhuma tabela deste catálogo tem execução da versão aprovada das regras.",
         "how": "O RC18 mostra as regras que RODARAM na versão aprovada. Na DQX Studio, publique o vínculo da tabela na aba Tabelas (draft → approved) e execute-a — Run ou agendamento por tabela. Run de rascunho não conta."
+      },
+      "data_base_history": {
+        "title": "Histórico de data-base ausente",
+        "what": "Sem o histórico, as telas mostram a última validação sem saber qual data-base ela avaliou.",
+        "how": "O histórico é gravado no fim do rc18_end_to_end e do job gold. Depois de atualizar o acelerador, rode o rc18_end_to_end uma vez: ele também cria a tabela e reaplica os grants."
+      },
+      "data_base_history_lag": {
+        "title": "Histórico de data-base atrasado",
+        "what": "Estas tabelas foram regravadas depois do último registro do histórico: {tables}. Até ele ser atualizado, a data-base das validações novas dessas tabelas pode sair errada.",
+        "how": "Rode o job gold (ou o rc18_end_to_end). Se a silver ou a gold é carregada por outro processo, encadeie o job gold no fim dele."
+      },
+      "data_base_history_grant": {
+        "title": "Sem permissão para ler o histórico de data-base",
+        "what": "A tabela {table} existe, mas o app não tem SELECT nela. As telas funcionam, só que sem identificar a data-base de cada validação.",
+        "how": "Rode o GRANT abaixo, ou execute o rc18_end_to_end, que reaplica as permissões do app (o job gold sozinho cria a tabela, mas não concede o acesso)."
       }
     },
     "unexpected": "Falhou por um motivo que o diagnóstico não sabe prescrever — veja o detalhe técnico abaixo antes de conceder qualquer permissão."
+  },
+  "documentPicker": {
+    "label": "Documento",
+    "placeholder": "Selecione um documento",
+    "search": "Buscar por código ou nome…",
+    "otherGroup": "Outros",
+    "mixed": "As tabelas deste documento estão em data-bases diferentes",
+    "noMatch": "Nenhum documento encontrado",
+    "noRun": "sem execução",
+    "noRunInMonth": "sem execução no mês"
+  },
+  "documentDataBases": {
+    "title": "Data-bases avaliadas",
+    "more": "+{count} → Críticas",
+    "hintLatest": "Último processamento de cada documento",
+    "hintMonth": "Último processamento de cada documento com data-base em {month}"
+  },
+  "periodicity": {
+    "diaria": "Diária",
+    "semanal": "Semanal",
+    "mensal": "Mensal",
+    "trimestral": "Trimestral",
+    "semestral": "Semestral",
+    "anual": "Anual",
+    "eventual": "Eventual"
   }
 }

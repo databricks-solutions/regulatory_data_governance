@@ -57,7 +57,7 @@
   },
   "dashboard": {
     "activeAlerts": "Active Alerts",
-    "appBaseDate": "App base date",
+    "appBaseDate": "Evaluated reference date",
     "complianceTrend": "Compliance Trend",
     "daysRemaining": "days remaining",
     "daysUnit": " days",
@@ -166,11 +166,12 @@
     "alerts": "Alerts",
     "brandSettings": "Brand settings",
     "darkMode": "Dark mode",
-    "dataBase": "Base Date",
+    "dataBase": "Reference month",
     "language": "Language",
     "lightMode": "Light mode",
     "months": "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec",
-    "toggleMenu": "Toggle menu"
+    "toggleMenu": "Toggle menu",
+    "latestProcessing": "Latest run"
   },
   "lineage": {
     "autoColumnMapping": "Automatic mapping by column name",
@@ -282,7 +283,12 @@
     "errorCadocHasLinks": "This CADOC has active links; remove them first.",
     "confirmDeleteLink": "Remove this link?",
     "confirmDeleteCadoc": "Remove this CADOC?",
-    "notLinked": "—"
+    "notLinked": "—",
+    "cadocColGroup": "Group",
+    "cadocColPeriodicity": "Periodicity",
+    "fieldPeriodicity": "Periodicity",
+    "fieldGroup": "Group",
+    "fieldGroupHint": "E.g. SCR, COSIF, Prudential"
   },
   "nav": {
     "complianceR18": "R.18 Compliance",
@@ -489,7 +495,11 @@
     "totalRules": "Total: {n} rules",
     "type": "Type",
     "viewId": "View {id}",
-    "viewInDqxStudio": "View in DQX Studio"
+    "viewInDqxStudio": "View in DQX Studio",
+    "dataBaseLabel": "Reference date",
+    "dataBaseUnknown": "unidentified",
+    "noRun": "This document has no rule runs in DQX Studio yet. Associate its tables and link the rules in Rule Linking, publish the table binding in DQX Studio and run it.",
+    "noRunInMonth": "This document has no rule runs with reference date in {month}. Choose another reference month in the header, or \"Latest run\"."
   },
   "xml": {
     "clickElement": "Click an element to see validation",
@@ -602,8 +612,48 @@
         "title": "No rules executed for this deployment",
         "what": "Access is fine, so this is not a permission issue: no table in this catalog has a run of the approved version of its rules.",
         "how": "RC18 shows the rules that RAN in the approved version. In DQX Studio, publish the table binding on the Tables tab (draft → approved) and run it — Run or a per-table schedule. Draft runs do not count."
+      },
+      "data_base_history": {
+        "title": "Reference-date history missing",
+        "what": "Without the history, screens show the latest validation without knowing which reference date it evaluated.",
+        "how": "The history is written at the end of rc18_end_to_end and of the gold job. After upgrading the accelerator, run rc18_end_to_end once: it also creates the table and reapplies the grants."
+      },
+      "data_base_history_lag": {
+        "title": "Reference-date history behind",
+        "what": "These tables were rewritten after the last history record: {tables}. Until it is updated, the reference date of new validations on them may be wrong.",
+        "how": "Run the gold job (or rc18_end_to_end). If silver or gold is loaded by another process, chain the gold job at its end."
+      },
+      "data_base_history_grant": {
+        "title": "No permission to read the reference-date history",
+        "what": "The table {table} exists, but the app has no SELECT on it. Screens work, but without identifying the reference date of each validation.",
+        "how": "Run the GRANT below, or run rc18_end_to_end, which reapplies the app's permissions (the gold job alone creates the table but does not grant access)."
       }
     },
     "unexpected": "Failed for a reason the diagnostic cannot prescribe — check the technical detail below before granting any permission."
+  },
+  "documentPicker": {
+    "label": "Document",
+    "placeholder": "Select a document",
+    "search": "Search by code or name…",
+    "otherGroup": "Other",
+    "mixed": "This document's tables are on different reference dates",
+    "noMatch": "No document found",
+    "noRun": "not run",
+    "noRunInMonth": "not run in month"
+  },
+  "documentDataBases": {
+    "title": "Evaluated reference dates",
+    "more": "+{count} → Critiques",
+    "hintLatest": "Latest run of each document",
+    "hintMonth": "Latest run of each document with reference date in {month}"
+  },
+  "periodicity": {
+    "diaria": "Daily",
+    "semanal": "Weekly",
+    "mensal": "Monthly",
+    "trimestral": "Quarterly",
+    "semestral": "Semiannual",
+    "anual": "Annual",
+    "eventual": "Event-driven"
   }
 }
