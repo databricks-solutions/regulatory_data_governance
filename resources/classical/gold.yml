@@ -6,6 +6,8 @@
 #
 # As 7 primeiras leem silver e rodam em paralelo. Só `processing_state` lê gold,
 # e espera as 4 posições MENSAIS (o 4016 é semestral — ver o notebook).
+# `data_base_ledger` fecha o job: grava o histórico de data-base das tabelas de
+# cadoc_tabelas, para quem roda só este job (sem o rc18_end_to_end).
 resources:
   jobs:
     gold:
@@ -103,3 +105,23 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               gold_schema: ${resources.schemas.gold_schema.name}
+
+        - task_key: "data_base_ledger"
+          depends_on:
+            - task_key: "posicao_3040"
+            - task_key: "posicao_3050"
+            - task_key: "posicao_4010"
+            - task_key: "posicao_4016"
+            - task_key: "posicao_4060"
+            - task_key: "posicao_2011"
+            - task_key: "criticas_ddr_2011"
+            - task_key: "reconciliacao_cosif"
+            - task_key: "criticas_cosif_4060"
+            - task_key: "processing_state"
+          # Roda mesmo se uma posição falhar: o histórico das demais continua valendo.
+          run_if: ALL_DONE
+          notebook_task:
+            notebook_path: ../../notebooks/governance/data_base_ledger.py
+            base_parameters:
+              catalog: ${var.catalog}
+              governance_schema: ${resources.schemas.governance.name}

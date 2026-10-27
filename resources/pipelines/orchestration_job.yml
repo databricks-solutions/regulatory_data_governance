@@ -8,9 +8,13 @@
 # `databricks bundle run rc18_end_to_end` brings the whole stack
 # from a fresh deploy to populated gold tables:
 #
-#   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold
+#   setup_reference  ┬─→  load_sample_xmls  →  bronze  →  silver  →  gold  →  data_base_ledger
 #                    ├─→  setup_reference_4060 ──────────────────────┘
 #                    └─→  grant_warehouse_perms (paralelo)
+#
+# `data_base_ledger` só existe aqui: o `gold` do SDP é um pipeline, que não
+# encadeia notebook. Quem roda `bundle run gold` sozinho fica com o histórico
+# atrasado até o próximo rc18_end_to_end (o /diagnostics/prereqs acusa).
 #
 # Cada step espera o predecessor concluir com sucesso. As DLT pipelines são
 # referenciadas via bundle resource IDs para o prefixing dev-mode ser aplicado
@@ -111,3 +115,16 @@ resources:
             - task_key: "setup_reference_4060"
           pipeline_task:
             pipeline_id: ${resources.pipelines.gold.id}
+
+        # Histórico de data-base das tabelas de cadoc_tabelas. Materialized views
+        # não têm DESCRIBE HISTORY: o notebook usa o estado atual com o horário
+        # de agora (ver o cabeçalho dele). ALL_DONE: falha no gold não impede.
+        - task_key: "data_base_ledger"
+          depends_on:
+            - task_key: "gold"
+          run_if: ALL_DONE
+          notebook_task:
+            notebook_path: ../../notebooks/governance/data_base_ledger.py
+            base_parameters:
+              catalog: ${var.catalog}
+              governance_schema: ${resources.schemas.governance.name}

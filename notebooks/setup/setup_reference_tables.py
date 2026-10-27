@@ -569,7 +569,9 @@ CREATE TABLE IF NOT EXISTS {CATALOG}.governance.cadoc_documentos (
     created_at       TIMESTAMP,
     created_by       STRING,
     updated_at       TIMESTAMP,
-    updated_by       STRING
+    updated_by       STRING,
+    periodicidade    STRING,
+    grupo            STRING
 )
 USING DELTA
 TBLPROPERTIES (
@@ -577,6 +579,16 @@ TBLPROPERTIES (
     'delta.logRetentionDuration'        = 'interval 1825 days'
 )
 """)
+
+# `periodicidade` e `grupo` chegaram depois: o CREATE IF NOT EXISTS não as acrescenta
+# numa tabela que já existe. Nuláveis — o app lê com SELECT * e trata a ausência.
+_cols_docs = set(spark.table(f"{CATALOG}.governance.cadoc_documentos").columns)
+_novas = [c for c in ("periodicidade", "grupo") if c not in _cols_docs]
+if _novas:
+    spark.sql(
+        f"ALTER TABLE {CATALOG}.governance.cadoc_documentos "
+        f"ADD COLUMNS ({', '.join(f'{c} STRING' for c in _novas)})"
+    )
 
 # Seed 3040/3050 (idempotente: só insere se ainda não existir a linha).
 spark.sql(f"""
@@ -613,6 +625,21 @@ WHERE NOT EXISTS (
   SELECT 1 FROM {CATALOG}.governance.cadoc_documentos d WHERE d.documento = src.documento
 )
 """)
+
+# Periodicidade (formata a data-base no fim do período) e grupo (agrupa o seletor de
+# documentos das Críticas). Só preenche o que está nulo: não desfaz edição da tela.
+_META_SEED = {
+    "3040": ("mensal", "SCR"), "3050": ("mensal", "SCR"),
+    "4010": ("mensal", "COSIF"), "4016": ("semestral", "COSIF"), "4060": ("mensal", "COSIF"),
+    "2011": ("diaria", "Prudencial"),
+}
+for _campo, _i in (("periodicidade", 0), ("grupo", 1)):
+    _casos = " ".join(f"WHEN '{d}' THEN '{v[_i]}'" for d, v in _META_SEED.items())
+    spark.sql(f"""
+    UPDATE {CATALOG}.governance.cadoc_documentos
+    SET {_campo} = CASE documento {_casos} END
+    WHERE {_campo} IS NULL AND documento IN ({", ".join(f"'{d}'" for d in _META_SEED)})
+    """)
 
 # COMMAND ----------
 
@@ -707,7 +734,28 @@ TBLPROPERTIES (
 )
 """)
 
-print(f"CADOC linking tables ready at {CATALOG}.governance.(cadoc_documentos, cadoc_tabelas, regra_vinculos)")
+# 8.4 — Histórico de data-base por tabela, gravado pelo notebook
+# notebooks/governance/data_base_ledger.py no fim do gold. Criado AQUI para existir
+# antes do grant_warehouse_perms; mesmo DDL de lá — mude os dois juntos.
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.governance.data_base_ledger (
+    table_fqn          STRING NOT NULL,
+    data_base_month    STRING NOT NULL,
+    dt_base_max        STRING,
+    row_count          BIGINT,
+    content_hash       STRING,
+    delta_version      BIGINT,
+    last_seen_version  BIGINT,
+    valid_from         TIMESTAMP NOT NULL,
+    valid_to           TIMESTAMP,
+    recorded_at        TIMESTAMP
+)
+USING DELTA
+COMMENT 'Conteúdo de cada data-base (mês) por tabela ao longo do tempo. Mapeia runs da DQX para a data-base avaliada.'
+TBLPROPERTIES ('delta.logRetentionDuration' = 'interval 1825 days')
+""")
+
+print(f"CADOC linking tables ready at {CATALOG}.governance.(cadoc_documentos, cadoc_tabelas, regra_vinculos, data_base_ledger)")
 
 # COMMAND ----------
 
