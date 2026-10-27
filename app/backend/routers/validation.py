@@ -1,16 +1,13 @@
 """Validation endpoints: results, trigger, status, runs.
 
-Post-Phase-7 DQX wire-up: results are read from ``silver.criticas_results``
-(a VIEW over ``silver.<tabela>_quarantine`` ∪ ``quality.dqx_checks`` — see
-``docs/spec/08_dqx_app_integration.md`` §1.5 and §3). Each row surfaces:
+Results come from DQX Studio's approved runs (`dq_validation_runs` +
+`dq_metrics.check_metrics`): the latest run per table, plus the data-base each
+run evaluated (`data_base.py`). `GET /documents` lists the CADOCs with runs —
+the document picker of the Críticas page.
 
-- ``expectation_name`` (the DQX check name) → ``ValidationResult.check_name``
-- ``nivel_verificacao`` from ``user_metadata`` (no longer hard-coded)
-- a linkback URL to DQX Studio so the SA can jump straight to the rule editor.
-
-Warning/fail rows also carry ``critica_id`` + ``run_config_name`` + ``dqx_run_id``
+Warning/fail rows carry ``critica_id`` + ``run_config_name`` + ``dqx_run_id``
 so the front-end can POST to ``/governance/incidents`` with the canonical
-dedup key from §4.1.
+dedup key.
 """
 
 from __future__ import annotations
@@ -22,16 +19,21 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import CATALOG, DQX_METRICS_TABLE, DQX_VALIDATION_RUNS_TABLE, SCHEMA_SILVER, USE_MOCK
+from data_base import RunSelection, reference_month, select_runs
+from db import CATALOG, DQX_METRICS_TABLE, SCHEMA_SILVER, USE_MOCK
 from dqx_config import dqx_studio_base_url, dqx_studio_entry_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
 from db import execute_query_or_empty as execute_query
 from rc18_rule_meta import meta_for, resolve_meta
-from dqx_rules import PUBLISHED_RUN_FILTER, RuleIndex, build_index, load_executed_rules
-from rc18_links import load_cadoc_tables, load_vinculos
+from dqx_rules import RuleIndex, build_index, load_executed_rules
+from rc18_links import load_cadoc_documents, load_cadoc_tables, load_vinculos
 from models import (
+    CadocRef,
+    DocumentSummary,
+    DocumentsResponse,
+    TableDataBase,
     Pagination,
     RunProgress,
     RunSummary,
@@ -45,18 +47,6 @@ from models import (
 )
 
 router = APIRouter()
-
-# silver.criticas_results emits Portuguese vocabulary; normalize to the UI-facing one.
-_DIM_ROMAN_TO_INT = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
-                     "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
-_SEVERITY_MAP = {"BLOQUEANTE": "error", "ALERTA": "warning", "INFO": "info"}
-_STATUS_MAP = {"APROVADO": "pass", "REPROVADO": "fail", "ALERTA": "warning"}
-
-# Default run_config_name when the view doesn't surface one (legacy data).
-_RUN_CONFIG_DEFAULTS = {
-    "3040": "silver_3040_operacoes",
-    "3050": "silver_3050",
-}
 
 
 def _dqx_studio_configured_base() -> str | None:
@@ -97,49 +87,6 @@ def _studio_base_url() -> str | None:
     return f"{base}/runs-history"
 
 
-def _normalize_critica_row(r: dict, documento: str) -> ValidationResult:
-    """Map a silver.criticas_results row to the UI ValidationResult shape."""
-    sev_raw = r.get("severidade") or ""
-    status_raw = r.get("status") or ""
-    dim_raw = r.get("dimension_r18")
-    dim_int = (
-        dim_raw if isinstance(dim_raw, int)
-        else _DIM_ROMAN_TO_INT.get(str(dim_raw), 0)
-    )
-    total = int(r.get("registros_avaliados") or 0)
-    nc = int(r.get("registros_nao_conformes") or 0)
-    pct = float(r.get("taxa_conformidade_pct") or 0)
-    nivel_raw = r.get("nivel_verificacao")
-    try:
-        nivel = int(nivel_raw) if nivel_raw is not None else 1
-    except (TypeError, ValueError):
-        nivel = 1
-    critica_id = r.get("critica_id") or ""
-    check_name = r.get("check_name") or r.get("expectation_name")
-    run_cfg = r.get("run_config_name") or _RUN_CONFIG_DEFAULTS.get(documento)
-    return ValidationResult(
-        rule_id=critica_id,
-        rule_name=r.get("critica_descricao") or "",
-        rule_type=r.get("grupo") or "",
-        severity=_SEVERITY_MAP.get(sev_raw, sev_raw.lower() if sev_raw else "info"),
-        dimension_r18=dim_int,
-        dimension_name=r.get("dimension_name") or "",
-        status=_STATUS_MAP.get(status_raw, status_raw.lower() if status_raw else "pass"),
-        affected_records=nc,
-        total_records=total,
-        affected_pct=round(100 - pct, 4) if total else 0.0,
-        description=r.get("critica_descricao") or r.get("mensagem_erro") or "",
-        sample_ipocs=list(r.get("sample_falhas") or []),
-        nivel_verificacao=nivel,
-        check_name=check_name,
-        dqx_check_function=r.get("dqx_check_function"),
-        dqx_check_url=dqx_check_url(run_cfg, check_name),
-        run_config_name=run_cfg,
-        dqx_run_id=r.get("dqx_run_id"),
-        critica_id=critica_id or None,
-    )
-
-
 def _mock_vr(*, rule_id, run_config_name, check_name, dqx_check_function,
              rule_name, rule_type, severity, dimension_r18, dimension_name,
              status, affected_records, total_records, description, nivel,
@@ -147,7 +94,7 @@ def _mock_vr(*, rule_id, run_config_name, check_name, dqx_check_function,
     """Build a ValidationResult mock row with DQX-flavored fields wired up.
 
     Keeps the call sites readable and forces every mock entry to carry the
-    same shape as a real row coming out of ``silver.criticas_results``.
+    same shape as a real row built by ``_fetch_studio_results``.
     """
     pct = round(100 * affected_records / total_records, 6) if total_records else 0.0
     return ValidationResult(
@@ -278,60 +225,6 @@ def _mock_rules_3050(locale: str) -> list[ValidationResult]:
     return _MOCK_RULES_3050_EN if locale == "en" else _MOCK_RULES_3050
 
 
-# Canonical SQL columns selected from silver.criticas_results. ``expectation_name``
-# and ``nivel_verificacao`` are the new fields surfaced by the post-Phase-7 view
-# (see docs/spec/08_dqx_app_integration.md §1.5 / §3.1).
-_CRITICAS_SQL = (
-    "SELECT critica_id, "
-    "       expectation_name AS check_name, "
-    "       critica_descricao, "
-    "       grupo, "
-    "       severidade, "
-    "       dimension_r18, "
-    "       nivel_verificacao, "
-    "       status, "
-    "       registros_avaliados, "
-    "       registros_conformes, "
-    "       registros_nao_conformes, "
-    "       taxa_conformidade_pct, "
-    "       sample_falhas, "
-    "       run_config_name, "
-    "       dqx_run_id "
-    f"FROM {{catalog}}.{{schema}}.criticas_results "
-    "WHERE dt_base = :data_base AND documento = :documento "
-    "  AND (:severidade IS NULL OR severidade = :severidade) "
-    "  AND (:dim_roman  IS NULL OR dimension_r18 = :dim_roman) "
-    "  AND (:nivel      IS NULL OR nivel_verificacao = :nivel) "
-    "ORDER BY severidade DESC, registros_nao_conformes DESC "
-    "LIMIT :page_size OFFSET :offset"
-)
-
-_SUMMARY_SQL = (
-    "SELECT status, COUNT(*) AS n "
-    f"FROM {{catalog}}.{{schema}}.criticas_results "
-    "WHERE dt_base = :data_base AND documento = :documento "
-    "GROUP BY status"
-)
-
-
-def _dim_int_to_roman(d: int | None) -> str | None:
-    if not d:
-        return None
-    for roman, val in _DIM_ROMAN_TO_INT.items():
-        if val == d:
-            return roman
-    return None
-
-
-def _severity_ui_to_storage(sev: str | None) -> str | None:
-    if not sev:
-        return None
-    for storage, ui in _SEVERITY_MAP.items():
-        if ui == sev:
-            return storage
-    return None
-
-
 def _apply_mock_filters(results, *, severity, status, rule_type, dimension_r18,
                        nivel_verificacao):
     if severity:
@@ -359,11 +252,13 @@ def _summary_from_results(results) -> ValidationSummary:
 
 # ── DQX Studio run-results integration ──────────────────────────────────────
 #
-# Reads the LATEST approved run per source_table_fqn from
-# `${DQX_VALIDATION_RUNS_TABLE}` joined with `${DQX_METRICS_TABLE}`
-# (`check_metrics` = JSON array of per-check counts), and the rule definitions
-# from the runs' own `checks_json` (`dqx_rules.load_executed_rules`).
-# check_metrics entries that don't match a rule in force are dropped silently.
+# Reads ONE approved run per source_table_fqn (`data_base.select_runs`: the
+# latest, or the latest whose data-base falls in the reference month)
+# joined with `${DQX_METRICS_TABLE}` (`check_metrics` = JSON array of per-check
+# counts), and the rule definitions from the runs' own `checks_json`
+# (`dqx_rules.load_executed_rules`). check_metrics entries that don't match a
+# rule in force are dropped silently. Each table also gets the data-base its run
+# evaluated.
 
 _DOC_TO_TABLE_PREFIX = {
     "3040": "rc18_catalog.silver.scr3040_",
@@ -385,80 +280,151 @@ async def _load_active_rules() -> RuleIndex:
     )
 
 
-async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], str | None, str | None]:
-    """Compose ValidationResult rows from DQX Studio's run history.
+def _doc_scope(doc_tables: dict[str, list[str]]):
+    """(predicado de `source_table_fqn`, params, tabela → documento) para os documentos.
 
-    For each source_table_fqn that matches `document`'s silver tables, pick the
-    LATEST SUCCESS run. Parse its `check_metrics` and emit one ValidationResult
-    per check that maps to a rule in force (via the link table, then
-    check_name → the runs' `checks_json`).
-
-    Table selection is driven by `governance.cadoc_tabelas` (the CADOC↔table
-    map maintained on the /linking screen); when that table is empty (fresh
-    workspace, pre-seed) it falls back to the legacy hard-coded prefix so
-    nothing regresses.
+    Tabelas de `cadoc_tabelas` entram pela lista; documento sem tabela registrada
+    cai no prefixo legado (3040/3050), como antes de o `cadoc_tabelas` existir.
+    Nomes de tabela vão como parâmetro, nunca interpolados. None = nada a buscar.
     """
-    # Link maps (source of truth for CADOC↔table and rule↔dimension).
-    tables_by_doc, _doc_by_table = await load_cadoc_tables()
-    vinc_by_pair, vinc_by_rule = await load_vinculos()
+    table_to_doc = {t: doc for doc, tables in doc_tables.items() for t in tables}
+    prefixes = {
+        doc: _DOC_TO_TABLE_PREFIX[doc]
+        for doc, tables in doc_tables.items() if not tables and doc in _DOC_TO_TABLE_PREFIX
+    }
+    preds: list[str] = []
+    params: dict = {}
+    if table_to_doc:
+        keys = [f"t{i}" for i in range(len(table_to_doc))]
+        params.update(zip(keys, table_to_doc))
+        preds.append(f"source_table_fqn IN ({','.join(f':{k}' for k in keys)})")
+    for i, prefix in enumerate(prefixes.values()):
+        params[f"prefix{i}"] = f"{prefix}%"
+        preds.append(f"source_table_fqn LIKE :prefix{i}")
+    if not preds:
+        return None
 
-    doc_tables = tables_by_doc.get(document, [])
+    def doc_of(table_fqn: str) -> str | None:
+        return table_to_doc.get(table_fqn) or next(
+            (d for d, p in prefixes.items() if table_fqn.startswith(p)), None,
+        )
 
-    # Step 1: latest SUCCESS run per source_table_fqn — scoped to the CADOC's
-    # tables (IN list) when linked, else the legacy prefix LIKE. Table names are
-    # parameterized (never interpolated) to avoid any SQL-injection surface.
-    run_params: dict = {}
-    if doc_tables:
-        keys = [f"t{i}" for i in range(len(doc_tables))]
-        placeholders = ",".join(f":{k}" for k in keys)
-        run_params = {k: v for k, v in zip(keys, doc_tables)}
-        scope_clause = f"source_table_fqn IN ({placeholders})"
-    else:
-        prefix = _DOC_TO_TABLE_PREFIX.get(document)
-        if not prefix:
-            return [], None, None
-        run_params = {"prefix": f"{prefix}%"}
-        scope_clause = "source_table_fqn LIKE :prefix"
+    return f"({' OR '.join(preds)})", params, doc_of
 
-    runs_sql = (
-        "WITH ranked AS ("
-        "  SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at, "
-        "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn "
-        f"  FROM {DQX_VALIDATION_RUNS_TABLE} "
-        f"  WHERE {PUBLISHED_RUN_FILTER} "
-        f"    AND {scope_clause}"
-        ") SELECT run_id, source_table_fqn, total_rows, invalid_rows, created_at "
-        "FROM ranked WHERE rn = 1"
-    )
-    runs = await execute_query(runs_sql, run_params, cache_ns="dqx")
+
+def _created_at_str(run: dict) -> str:
+    # O connector devolve datetime (prod) ou string (alguns ambientes locais);
+    # run_completed_at é str, e comparar datetime com "" quebra.
+    created_at = run.get("created_at")
+    return created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at is not None else "")
+
+
+def _results_for_run(
+    r: dict, check_metrics: list, rules_index: RuleIndex, vinc_by_pair: dict, vinc_by_rule: dict,
+) -> list[ValidationResult]:
+    """Um ValidationResult por check do run que casa com regra em vigor (ou vínculo)."""
+    run_id = r["run_id"]
+    source_table = r.get("source_table_fqn") or ""
+    total = int(r.get("total_rows") or 0)
+    out: list[ValidationResult] = []
+    for cmrow in check_metrics:
+        check_name = cmrow.get("check_name")
+        if not check_name:
+            continue
+        rule = rules_index.get(source_table, check_name)
+        # Link-aware recovery: a rule authored without an explicit `name`
+        # produces a runtime check_name (e.g. `parte_not_in_range`) that has
+        # no matching definition in `rules_index`. If the /linking screen
+        # linked (source_table, check_name), surface it anyway using the
+        # link's metadata instead of dropping it silently.
+        link = vinc_by_pair.get((source_table, check_name))
+        if not rule and not link:
+            # Truly stale (deleted definition, never linked); drop.
+            continue
+        err = int(cmrow.get("error_count") or 0)
+        warn = int(cmrow.get("warning_count") or 0)
+        affected = err + warn
+        um = (rule or {}).get("user_metadata") or {}
+        criticality = (rule or {}).get("criticality") or "error"
+        sev = "error" if criticality == "error" else "warning"
+        status = "pass" if affected == 0 else ("fail" if sev == "error" else "warning")
+        run_cfg = (rule or {}).get("run_config_name") or ""
+        check_fn = ((rule or {}).get("check") or {}).get("function", "")
+        rule_id = (rule or {}).get("rule_id") or (link or {}).get("rule_id")
+        # Structural metadata: link table wins, else tag/hard-coded fallback.
+        meta = resolve_meta(
+            check_name,
+            table_fqn=(rule or {}).get("_row_table_fqn", "") or source_table,
+            user_metadata=um,
+            vinculos_by_pair=vinc_by_pair,
+            vinculos_by_rule_id=vinc_by_rule,
+            rule_id=rule_id,
+        )
+        description = (
+            um.get("descricao") or um.get("mensagem_erro")
+            or (link or {}).get("descricao") or check_name
+        )
+        rule_name = description if len(description) < 80 else check_name
+        out.append(ValidationResult(
+            rule_id=meta["critica_id"] or check_name,
+            rule_name=rule_name,
+            rule_type=meta["rule_type"],
+            severity=sev,
+            dimension_r18=meta["dimension_r18"],
+            dimension_name=meta["dimension_name"],
+            status=status,
+            affected_records=affected,
+            total_records=total,
+            affected_pct=round(100 * affected / total, 4) if total else 0.0,
+            description=description,
+            sample_ipocs=[],
+            nivel_verificacao=meta["nivel_verificacao"],
+            check_name=check_name,
+            dqx_check_function=check_fn,
+            dqx_check_url=dqx_check_url(run_cfg, check_name),
+            run_config_name=run_cfg,
+            dqx_run_id=run_id,
+            critica_id=meta["critica_id"] or check_name,
+            table_fqn=source_table or None,
+        ))
+    return out
+
+
+async def _studio_results(doc_tables: dict[str, list[str]], month: str | None):
+    """({documento: (resultados, runs)}, seleção, tabela → documento).
+
+    Um run aprovado por tabela (`data_base.select_runs`: o último, ou o último
+    com data-base no `month`). Uma consulta de runs e uma de métricas para todos
+    os documentos pedidos — a rota de documentos chama com todos os CADOCs de
+    uma vez. Run sem `check_metrics` legível fica de fora, como antes.
+    """
+    scope = _doc_scope(doc_tables)
+    if scope is None:
+        return {}, RunSelection(runs=[], tables={}), (lambda _t: None)
+    pred, params, doc_of = scope
+    selection = await select_runs(pred, params, month)
+    runs = selection.runs
     if not runs:
-        return [], None, None
+        return {}, selection, doc_of
 
-    # Step 2: check_metrics for those run_ids (run_ids are DB-sourced; still
-    # bound as params rather than interpolated).
+    # run_ids vêm do banco, mas ainda assim vão como parâmetro.
     rk = [f"r{i}" for i in range(len(runs))]
-    metrics_sql = (
+    metrics_rows = await execute_query(
         "SELECT run_id, metric_value AS check_metrics_json "
         f"FROM {DQX_METRICS_TABLE} "
-        f"WHERE metric_name = 'check_metrics' AND run_id IN ({','.join(f':{k}' for k in rk)})"
-    )
-    metrics_rows = await execute_query(
-        metrics_sql, {k: r["run_id"] for k, r in zip(rk, runs)}, cache_ns="dqx",
+        f"WHERE metric_name = 'check_metrics' AND run_id IN ({','.join(f':{k}' for k in rk)})",
+        {k: r["run_id"] for k, r in zip(rk, runs)},
+        cache_ns="dqx",
     )
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
-
-    # Step 3: definições ativas, indexadas por (tabela, check).
     rules_index = await _load_active_rules()
+    vinc_by_pair, vinc_by_rule = await load_vinculos()
 
-    results: list[ValidationResult] = []
-    latest_run_id: str | None = None
-    latest_run_time: str | None = None
+    out: dict[str, tuple[list[ValidationResult], list[dict]]] = {}
     for r in runs:
-        run_id = r["run_id"]
-        source_table = r.get("source_table_fqn") or ""
-        total = int(r.get("total_rows") or 0)
-        cm = metrics_by_run.get(run_id)
-        if not cm:
+        doc = doc_of(r.get("source_table_fqn") or "")
+        cm = metrics_by_run.get(r["run_id"])
+        if not doc or not cm:
             continue
         try:
             check_metrics = json.loads(cm["check_metrics_json"])
@@ -466,76 +432,67 @@ async def _fetch_studio_results(document: str) -> tuple[list[ValidationResult], 
             continue
         if not isinstance(check_metrics, list):
             continue
-        # Coerce created_at to a string: the databricks-sql connector may return
-        # it as a datetime (prod) or a string (some local setups). ValidationResults
-        # Response.run_completed_at is typed str, and comparing datetime > "" raises.
-        created_at = r.get("created_at")
-        created_at_str = created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at is not None else "")
-        if latest_run_id is None or created_at_str > (latest_run_time or ""):
-            latest_run_id = run_id
-            latest_run_time = created_at_str
-        for cmrow in check_metrics:
-            check_name = cmrow.get("check_name")
-            if not check_name:
-                continue
-            rule = rules_index.get(source_table, check_name)
-            # Link-aware recovery: a rule authored without an explicit `name`
-            # produces a runtime check_name (e.g. `parte_not_in_range`) that has
-            # no matching definition in `rules_index`. If the /linking screen
-            # linked (source_table, check_name), surface it anyway using the
-            # link's metadata instead of dropping it silently.
-            link = vinc_by_pair.get((source_table, check_name))
-            if not rule and not link:
-                # Truly stale (deleted definition, never linked); drop.
-                continue
-            err = int(cmrow.get("error_count") or 0)
-            warn = int(cmrow.get("warning_count") or 0)
-            affected = err + warn
-            um = (rule or {}).get("user_metadata") or {}
-            criticality = (rule or {}).get("criticality") or "error"
-            sev = "error" if criticality == "error" else "warning"
-            status = "pass" if affected == 0 else ("fail" if sev == "error" else "warning")
-            run_cfg = (rule or {}).get("run_config_name") or ""
-            check_fn = ((rule or {}).get("check") or {}).get("function", "")
-            rule_id = (rule or {}).get("rule_id") or (link or {}).get("rule_id")
-            # Structural metadata: link table wins, else tag/hard-coded fallback.
-            meta = resolve_meta(
-                check_name,
-                table_fqn=(rule or {}).get("_row_table_fqn", "") or source_table,
-                user_metadata=um,
-                vinculos_by_pair=vinc_by_pair,
-                vinculos_by_rule_id=vinc_by_rule,
-                rule_id=rule_id,
-            )
-            description = (
-                um.get("descricao") or um.get("mensagem_erro")
-                or (link or {}).get("descricao") or check_name
-            )
-            rule_name = description if len(description) < 80 else check_name
-            results.append(ValidationResult(
-                rule_id=meta["critica_id"] or check_name,
-                rule_name=rule_name,
-                rule_type=meta["rule_type"],
-                severity=sev,
-                dimension_r18=meta["dimension_r18"],
-                dimension_name=meta["dimension_name"],
-                status=status,
-                affected_records=affected,
-                total_records=total,
-                affected_pct=round(100 * affected / total, 4) if total else 0.0,
-                description=description,
-                sample_ipocs=[],
-                nivel_verificacao=meta["nivel_verificacao"],
-                check_name=check_name,
-                dqx_check_function=check_fn,
-                dqx_check_url=dqx_check_url(run_cfg, check_name),
-                run_config_name=run_cfg,
-                dqx_run_id=run_id,
-                critica_id=meta["critica_id"] or check_name,
-                table_fqn=source_table or None,
-            ))
+        results, doc_runs = out.setdefault(doc, ([], []))
+        doc_runs.append(r)
+        results.extend(_results_for_run(r, check_metrics, rules_index, vinc_by_pair, vinc_by_rule))
+    return out, selection, doc_of
 
-    return results, latest_run_id, latest_run_time
+
+def _summaries(
+    by_doc: dict[str, tuple[list[ValidationResult], list[dict]]],
+    docs_meta: dict[str, dict],
+    per_table: dict[str, TableDataBase],
+) -> dict[str, DocumentSummary]:
+    """Resumo por documento: a data-base do processamento exibido e as reprovações."""
+    out: dict[str, DocumentSummary] = {}
+    for doc, (results, runs) in by_doc.items():
+        meta = docs_meta.get(doc) or {}
+        tables = sorted(
+            (per_table[r.get("source_table_fqn") or ""] for r in runs),
+            key=lambda t: t.table_fqn,
+        )
+        known = [t.data_base for t in tables if t.data_base]
+        out[doc] = DocumentSummary(
+            documento=doc,
+            nome=meta.get("nome"),
+            grupo=meta.get("grupo"),
+            periodicidade=meta.get("periodicidade"),
+            data_base=max(known) if known else None,
+            mixed=len({t.data_base for t in tables}) > 1,
+            last_run_at=max((_created_at_str(r) for r in runs), default=None),
+            total_rules=len(results),
+            # Mesma conta do card de resumo das Críticas: reprovadas + alertas.
+            failed_rules=sum(1 for v in results if v.status in ("fail", "warning")),
+            tables=tables,
+        )
+    return out
+
+
+async def _fetch_studio_results(
+    document: str, month: str | None = None,
+) -> tuple[list[ValidationResult], str | None, str | None, DocumentSummary | None]:
+    """Compose ValidationResult rows from DQX Studio's run history.
+
+    For each source_table_fqn that matches `document`'s silver tables, pick the
+    LATEST SUCCESS run — or, with `month`, the latest whose evaluated data-base
+    falls in it. Parse its `check_metrics` and emit one ValidationResult
+    per check that maps to a rule in force (via the link table, then
+    check_name → the runs' `checks_json`). Also returns the document summary
+    (data-base evaluated by each table's run).
+
+    Table selection is driven by `governance.cadoc_tabelas` (the CADOC↔table
+    map maintained on the /linking screen); when that table is empty (fresh
+    workspace, pre-seed) it falls back to the legacy hard-coded prefix so
+    nothing regresses.
+    """
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    by_doc, selection, _doc_of = await _studio_results({document: tables_by_doc.get(document, [])}, month)
+    if document not in by_doc:
+        return [], None, None, None
+    results, runs = by_doc[document]
+    latest = max(runs, key=_created_at_str)
+    summary = _summaries({document: by_doc[document]}, await load_cadoc_documents(), selection.tables)[document]
+    return results, latest["run_id"], _created_at_str(latest), summary
 
 
 _DIM_NAME_BY_INT = {
@@ -545,9 +502,71 @@ _DIM_NAME_BY_INT = {
 }
 
 
+# Documentos do mock: espelham os CADOCs de demonstração (ver routers/linking.py).
+_MOCK_DOCS = {
+    "3040": ("SCR 3040 - Operações de crédito individualizadas", _mock_rules_3040),
+    "3050": ("SCR 3050 - Estoque mensal agregado", _mock_rules_3050),
+}
+
+
+def _mock_document(documento: str, rules: list[ValidationResult]) -> DocumentSummary:
+    nome, _fixtures = _MOCK_DOCS[documento]
+    return DocumentSummary(
+        documento=documento, nome=nome, grupo="SCR", periodicidade="mensal",
+        data_base="2026-03-31", last_run_at="2026-03-30T14:45:00Z",
+        total_rules=len(rules), failed_rules=sum(1 for r in rules if r.status in ("fail", "warning")),
+    )
+
+
+@router.get("/documents", response_model=DocumentsResponse)
+async def list_documents(
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
+    locale: str = Depends(get_locale),
+):
+    """CADOCs com execução aprovada na DQX, cada um com a data-base do processamento exibido.
+
+    Alimenta o seletor de documentos das Críticas e o card "Data-bases
+    avaliadas". Os demais cadastrados vêm em `unprocessed`, com
+    `ever_processed` distinguindo "sem execução no mês" de "nunca executado".
+    """
+    month = reference_month(data_base)
+    if USE_MOCK:
+        # O mock tem uma data-base só (31/03/2026): outro mês = nada processado.
+        if month not in (None, "2026-03"):
+            return DocumentsResponse(unprocessed=[
+                CadocRef(documento=doc, nome=nome, grupo="SCR", periodicidade="mensal", ever_processed=True)
+                for doc, (nome, _fixtures) in _MOCK_DOCS.items()
+            ])
+        return DocumentsResponse(documents=[
+            _mock_document(doc, fixtures(locale)) for doc, (_nome, fixtures) in _MOCK_DOCS.items()
+        ])
+
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    docs_meta = await load_cadoc_documents()
+    # Sem cadastro nenhum (workspace novo), os dois documentos do prefixo legado.
+    doc_tables = {d: tables_by_doc.get(d, []) for d in sorted(set(docs_meta) | set(tables_by_doc))}
+    by_doc, selection, doc_of = await _studio_results(doc_tables or {d: [] for d in _DOC_TO_TABLE_PREFIX}, month)
+    summaries = _summaries(by_doc, docs_meta, selection.tables)
+    documents = sorted(summaries.values(), key=_group_order)
+    ever_docs = {doc_of(t) for t in selection.ever}
+    unprocessed = sorted((
+        CadocRef(
+            documento=d, nome=meta.get("nome"), grupo=meta.get("grupo"),
+            periodicidade=meta.get("periodicidade"), ever_processed=d in ever_docs,
+        )
+        for d, meta in docs_meta.items() if d not in summaries
+    ), key=_group_order)
+    return DocumentsResponse(documents=documents, unprocessed=unprocessed)
+
+
+def _group_order(d) -> tuple:
+    # Com grupo primeiro (em ordem alfabética), sem grupo por último.
+    return (d.grupo is None, d.grupo or "", d.documento)
+
+
 @router.get("/scr3040/results", response_model=ValidationResultsResponse)
 async def get_validation_results_3040(
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     severity: str | None = Query(None),
     status: str | None = Query(None),
     modality: str | None = Query(None),
@@ -569,8 +588,9 @@ async def get_validation_results_3040(
         total = len(filtered)
         start = (page - 1) * page_size
         paged = filtered[start : start + page_size]
+        doc = _mock_document("3040", mock_rules)
         return ValidationResultsResponse(
-            data_base=data_base,
+            data_base=doc.data_base,
             run_id="run_20260330_142200",
             run_status="completed",
             run_completed_at="2026-03-30T14:45:00Z",
@@ -581,10 +601,11 @@ async def get_validation_results_3040(
                 total_pages=max(1, (total + page_size - 1) // page_size),
             ),
             studio_url=_studio_base_url(),
+            document=doc,
         )
 
     # Real-mode: read DQX Studio's latest run + check_metrics + active rules.
-    all_results, latest_run_id, latest_run_time = await _fetch_studio_results("3040")
+    all_results, latest_run_id, latest_run_time, summary = await _fetch_studio_results("3040", reference_month(data_base))
     filtered = _apply_mock_filters(
         all_results,
         severity=severity, status=status, rule_type=rule_type,
@@ -594,7 +615,7 @@ async def get_validation_results_3040(
     start = (page - 1) * page_size
     paged = filtered[start : start + page_size]
     return ValidationResultsResponse(
-        data_base=data_base,
+        data_base=(summary.data_base if summary else None) or data_base or "",
         run_id=latest_run_id or "",
         run_status="completed",
         run_completed_at=latest_run_time,
@@ -605,12 +626,13 @@ async def get_validation_results_3040(
             total_pages=max(1, (total + page_size - 1) // page_size),
         ),
         studio_url=_studio_base_url(),
+        document=summary,
     )
 
 
 @router.get("/scr3050/results", response_model=ValidationResultsResponse)
 async def get_validation_results_3050(
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     severity: str | None = Query(None),
     status: str | None = Query(None),
     critica_group: int | None = Query(None),
@@ -623,17 +645,19 @@ async def get_validation_results_3050(
     if USE_MOCK:
         mock_rules = _mock_rules_3050(locale)
         total = len(mock_rules)
+        doc = _mock_document("3050", mock_rules)
         return ValidationResultsResponse(
-            data_base=data_base, run_id="run_20260331_100000", run_status="completed",
+            data_base=doc.data_base, run_id="run_20260331_100000", run_status="completed",
             run_completed_at="2026-03-31T10:30:00Z",
             summary=_summary_from_results(mock_rules),
             results=mock_rules,
             pagination=Pagination(page=1, page_size=page_size,
                                   total_results=total, total_pages=1),
             studio_url=_studio_base_url(),
+            document=doc,
         )
 
-    all_results, latest_run_id, latest_run_time = await _fetch_studio_results("3050")
+    all_results, latest_run_id, latest_run_time, summary = await _fetch_studio_results("3050", reference_month(data_base))
     filtered = _apply_mock_filters(
         all_results,
         severity=severity, status=status, rule_type=None,
@@ -643,7 +667,7 @@ async def get_validation_results_3050(
     start = (page - 1) * page_size
     paged = filtered[start : start + page_size]
     return ValidationResultsResponse(
-        data_base=data_base,
+        data_base=(summary.data_base if summary else None) or data_base or "",
         run_id=latest_run_id or "",
         run_status="completed",
         run_completed_at=latest_run_time,
@@ -654,13 +678,14 @@ async def get_validation_results_3050(
             total_pages=max(1, (total + page_size - 1) // page_size),
         ),
         studio_url=_studio_base_url(),
+        document=summary,
     )
 
 
 @router.get("/{document}/results", response_model=ValidationResultsResponse)
 async def get_validation_results_generic(
     document: str,
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     severity: str | None = Query(None),
     status: str | None = Query(None),
     modality: str | None = Query(None),
@@ -690,7 +715,7 @@ async def get_validation_results_generic(
         # No fixtures for a customer-defined CADOC; keep the two canonical demos
         # answering through their own routes and return empty for the rest.
         return ValidationResultsResponse(
-            data_base=data_base, run_id="", run_status="completed",
+            data_base=data_base or "", run_id="", run_status="completed",
             run_completed_at=None,
             summary=_summary_from_results([]),
             results=[],
@@ -698,7 +723,7 @@ async def get_validation_results_generic(
             studio_url=_studio_base_url(),
         )
 
-    all_results, latest_run_id, latest_run_time = await _fetch_studio_results(document)
+    all_results, latest_run_id, latest_run_time, summary = await _fetch_studio_results(document, reference_month(data_base))
     filtered = _apply_mock_filters(
         all_results,
         severity=severity, status=status, rule_type=rule_type,
@@ -708,7 +733,7 @@ async def get_validation_results_generic(
     start = (page - 1) * page_size
     paged = filtered[start : start + page_size]
     return ValidationResultsResponse(
-        data_base=data_base,
+        data_base=(summary.data_base if summary else None) or data_base or "",
         run_id=latest_run_id or "",
         run_status="completed",
         run_completed_at=latest_run_time,
@@ -719,6 +744,7 @@ async def get_validation_results_generic(
             total_pages=max(1, (total + page_size - 1) // page_size),
         ),
         studio_url=_studio_base_url(),
+        document=summary,
     )
 
 

@@ -24,8 +24,10 @@ from db import (
     USE_MOCK,
     execute_query,
 )
+from data_base import LEDGER_TABLE, NON_DATA_OPERATIONS, load_ledger
 from dqx_config import dqx_studio_base_url
 from dqx_rules import load_executed_rules
+from rc18_links import load_cadoc_tables
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,9 @@ SKIPPED = "skipped"                  # dependência anterior falhou
 STUDIO_URL = "studio_url"
 DELTA_RUNS_SELECT = "delta_runs_select"
 RULES_EXECUTED = "rules_executed"
+DATA_BASE_HISTORY = "data_base_history"
+DATA_BASE_HISTORY_LAG = "data_base_history_lag"
+DATA_BASE_HISTORY_GRANT = "data_base_history_grant"
 
 
 class PrereqCheck(BaseModel):
@@ -143,6 +148,57 @@ async def _check_rules_executed() -> PrereqCheck:
     return PrereqCheck(id=RULES_EXECUTED, state=state, params={"count": str(total)})
 
 
+async def _check_data_base_history() -> PrereqCheck:
+    """O histórico de data-base acompanha as tabelas? (ver data_base.py)
+
+    Sem ele as telas mostram o último run sem saber qual data-base avaliou. Fica
+    atrasado quando a silver/gold é regravada fora do job gold/rc18_end_to_end.
+    """
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    try:
+        ledger = await load_ledger(sorted({t for ts in tables_by_doc.values() for t in ts}), strict=True)
+    except Exception as exc:  # noqa: BLE001
+        raw = str(exc)
+        msg = raw.strip().splitlines()[0] if raw.strip() else ""
+        if not any(sig in raw for sig in _UC_ACCESS_ERRORS):
+            return PrereqCheck(id=DATA_BASE_HISTORY, state=FAILED, detail=msg)
+        # A tabela existe mas o SP do app não lê: o GRANT só vem com o
+        # grant_warehouse_perms (rc18_end_to_end) — quem rodou só o job gold fica assim.
+        role = await _identity() or "<client-id-do-sp-do-app>"
+        return PrereqCheck(
+            id=DATA_BASE_HISTORY_GRANT, state=ACTION_REQUIRED,
+            params={"table": LEDGER_TABLE},
+            remediation=f"GRANT SELECT ON TABLE {LEDGER_TABLE} TO `{role}`;",
+            remediation_kind="sql", detail=msg,
+        )
+    if not ledger:
+        return PrereqCheck(
+            id=DATA_BASE_HISTORY, state=ACTION_REQUIRED,
+            remediation="databricks bundle run rc18_end_to_end", remediation_kind="shell",
+        )
+
+    async def _atrasada(table_fqn: str) -> str | None:
+        vistas = [r["last_seen_version"] for r in ledger[table_fqn] if r.get("last_seen_version") is not None]
+        if not vistas:
+            return None  # materialized view (SDP): sem versão para comparar
+        quoted = ".".join(f"`{p}`" for p in table_fqn.split("."))
+        try:
+            hist = await execute_query(f"DESCRIBE HISTORY {quoted} LIMIT 20", {})
+        except Exception:  # noqa: BLE001 — sem acesso ao histórico: não acusa
+            return None
+        versoes = [int(h["version"]) for h in hist if h.get("operation") not in NON_DATA_OPERATIONS]
+        return table_fqn if versoes and max(versoes) > max(vistas) else None
+
+    atrasadas = [t for t in await asyncio.gather(*(_atrasada(t) for t in sorted(ledger))) if t]
+    if not atrasadas:
+        return PrereqCheck(id=DATA_BASE_HISTORY, state=PASSED)
+    return PrereqCheck(
+        id=DATA_BASE_HISTORY_LAG, state=ACTION_REQUIRED,
+        params={"tables": ", ".join(t.split(".", 1)[-1] for t in atrasadas)},
+        remediation="databricks bundle run gold", remediation_kind="shell",
+    )
+
+
 async def run_prereq_checks() -> PrereqReport:
     """Verificações na ordem da cadeia. Cada chamada é nova — é o "Re-verificar"."""
     now = datetime.now(timezone.utc).isoformat()
@@ -167,6 +223,14 @@ async def run_prereq_checks() -> PrereqReport:
     else:
         # Sem acesso aos runs não se sabe se há regra; prescrever as duas confunde.
         checks.append(PrereqCheck(id=RULES_EXECUTED, state=SKIPPED))
+
+    # Independe da Studio: o histórico é do RC18.
+    try:
+        checks.append(await _check_data_base_history())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Verificação do histórico de data-base falhou: %s", exc)
+        checks.append(PrereqCheck(id=DATA_BASE_HISTORY, state=FAILED,
+                                  detail=str(exc).splitlines()[0]))
 
     overall = PASSED if all(c.state in (PASSED, SKIPPED) for c in checks) else ACTION_REQUIRED
     if any(c.state == FAILED for c in checks):

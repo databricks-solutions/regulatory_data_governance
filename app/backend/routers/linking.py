@@ -38,6 +38,7 @@ from db import (
     USE_MOCK,
 )
 import cache
+from data_base import PERIODICIDADES
 from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
 from db import execute_query as _execute_query
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
@@ -141,10 +142,10 @@ _MOCK_CADOC_TABLES: dict[str, list[str]] = {
 _MOCK_CADOCS: list[dict] = [
     {"documento": "3040", "nome": "SCR 3040 - Operações de crédito individualizadas",
      "descricao": "Documento SCR 3040 — operações de crédito detalhadas (130+ campos, IPOC).",
-     "leiaute_versao": "V1", "is_ativo": True},
+     "leiaute_versao": "V1", "is_ativo": True, "periodicidade": "mensal", "grupo": "SCR"},
     {"documento": "3050", "nome": "SCR 3050 - Estoque mensal agregado",
      "descricao": "Documento SCR 3050 — dados agregados de crédito (TXB/XML).",
-     "leiaute_versao": "V11", "is_ativo": True},
+     "leiaute_versao": "V11", "is_ativo": True, "periodicidade": "mensal", "grupo": "SCR"},
 ]
 # In-memory link store for mock mode (module-level; resets on reload).
 _MOCK_LINKS: list[dict] = []
@@ -159,6 +160,19 @@ def _mock_cadoc(doc: dict) -> CadocDocument:
     )
 
 
+def _check_periodicidade(value: str | None) -> None:
+    if value and value not in PERIODICIDADES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"periodicidade inválida: {value!r} (use {', '.join(PERIODICIDADES)})",
+        )
+
+
+def _str_or_none(value) -> str | None:
+    # `SELECT d.*` devolve TIMESTAMP como datetime; o modelo espera str.
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value is not None else None)
+
+
 # ── CADOC CRUD ───────────────────────────────────────────────────────────────
 
 @router.get("/cadocs", response_model=CadocListResponse)
@@ -167,10 +181,10 @@ async def list_cadocs(locale: str = Depends(get_locale)):
     if USE_MOCK:
         return CadocListResponse(cadocs=[_mock_cadoc(d) for d in _MOCK_CADOCS])
 
+    # `d.*`: periodicidade/grupo só existem depois do setup_reference_tables, e
+    # listar colunas inexistentes esvaziaria a tela de quem atualizou só o app.
     rows = await execute_query(
-        "SELECT d.documento, d.nome, d.descricao, d.leiaute_versao, d.is_ativo, "
-        "  CAST(d.created_at AS STRING) AS created_at, d.created_by, "
-        "  CAST(d.updated_at AS STRING) AS updated_at, d.updated_by, "
+        "SELECT d.*, "
         f"  (SELECT COUNT(*) FROM {_TBLS} t WHERE t.documento = d.documento AND t.is_ativo) AS table_count, "
         f"  (SELECT COUNT(*) FROM {_LINKS} l WHERE l.documento = d.documento AND l.is_ativo) AS rule_count "
         f"FROM {_DOCS} d WHERE d.is_ativo ORDER BY d.documento",
@@ -180,9 +194,10 @@ async def list_cadocs(locale: str = Depends(get_locale)):
         CadocDocument(
             documento=r["documento"], nome=r["nome"], descricao=r.get("descricao"),
             leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")),
+            periodicidade=r.get("periodicidade"), grupo=r.get("grupo"),
             table_count=int(r.get("table_count") or 0), rule_count=int(r.get("rule_count") or 0),
-            created_at=r.get("created_at"), created_by=r.get("created_by"),
-            updated_at=r.get("updated_at"), updated_by=r.get("updated_by"),
+            created_at=_str_or_none(r.get("created_at")), created_by=r.get("created_by"),
+            updated_at=_str_or_none(r.get("updated_at")), updated_by=r.get("updated_by"),
         )
         for r in rows
     ])
@@ -194,13 +209,15 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
     documento = (body.documento or "").strip()
     if not documento:
         raise HTTPException(status_code=400, detail="documento é obrigatório")
+    _check_periodicidade(body.periodicidade)
     actor = _caller_email(request)
 
     if USE_MOCK:
         if any(d["documento"] == documento for d in _MOCK_CADOCS):
             raise HTTPException(status_code=409, detail={"code": "cadoc_exists", "message": "CADOC já cadastrado.", "documento": documento})
         doc = {"documento": documento, "nome": body.nome, "descricao": body.descricao,
-               "leiaute_versao": body.leiaute_versao, "is_ativo": True}
+               "leiaute_versao": body.leiaute_versao, "is_ativo": True,
+               "periodicidade": body.periodicidade, "grupo": body.grupo}
         _MOCK_CADOCS.append(doc)
         return _mock_cadoc(doc)
 
@@ -211,16 +228,20 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
     if dedup:
         raise HTTPException(status_code=409, detail={"code": "cadoc_exists", "message": "CADOC já cadastrado.", "documento": documento})
 
+    # periodicidade/grupo só entram quando informados: sem o setup novo a coluna
+    # não existe, e o cadastro sem elas continua funcionando.
+    extra = {f: getattr(body, f) for f in ("periodicidade", "grupo") if getattr(body, f)}
     await execute_query_strict(
         f"INSERT INTO {_DOCS} (documento, nome, descricao, leiaute_versao, is_ativo, "
-        "  created_at, created_by, updated_at, updated_by) VALUES ("
+        f"  created_at, created_by, updated_at, updated_by{''.join(f', {f}' for f in extra)}) VALUES ("
         "  :documento, :nome, :descricao, :leiaute_versao, true, "
-        "  current_timestamp(), :actor, current_timestamp(), :actor)",
+        f"  current_timestamp(), :actor, current_timestamp(), :actor{''.join(f', :{f}' for f in extra)})",
         {"documento": documento, "nome": body.nome, "descricao": body.descricao,
-         "leiaute_versao": body.leiaute_versao, "actor": actor},
+         "leiaute_versao": body.leiaute_versao, "actor": actor, **extra},
     )
     return CadocDocument(documento=documento, nome=body.nome, descricao=body.descricao,
                          leiaute_versao=body.leiaute_versao, is_ativo=True,
+                         periodicidade=body.periodicidade, grupo=body.grupo,
                          created_by=actor, updated_by=actor)
 
 
@@ -228,10 +249,11 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
 async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Request):
     """Update mutable CADOC fields. Dynamic SET like governance.py PATCH."""
     actor = _caller_email(request)
+    _check_periodicidade(body.periodicidade)
     if USE_MOCK:
         for d in _MOCK_CADOCS:
             if d["documento"] == documento:
-                for f in ("nome", "descricao", "leiaute_versao", "is_ativo"):
+                for f in ("nome", "descricao", "leiaute_versao", "is_ativo", "periodicidade", "grupo"):
                     v = getattr(body, f)
                     if v is not None:
                         d[f] = v
@@ -239,7 +261,7 @@ async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Reques
         raise HTTPException(status_code=404, detail="CADOC não encontrado")
 
     sets, params = [], {"documento": documento, "actor": actor}
-    for f in ("nome", "descricao", "leiaute_versao", "is_ativo"):
+    for f in ("nome", "descricao", "leiaute_versao", "is_ativo", "periodicidade", "grupo"):
         v = getattr(body, f)
         if v is not None:
             sets.append(f"{f} = :{f}")
@@ -251,14 +273,14 @@ async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Reques
         f"UPDATE {_DOCS} SET {', '.join(sets)} WHERE documento = :documento", params,
     )
     rows = await execute_query(
-        "SELECT documento, nome, descricao, leiaute_versao, is_ativo "
-        f"FROM {_DOCS} WHERE documento = :documento LIMIT 1", {"documento": documento},
+        f"SELECT * FROM {_DOCS} WHERE documento = :documento LIMIT 1", {"documento": documento},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="CADOC não encontrado")
     r = rows[0]
     return CadocDocument(documento=r["documento"], nome=r["nome"], descricao=r.get("descricao"),
-                         leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")))
+                         leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")),
+                         periodicidade=r.get("periodicidade"), grupo=r.get("grupo"))
 
 
 @router.delete("/cadocs/{documento}", status_code=204)

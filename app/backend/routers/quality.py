@@ -26,6 +26,7 @@ from models import (
     Violation,
 )
 from rc18_rule_meta import meta_for, resolve_meta
+from data_base import reference_month, select_runs
 from dqx_rules import PUBLISHED_RUN_FILTER, RuleIndex, build_index, load_executed_rules
 from rc18_links import load_cadoc_tables, load_vinculos, scope_table_clause
 
@@ -170,6 +171,7 @@ def _mock_violations_for_dimension(dimension_id: int, locale: str) -> list[Viola
 async def _real_violations_for_dimension(
     dimension_id: int,
     documentos: list[str] | None = None,
+    month: str | None = None,
 ) -> list[Violation]:
     """Real-mode analogue of `_mock_violations_for_dimension`.
 
@@ -195,7 +197,7 @@ async def _real_violations_for_dimension(
         tables_by_doc, _doc_by_table = await load_cadoc_tables()
         documentos = sorted(tables_by_doc) or ["3040", "3050"]
     for document in documentos:
-        results, _run_id, _run_time = await _fetch_studio_results(document)
+        results, _run_id, _run_time, _summary = await _fetch_studio_results(document, month)
         for vr in results:
             if vr.dimension_r18 != dimension_id:
                 continue
@@ -218,7 +220,7 @@ async def _real_violations_for_dimension(
 
 @router.get("/dimensions", response_model=QualityDimensionsResponse)
 async def get_quality_dimensions(
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     trend_months: int = Query(6, ge=1, le=24),
     locale: str = Depends(get_locale),
 ):
@@ -241,10 +243,11 @@ async def get_quality_dimensions(
             ))
         measured = [s for s in _MOCK_SCORES if s is not None]
         overall = round(sum(measured) / len(measured), 2) if measured else 0.0
-        return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
+        return QualityDimensionsResponse(data_base=data_base or "", overall_score=overall, dimensions=dims)
 
-    # Real mode: aggregate per dimension from the latest DQX Studio runs.
-    by_dim = await _aggregate_by_dimension()
+    # Real mode: aggregate per dimension from the runs of the reference month
+    # (or each table's latest, without one).
+    by_dim = await _aggregate_by_dimension(reference_month(data_base))
     target = 95.0  # default; could be sourced from reference.dimensoes_r18
     dims = []
     for d in _R18_DIMENSIONS:
@@ -280,7 +283,7 @@ async def get_quality_dimensions(
     # média de 99,96 vira 100,0 — ver o comentário em dashboard.py.
     measured = [d.score for d in dims if d.score is not None]
     overall = round(sum(measured) / len(measured), 2) if measured else 0.0
-    return QualityDimensionsResponse(data_base=data_base, overall_score=overall, dimensions=dims)
+    return QualityDimensionsResponse(data_base=data_base or "", overall_score=overall, dimensions=dims)
 
 
 async def _load_rule_user_metadata() -> RuleIndex:
@@ -294,10 +297,11 @@ async def _load_rule_user_metadata() -> RuleIndex:
     return build_index(await load_executed_rules())
 
 
-async def _aggregate_by_dimension() -> dict[int, dict]:
+async def _aggregate_by_dimension(month: str | None = None) -> dict[int, dict]:
     """Aggregate (total_rows, invalid_rows, n_rules, rule_names) per R.18 dimension.
 
-    For each source_table_fqn, takes the LATEST SUCCESS run, parses its
+    For each source_table_fqn, takes the LATEST SUCCESS run — or, with `month`,
+    the latest whose evaluated data-base falls in it — parses its
     `check_metrics` and looks up each check's dimension via `rc18_rule_meta`.
     Rules without a known dimension fall into the "Outras" bucket (id=0).
     """
@@ -305,17 +309,7 @@ async def _aggregate_by_dimension() -> dict[int, dict]:
     # (inclui tabelas gold registradas, ex. reconciliacao_cosif), com fallback
     # ao prefixo silver quando cadoc_tabelas está vazio.
     scope_pred, scope_params = await scope_table_clause("source_table_fqn")
-    runs = await execute_query(
-        "WITH ranked AS ("
-        "  SELECT run_id, source_table_fqn, total_rows, created_at,"
-        "         ROW_NUMBER() OVER (PARTITION BY source_table_fqn ORDER BY created_at DESC) AS rn"
-        f"  FROM {DQX_VALIDATION_RUNS_TABLE}"
-        f"  WHERE {PUBLISHED_RUN_FILTER}"
-        f"    AND {scope_pred}"
-        ") SELECT run_id, source_table_fqn, total_rows FROM ranked WHERE rn = 1",
-        scope_params,
-        cache_ns="dqx",
-    )
+    runs = (await select_runs(scope_pred, scope_params, month)).runs
     if not runs:
         return {}
 
@@ -487,7 +481,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
 @router.get("/dimensions/{dimension_id}", response_model=DimensionDetailResponse)
 async def get_quality_dimension_detail(
     dimension_id: int,
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     locale: str = Depends(get_locale),
 ):
     """Return detailed metrics for a single R.18 dimension."""
@@ -534,7 +528,8 @@ async def get_quality_dimension_detail(
             trend=_mock_trend(score),
         )
 
-    by_dim = await _aggregate_by_dimension()
+    month = reference_month(data_base)
+    by_dim = await _aggregate_by_dimension(month)
     agg = by_dim.get(dimension_id, {"total": 0, "invalid": 0, "rules": 0, "rule_names": []})
     target = 95.0
     if agg["rules"] == 0:
@@ -558,7 +553,7 @@ async def get_quality_dimension_detail(
         # `or None` de propósito: tabela fora de cadoc_tabelas (ex.: uma gold não
         # registrada) não deve virar lista vazia — cai no fallback de todos.
         documentos = sorted({doc_by_table[t] for t in agg["tables"] if t in doc_by_table}) or None
-    violations = await _real_violations_for_dimension(dimension_id, documentos) if agg["rules"] else []
+    violations = await _real_violations_for_dimension(dimension_id, documentos, month) if agg["rules"] else []
     trend = await _dimension_trend(dimension_id) if agg["rules"] else []
     return DimensionDetailResponse(
         dimension=d, score=score, target=target, status=status,
@@ -574,7 +569,7 @@ async def get_quality_dimension_detail(
 
 @router.get("/trend")
 async def get_quality_trend(
-    data_base: str = Query("2026-03"),
+    data_base: str | None = Query(None, description="Mês de referência (AAAA-MM); sem ele, o último processamento"),
     months: int = Query(6, ge=1, le=24),
     locale: str = Depends(get_locale),
 ):
@@ -582,7 +577,7 @@ async def get_quality_trend(
     if USE_MOCK:
         measured = [s for s in _MOCK_SCORES if s is not None]
         overall = round(sum(measured) / len(measured), 1) if measured else 0.0
-        return {"data_base": data_base, "trend": _mock_trend(overall) if measured else []}
+        return {"data_base": data_base or "", "trend": _mock_trend(overall) if measured else []}
 
     # Trend baseado em dq_metrics: para cada YYYY-MM, agrupa o score overall
     # de TODAS as runs do mes (não apenas latest). Limita ao último ano.
@@ -603,4 +598,4 @@ async def get_quality_trend(
         {},
         cache_ns="dqx",
     )
-    return {"data_base": data_base, "trend": [{"month": r["month"], "score": float(r["score"] or 0)} for r in rows]}
+    return {"data_base": data_base or "", "trend": [{"month": r["month"], "score": float(r["score"] or 0)} for r in rows]}
