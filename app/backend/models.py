@@ -1001,10 +1001,15 @@ class CadocListResponse(BaseModel):
 
 
 class CadocTable(BaseModel):
-    """Associação CADOC → tabela silver (1:N)."""
+    """Associação CADOC → tabela (1:N). A tabela pode ser de outro catálogo."""
     documento: str
     table_fqn: str
     is_ativo: bool = True
+    external: bool = False  # fora do catálogo do deployment
+
+
+class AllCadocTablesResponse(BaseModel):
+    tables: list[CadocTable] = []
 
 
 class CadocTableAssociateRequest(BaseModel):
@@ -1026,10 +1031,29 @@ class SchemaTable(BaseModel):
 
 
 class SchemaTablesResponse(BaseModel):
+    catalog: str = ""
     # `schema` é palavra reservada do BaseModel (Pydantic); expõe via alias.
     schema_name: str = Field(serialization_alias="schema", validation_alias="schema")
     tables: list[SchemaTable] = []
+    # Erro UC ao listar (o SP do app não enxerga) — a tela explica, não quebra.
+    access_error: str | None = None
     model_config = ConfigDict(populate_by_name=True)
+
+
+class BrowseCatalog(BaseModel):
+    name: str
+    own: bool = False  # o catálogo do deployment
+
+
+class BrowseCatalogsResponse(BaseModel):
+    catalogs: list[BrowseCatalog] = []
+    access_error: str | None = None
+
+
+class BrowseSchemasResponse(BaseModel):
+    catalog: str
+    schemas: list[str] = []
+    access_error: str | None = None
 
 
 class RegraVinculo(BaseModel):

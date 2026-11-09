@@ -28,6 +28,7 @@ from data_base import LEDGER_TABLE, NON_DATA_OPERATIONS, load_ledger
 from dqx_config import dqx_studio_base_url
 from dqx_rules import load_executed_rules
 from rc18_links import load_cadoc_tables
+from table_access import PASSED as _ACCESS_OK, check_readable, grant_statements, is_external
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ RULES_EXECUTED = "rules_executed"
 DATA_BASE_HISTORY = "data_base_history"
 DATA_BASE_HISTORY_LAG = "data_base_history_lag"
 DATA_BASE_HISTORY_GRANT = "data_base_history_grant"
+EXTERNAL_TABLES_ACCESS = "external_tables_access"
 
 
 class PrereqCheck(BaseModel):
@@ -199,6 +201,35 @@ async def _check_data_base_history() -> PrereqCheck:
     )
 
 
+async def _check_external_tables() -> PrereqCheck | None:
+    """Tabelas de OUTRO catálogo em `cadoc_tabelas` continuam legíveis pelo app?
+
+    O bundle não as concede (o `grant_warehouse_perms` cobre só o próprio
+    catálogo) e um GRANT pode ser revogado depois do cadastro. `None` quando
+    não há tabela externa — o check nem aparece.
+    """
+    tables_by_doc, _doc_by_table = await load_cadoc_tables()
+    externas = sorted({t for ts in tables_by_doc.values() for t in ts if is_external(t)})
+    if not externas:
+        return None
+    role = await _identity() or "<client-id-do-sp-do-app>"
+    results = await asyncio.gather(*(check_readable(t, role) for t in externas))
+    pendentes = [(t, r) for t, r in zip(externas, results) if r.state != _ACCESS_OK]
+    if not pendentes:
+        return PrereqCheck(id=EXTERNAL_TABLES_ACCESS, state=PASSED, params={"count": str(len(externas))})
+    params = {"tables": ", ".join(t for t, _ in pendentes)}
+    prescritas = [t for t, r in pendentes if r.remediation]
+    if not prescritas:
+        # Nenhum erro de acesso UC: causa desconhecida, sem comando.
+        return PrereqCheck(id=EXTERNAL_TABLES_ACCESS, state=FAILED, params=params,
+                           detail=pendentes[0][1].detail)
+    return PrereqCheck(
+        id=EXTERNAL_TABLES_ACCESS, state=ACTION_REQUIRED, params=params,
+        remediation="\n\n".join(grant_statements(t, role) for t in prescritas),
+        remediation_kind="sql", detail=pendentes[0][1].detail,
+    )
+
+
 async def run_prereq_checks() -> PrereqReport:
     """Verificações na ordem da cadeia. Cada chamada é nova — é o "Re-verificar"."""
     now = datetime.now(timezone.utc).isoformat()
@@ -230,6 +261,15 @@ async def run_prereq_checks() -> PrereqReport:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Verificação do histórico de data-base falhou: %s", exc)
         checks.append(PrereqCheck(id=DATA_BASE_HISTORY, state=FAILED,
+                                  detail=str(exc).splitlines()[0]))
+
+    try:
+        externas = await _check_external_tables()
+        if externas is not None:
+            checks.append(externas)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Verificação das tabelas externas falhou: %s", exc)
+        checks.append(PrereqCheck(id=EXTERNAL_TABLES_ACCESS, state=FAILED,
                                   detail=str(exc).splitlines()[0]))
 
     overall = PASSED if all(c.state in (PASSED, SKIPPED) for c in checks) else ACTION_REQUIRED

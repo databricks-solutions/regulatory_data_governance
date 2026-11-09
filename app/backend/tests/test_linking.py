@@ -146,10 +146,11 @@ class LinkingRouterMockTest(unittest.TestCase):
         # (defense-in-depth against stored injection), not stored verbatim.
         for bad in [
             "x') UNION SELECT cpf_cnpj, nome_cliente, '' FROM rc18_catalog.silver.scr3040_clientes -- ",
-            "other_catalog.silver.scr3040_clientes",       # wrong catalog
             "rc18_catalog.governance.regra_vinculos",       # non-browsable schema
             "rc18_catalog.silver.tab; DROP TABLE x",        # junk table name
             "rc18_catalog.silver",                           # not 3 parts
+            "outro.dados.tab`; DROP TABLE x",               # junk in another catalog
+            "RC18_CATALOG.governance.regra_vinculos",       # case doesn't bypass the block
         ]:
             r = self.client.post("/api/v1/linking/links", json={
                 "check_name": "c", "table_fqn": bad, "dimensao_r18": 1,
@@ -157,6 +158,53 @@ class LinkingRouterMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 400, f"esperado 400 para {bad!r}, veio {r.status_code}")
             r2 = self.client.post("/api/v1/linking/cadocs/3040/tables", json={"table_fqn": bad})
             self.assertEqual(r2.status_code, 400, f"associate esperava 400 para {bad!r}")
+
+    def test_table_from_another_catalog_accepted_and_flagged_external(self):
+        # CADOCs cujas regras já rodam na Studio podem viver em outro catálogo.
+        r = self.client.post("/api/v1/linking/cadocs/3040/tables", json={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertTrue(r.json()["external"])
+        tables = self.client.get("/api/v1/linking/tables").json()["tables"]
+        self.assertIn({"documento": "3040", "table_fqn": "outro_cat.dados.scr9999", "is_ativo": True, "external": True}, tables)
+        self.assertTrue(any(t["table_fqn"].startswith("rc18_catalog.") and not t["external"] for t in tables))
+        # Remoção pela tela também funciona para a externa.
+        r = self.client.delete("/api/v1/linking/cadocs/3040/tables", params={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 204)
+
+    def test_table_access_warns_but_never_blocks(self):
+        r = self.client.get("/api/v1/linking/table-access", params={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertTrue(body["external"])
+        self.assertEqual(body["state"], "action_required")
+        grant = next(c for c in body["checks"] if c["id"] == "table_select")
+        self.assertIn("GRANT SELECT", grant["remediation"])
+        ok = self.client.get("/api/v1/linking/table-access",
+                             params={"table_fqn": "rc18_catalog.silver.scr3040_clientes"}).json()
+        self.assertEqual(ok["state"], "passed")
+        self.assertEqual(self.client.get("/api/v1/linking/table-access",
+                                         params={"table_fqn": "x.y"}).status_code, 400)
+
+    def test_browse_catalog_schema_table(self):
+        cats = self.client.get("/api/v1/linking/browse/catalogs").json()["catalogs"]
+        self.assertEqual(cats[0], {"name": "rc18_catalog", "own": True})  # o do deployment primeiro
+        self.assertIn({"name": "cliente_cat", "own": False}, cats)
+        own = self.client.get("/api/v1/linking/browse/schemas", params={"catalog": "rc18_catalog"}).json()
+        self.assertNotIn("governance", own["schemas"])
+        tabs = self.client.get("/api/v1/linking/schema-tables",
+                               params={"catalog": "cliente_cat", "schema": "cosif"}).json()
+        self.assertEqual(tabs["catalog"], "cliente_cat")
+        self.assertIn("cliente_cat.cosif.scr4060_saldos", [t["table_fqn"] for t in tabs["tables"]])
+        # Já associada vem anotada com o CADOC.
+        tabs = self.client.get("/api/v1/linking/schema-tables",
+                               params={"catalog": "rc18_catalog", "schema": "silver"}).json()["tables"]
+        self.assertEqual(next(t for t in tabs if t["table_name"] == "scr3050")["already_linked_documento"], "3050")
+
+    def test_browse_rejects_bad_identifiers_and_governance(self):
+        self.assertEqual(self.client.get("/api/v1/linking/browse/schemas",
+                                         params={"catalog": "x`; DROP"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/v1/linking/schema-tables",
+                                         params={"catalog": "rc18_catalog", "schema": "governance"}).status_code, 400)
 
     def test_valid_table_fqn_accepted(self):
         r = self.client.post("/api/v1/linking/links", json={

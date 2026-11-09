@@ -7,10 +7,15 @@ em dia.
 """
 
 import asyncio
+import sys
 import unittest
 from unittest.mock import patch
 
 from app.backend import diagnostics as diag
+
+# O módulo que o `diagnostics` de fato usa (importado via sys.path, não como
+# `app.backend.table_access`) — patchar o outro não tem efeito.
+table_access = sys.modules[diag.check_readable.__module__]
 
 
 def _run(coro):
@@ -25,7 +30,7 @@ class ReportTest(unittest.TestCase):
     """Monta o relatório inteiro e checa a prescrição."""
 
     def _report(self, *, rules_count=7, delta_error=None, studio_url="https://dqx.example.com",
-                ledger=None, history=None, ledger_error=None):
+                ledger=None, history=None, ledger_error=None, cadoc_tables=None, table_error=None):
         async def fake_identity():
             return "00000000-1111-2222-3333-444444444444"
 
@@ -37,7 +42,14 @@ class ReportTest(unittest.TestCase):
             return []
 
         async def fake_cadoc_tables():
-            return {"3040": ["c.s.a"]}, {"c.s.a": "3040"}
+            by_doc = cadoc_tables or {"3040": ["c.s.a"]}
+            return by_doc, {t: d for d, ts in by_doc.items() for t in ts}
+
+        async def fake_table_query(sql, params=None):
+            # Leitura das tabelas de `cadoc_tabelas` (table_access.check_readable).
+            if table_error:
+                raise RuntimeError(table_error)
+            return []
 
         async def fake_ledger(tables, strict=False):
             if ledger_error:
@@ -50,6 +62,7 @@ class ReportTest(unittest.TestCase):
         with patch.object(diag, "USE_MOCK", False), \
              patch.object(diag, "_identity", fake_identity), \
              patch.object(diag, "execute_query", fake_execute), \
+             patch.object(table_access, "execute_query", fake_table_query), \
              patch.object(diag, "load_executed_rules", fake_rules), \
              patch.object(diag, "load_cadoc_tables", fake_cadoc_tables), \
              patch.object(diag, "load_ledger", fake_ledger), \
@@ -63,7 +76,7 @@ class ReportTest(unittest.TestCase):
 
     def test_no_lakebase_check_is_reported(self):
         """O RC18 não lê mais o Lakebase: prescrever GRANT lá seria trabalho à toa."""
-        ids = [c.id for c in self._report().checks]
+        ids = [c.id for c in self._report(cadoc_tables={"3040": ["rc18_catalog.s.a"]}).checks]
         self.assertEqual(
             ids, [diag.STUDIO_URL, diag.DELTA_RUNS_SELECT, diag.RULES_EXECUTED, diag.DATA_BASE_HISTORY],
         )
@@ -146,6 +159,29 @@ class ReportTest(unittest.TestCase):
         c = _by_id(report)[diag.STUDIO_URL]
         self.assertEqual(c.state, diag.ACTION_REQUIRED)
         self.assertEqual(c.remediation_kind, "yaml")
+
+    def test_external_table_without_grant_prescribes_the_three_grants(self):
+        report = self._report(
+            cadoc_tables={"3040": ["rc18_catalog.silver.scr3040_clientes"], "9999": ["outro.dados.tab"]},
+            table_error="[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table 'outro.dados.tab'",
+        )
+        c = _by_id(report)[diag.EXTERNAL_TABLES_ACCESS]
+        self.assertEqual(c.state, diag.ACTION_REQUIRED)
+        self.assertEqual(c.params["tables"], "outro.dados.tab")  # só a externa é verificada
+        self.assertIn("GRANT USE CATALOG ON CATALOG `outro`", c.remediation)
+        self.assertIn("GRANT SELECT      ON TABLE   `outro`.`dados`.`tab` TO `00000000-1111-2222-3333-444444444444`", c.remediation)
+        self.assertEqual(report.state, diag.ACTION_REQUIRED)
+
+    def test_external_table_non_permission_failure_prescribes_nothing(self):
+        report = self._report(cadoc_tables={"9999": ["outro.dados.tab"]},
+                              table_error="Error during request to server: warehouse stopped")
+        c = _by_id(report)[diag.EXTERNAL_TABLES_ACCESS]
+        self.assertEqual(c.state, diag.FAILED)
+        self.assertIsNone(c.remediation)
+
+    def test_no_external_table_means_no_check(self):
+        report = self._report(cadoc_tables={"3040": ["rc18_catalog.silver.scr3040_clientes"]})
+        self.assertNotIn(diag.EXTERNAL_TABLES_ACCESS, _by_id(report))
 
     def test_mock_mode_reports_no_action(self):
         # Devloop não tem workspace; alarme aqui seria ruído.

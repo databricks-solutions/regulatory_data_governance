@@ -43,9 +43,15 @@ from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
 from db import execute_query as _execute_query
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
 from db import execute_query_or_empty as execute_query
+from diagnostics import _identity
 from i18n import get_locale
+from table_access import TableAccessReport, check_table_access, is_external
 from rc18_rule_meta import _DIM_NAMES, meta_for
 from models import (
+    AllCadocTablesResponse,
+    BrowseCatalog,
+    BrowseCatalogsResponse,
+    BrowseSchemasResponse,
     CadocCreateRequest,
     CadocDocument,
     CadocListResponse,
@@ -83,25 +89,25 @@ _BROWSABLE_SCHEMAS = {"silver", "bronze", "gold", "reference"}
 
 
 def _validate_table_fqn(table_fqn: str) -> str:
-    """Validate a written `table_fqn` to `{CATALOG}.<browsable_schema>.<table>`.
+    """Validate a written `table_fqn`: 3 plain identifiers.
 
-    Defense-in-depth against a stored value later reaching a query: even though
-    all IN-lists are now parameterized, a stored FQN pointing at another
-    catalog/schema is a data-integrity + least-privilege concern. Rejects
-    anything outside the app's own catalog and allowlisted data schemas, and
-    any table name that isn't a plain identifier.
+    Defense-in-depth against a stored value later reaching a query: every part
+    must be a plain identifier. Inside the app's own catalog only the data
+    schemas are allowed (never `governance`). OTHER catalogs are accepted —
+    CADOCs whose rules already run in the DQX Studio may live elsewhere; the
+    real gate there is the app SP's UC grants, which `GET /table-access` checks
+    and the UI surfaces as a warning (linking a table grants nothing).
     """
+    # Sem normalizar caixa: o valor tem de casar com o `source_table_fqn` da Studio.
     fqn = (table_fqn or "").strip()
     parts = fqn.split(".")
     if len(parts) != 3:
         raise HTTPException(status_code=400, detail=f"table_fqn inválido (esperado catalog.schema.tabela): {table_fqn!r}")
-    cat, schema, table = parts
-    if cat != CATALOG:
-        raise HTTPException(status_code=400, detail=f"table_fqn deve estar no catálogo {CATALOG}")
-    if schema not in _BROWSABLE_SCHEMAS:
+    if not all(re.fullmatch(r"[A-Za-z0-9_]+", p) for p in parts):
+        raise HTTPException(status_code=400, detail="Nome de catálogo/schema/tabela inválido")
+    cat, schema, _table = parts
+    if cat.lower() == CATALOG.lower() and schema.lower() not in _BROWSABLE_SCHEMAS:
         raise HTTPException(status_code=400, detail=f"Schema não permitido: {schema}")
-    if not re.fullmatch(r"[A-Za-z0-9_]+", table):
-        raise HTTPException(status_code=400, detail="Nome de tabela inválido")
     return fqn
 
 
@@ -312,12 +318,40 @@ async def delete_cadoc(documento: str, request: Request):
 
 # ── CADOC ↔ tables ───────────────────────────────────────────────────────────
 
+@router.get("/tables", response_model=AllCadocTablesResponse)
+async def list_all_cadoc_tables():
+    """Every active CADOC↔table association (the "Tabelas" tab)."""
+    if USE_MOCK:
+        pairs = [(d, t) for d, ts in _MOCK_CADOC_TABLES.items() for t in ts]
+    else:
+        rows = await execute_query(
+            f"SELECT documento, table_fqn FROM {_TBLS} WHERE is_ativo ORDER BY documento, table_fqn", {},
+        )
+        pairs = [(r["documento"], r["table_fqn"]) for r in rows]
+    return AllCadocTablesResponse(tables=[
+        CadocTable(documento=d, table_fqn=t, external=is_external(t)) for d, t in pairs
+    ])
+
+
+@router.get("/table-access", response_model=TableAccessReport)
+async def table_access(table_fqn: str = Query(...)):
+    """What the app SP can verify about a table, before or after associating it.
+
+    Never blocks: a missing grant is a warning with the GRANT already filled in
+    with the app's identity. The DQX Studio SP and the job identity can't be
+    checked from here — the UI states that.
+    """
+    fqn = _validate_table_fqn(table_fqn)
+    role = "" if USE_MOCK else await _identity()
+    return await check_table_access(fqn, role or "<client-id-do-sp-do-app>")
+
+
 @router.get("/cadocs/{documento}/tables", response_model=CadocTablesResponse)
 async def list_cadoc_tables(documento: str):
     """List silver tables associated to a CADOC."""
     if USE_MOCK:
         return CadocTablesResponse(documento=documento, tables=[
-            CadocTable(documento=documento, table_fqn=t)
+            CadocTable(documento=documento, table_fqn=t, external=is_external(t))
             for t in _MOCK_CADOC_TABLES.get(documento, [])
         ])
     rows = await execute_query(
@@ -325,13 +359,14 @@ async def list_cadoc_tables(documento: str):
         "ORDER BY table_fqn", {"documento": documento},
     )
     return CadocTablesResponse(documento=documento, tables=[
-        CadocTable(documento=r["documento"], table_fqn=r["table_fqn"]) for r in rows
+        CadocTable(documento=r["documento"], table_fqn=r["table_fqn"], external=is_external(r["table_fqn"]))
+        for r in rows
     ])
 
 
 @router.post("/cadocs/{documento}/tables", response_model=CadocTable, status_code=201)
 async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest, request: Request):
-    """Associate a silver table to a CADOC (409 on duplicate)."""
+    """Associate a table to a CADOC (409 on duplicate). Any catalog — see `_validate_table_fqn`."""
     actor = _caller_email(request)
     table_fqn = (body.table_fqn or "").strip()
     if not table_fqn:
@@ -343,7 +378,7 @@ async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest
         if table_fqn in cur:
             raise HTTPException(status_code=409, detail={"code": "table_linked", "message": "Tabela já associada."})
         cur.append(table_fqn)
-        return CadocTable(documento=documento, table_fqn=table_fqn)
+        return CadocTable(documento=documento, table_fqn=table_fqn, external=is_external(table_fqn))
 
     dedup = await execute_query(
         f"SELECT table_fqn FROM {_TBLS} WHERE documento = :documento AND table_fqn = :table_fqn AND is_ativo LIMIT 1",
@@ -356,7 +391,7 @@ async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest
         "VALUES (:documento, :table_fqn, true, current_timestamp(), :actor, current_timestamp(), :actor)",
         {"documento": documento, "table_fqn": table_fqn, "actor": actor},
     )
-    return CadocTable(documento=documento, table_fqn=table_fqn)
+    return CadocTable(documento=documento, table_fqn=table_fqn, external=is_external(table_fqn))
 
 
 @router.delete("/cadocs/{documento}/tables", status_code=204)
@@ -374,43 +409,118 @@ async def disassociate_cadoc_table(documento: str, request: Request, table_fqn: 
     )
 
 
-# ── Schema browsing ──────────────────────────────────────────────────────────
+# ── Catalog browsing (catálogo → schema → tabela, como o SP do app) ─────────
+#
+# Lista só o que o SP do app enxerga — por isso o navegador também É um
+# indicador de acesso: o que não aparece, o app não vê. Para esse caso a tela
+# tem o "digitar o nome", que chega na verificação com os GRANTs.
+
+# Catálogos de sistema não são alvo de CADOC.
+_HIDDEN_CATALOGS = {"system", "samples", "__databricks_internal"}
+_IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
+
+_MOCK_BROWSE = {
+    CATALOG: {
+        "silver": ["scr3040_operacoes", "scr3040_clientes", "scr3040_garantias",
+                   "scr3040_vencimentos", "scr3040_cont_4966", "scr3050"],
+        "gold": ["posicao_3040", "posicao_3050"],
+    },
+    "cliente_cat": {"cosif": ["scr4060_saldos", "scr4060_contas"]},
+}
+
+
+def _ident(value: str, what: str) -> str:
+    v = (value or "").strip()
+    if not _IDENT_RE.fullmatch(v):
+        raise HTTPException(status_code=400, detail=f"{what} inválido")
+    return v
+
+
+def _is_own(catalog: str) -> bool:
+    return catalog.lower() == CATALOG.lower()
+
+
+def _access_error(exc: Exception) -> str:
+    """Primeira linha do erro UC (o frontend explica; o detalhe vai junto)."""
+    raw = str(exc).strip()
+    return raw.splitlines()[0] if raw else "erro"
+
+
+@router.get("/browse/catalogs", response_model=BrowseCatalogsResponse)
+async def browse_catalogs():
+    """Catálogos que o SP do app enxerga (o do deployment primeiro)."""
+    if USE_MOCK:
+        names = list(_MOCK_BROWSE)
+    else:
+        try:
+            rows = await _execute_query("SHOW CATALOGS", {})
+        except Exception as exc:  # noqa: BLE001
+            return BrowseCatalogsResponse(catalogs=[], access_error=_access_error(exc))
+        names = [str(next(iter(r.values()))) for r in rows if r]
+    names = sorted({n for n in names if n not in _HIDDEN_CATALOGS}, key=lambda n: (not _is_own(n), n))
+    return BrowseCatalogsResponse(catalogs=[BrowseCatalog(name=n, own=_is_own(n)) for n in names])
+
+
+@router.get("/browse/schemas", response_model=BrowseSchemasResponse)
+async def browse_schemas(catalog: str = Query(...)):
+    """Schemas de um catálogo. No do deployment, só os de dados (nunca `governance`)."""
+    catalog = _ident(catalog, "Catálogo")
+    if USE_MOCK:
+        names = list(_MOCK_BROWSE.get(catalog, {}))
+    else:
+        try:
+            rows = await _execute_query(
+                f"SELECT schema_name FROM `{catalog}`.information_schema.schemata ORDER BY schema_name", {},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return BrowseSchemasResponse(catalog=catalog, schemas=[], access_error=_access_error(exc))
+        names = [r["schema_name"] for r in rows]
+    names = [n for n in names if n != "information_schema"]
+    if _is_own(catalog):
+        names = [n for n in names if n.lower() in _BROWSABLE_SCHEMAS]
+    return BrowseSchemasResponse(catalog=catalog, schemas=sorted(names))
+
 
 @router.get("/schema-tables", response_model=SchemaTablesResponse)
 async def browse_schema_tables(
     schema: str = Query("silver"),
+    catalog: str | None = Query(None),
     search: str | None = Query(None),
 ):
-    """Browse tables in a data schema of `${CATALOG}` (information_schema).
+    """Tabelas de `<catalog>.<schema>` que o SP do app enxerga (information_schema).
 
-    Restricted to the granted data schemas. Each table is annotated with the
-    CADOC it's already linked to (if any), so the UI can disable/badge it.
+    Cada tabela vem anotada com o CADOC a que já está associada, para a tela
+    desabilitar/sinalizar. `catalog` ausente = o do deployment (compatível).
     """
-    schema = (schema or "silver").strip()
-    if schema not in _BROWSABLE_SCHEMAS:
+    catalog = _ident(catalog or CATALOG, "Catálogo")
+    schema = _ident(schema or "silver", "Schema")
+    if _is_own(catalog) and schema.lower() not in _BROWSABLE_SCHEMAS:
         raise HTTPException(status_code=400, detail=f"Schema não navegável: {schema}")
 
-    if USE_MOCK:
-        base = [f"scr3040_operacoes", "scr3040_clientes", "scr3040_garantias",
-                "scr3040_vencimentos", "scr3040_cont_4966", "scr3050"]
-        linked = {t: d for d, ts in _MOCK_CADOC_TABLES.items() for t in ts}
-        tables = []
-        for name in base:
-            if search and search.lower() not in name.lower():
-                continue
-            fqn = f"{CATALOG}.{schema}.{name}"
-            tables.append(SchemaTable(table_fqn=fqn, table_schema=schema, table_name=name,
-                                      already_linked_documento=linked.get(fqn)))
-        return SchemaTablesResponse(schema_name=schema, tables=tables)
+    def _matches(name: str) -> bool:
+        return not search or search.lower() in name.lower()
 
-    rows = await execute_query(
-        "SELECT table_schema, table_name "
-        f"FROM {CATALOG}.information_schema.tables "
-        "WHERE table_schema = :schema "
-        "  AND (:search IS NULL OR lower(table_name) LIKE '%' || lower(:search) || '%') "
-        "ORDER BY table_name",
-        {"schema": schema, "search": search},
-    )
+    if USE_MOCK:
+        linked = {t: d for d, ts in _MOCK_CADOC_TABLES.items() for t in ts}
+        names = [n for n in _MOCK_BROWSE.get(catalog, {}).get(schema, []) if _matches(n)]
+        return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=[
+            SchemaTable(table_fqn=f"{catalog}.{schema}.{n}", table_schema=schema, table_name=n,
+                        already_linked_documento=linked.get(f"{catalog}.{schema}.{n}"))
+            for n in names
+        ])
+
+    try:
+        rows = await _execute_query(
+            "SELECT table_schema, table_name "
+            f"FROM `{catalog}`.information_schema.tables "
+            "WHERE table_schema = :schema "
+            "  AND (:search IS NULL OR lower(table_name) LIKE '%' || lower(:search) || '%') "
+            "ORDER BY table_name",
+            {"schema": schema, "search": search},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=[],
+                                    access_error=_access_error(exc))
     # Which of these are already linked (active), to annotate the browser.
     linked_rows = await execute_query(
         f"SELECT table_fqn, documento FROM {_TBLS} WHERE is_ativo", {},
@@ -418,12 +528,12 @@ async def browse_schema_tables(
     linked = {r["table_fqn"]: r["documento"] for r in linked_rows}
     tables = []
     for r in rows:
-        fqn = f"{CATALOG}.{r['table_schema']}.{r['table_name']}"
+        fqn = f"{catalog}.{r['table_schema']}.{r['table_name']}"
         tables.append(SchemaTable(
             table_fqn=fqn, table_schema=r["table_schema"], table_name=r["table_name"],
             already_linked_documento=linked.get(fqn),
         ))
-    return SchemaTablesResponse(schema_name=schema, tables=tables)
+    return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=tables)
 
 
 # ── Linkable rules (DQX rules + effective check_name + link status) ──────────
