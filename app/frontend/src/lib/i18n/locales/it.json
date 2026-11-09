@@ -288,7 +288,74 @@
     "cadocColPeriodicity": "Periodicità",
     "fieldPeriodicity": "Periodicità",
     "fieldGroup": "Gruppo",
-    "fieldGroupHint": "Es.: SCR, COSIF, Prudenziale"
+    "fieldGroupHint": "Es.: SCR, COSIF, Prudenziale",
+    "tabTables": "Tabelle dei CADOC",
+    "tablesIntro": "Ogni CADOC deve sapere su quali tabelle girano le sue regole. Possono stare in questo catalogo o in un altro — ad esempio, un CADOC già elaborato in un altro catalogo e validato in DQX Studio. Per le tabelle di un altro catalogo, l'app verifica l'accesso e mostra cosa manca, ma non blocca la registrazione.",
+    "newTable": "Associa tabella",
+    "newTableTitle": "Associa una tabella a un CADOC",
+    "fieldTableFqn": "Tabella (catalogo.schema.tabella)",
+    "fieldTableFqnHint": "Usa il nome esattamente come appare in DQX Studio — è con quello che vengono trovate le regole.",
+    "tablesEmptyAll": "Nessuna tabella associata.",
+    "tableColOrigin": "Origine",
+    "tableColAccess": "Accesso dell'app",
+    "originOwn": "Questo catalogo",
+    "originExternal": "Altro catalogo",
+    "accessOk": "Accesso OK",
+    "accessPending": "Vedi pendenze",
+    "accessChecking": "Verifica in corso…",
+    "accessToggle": "Mostra/nascondi il risultato della verifica",
+    "accessOwn": "Tramite deploy",
+    "accessOwnTitle": "Le tabelle di questo catalogo ricevono i permessi al deploy (task grant_warehouse_perms).",
+    "verifyAccess": "Verifica accesso",
+    "associateAnyway": "Associa comunque",
+    "associatedWithWarnings": "Tabella associata. Ci sono pendenze di accesso — vedi l'avviso nella lista.",
+    "confirmRemoveTable": "Rimuovere la tabella {table} dal CADOC {documento}?",
+    "errorTableLinked": "Questa tabella è già associata a questo CADOC.",
+    "errorTableFqn": "Indica catalogo.schema.tabella, solo con lettere, numeri e _ (lo schema governance di questo catalogo non è ammesso).",
+    "access": {
+      "okTitle": "Tutto a posto con questa tabella",
+      "okSubtitle": "L'app legge la tabella e DQX Studio ha già esecuzioni su di essa.",
+      "warnTitle": "Questa tabella potrebbe non comparire in Críticas",
+      "warnSubtitle": "La registrazione è consentita. Risolvi le voci in arancione perché le sue regole compaiano complete.",
+      "unexpected": "Impossibile verificare (errore inatteso, non di permessi). Riprova tra poco.",
+      "skipped": "Non verificato — dipende dalla voce precedente.",
+      "runAsAdmin": "SQL — eseguire come proprietario della tabella o admin",
+      "notVerifiableTitle": "L'app non può verificarlo da qui (conferma con il team di piattaforma):",
+      "notVerifiableStudio": "Lo SP di DQX Studio ha bisogno di SELECT su questa tabella perché le regole girino — se già girano oggi, è a posto.",
+      "notVerifiableLedger": "L'identità che esegue il job gold/rc18_end_to_end ha bisogno dello stesso SELECT, e il job deve girare dopo il caricamento di questa tabella — altrimenti le validazioni compaiono solo in \"Ultima elaborazione\", senza mese di riferimento.",
+      "checks": {
+        "table_readable": {
+          "title": "L'app riesce a leggere la tabella",
+          "how": ""
+        },
+        "table_not_found": {
+          "title": "Tabella non trovata",
+          "how": "O il nome è sbagliato, o l'app non ha accesso al catalogo/schema (Unity Catalog risponde \"non esiste\" in entrambi i casi). Controlla il nome; se è corretto, esegui i GRANT qui sotto."
+        },
+        "table_select": {
+          "title": "L'app non ha permesso di lettura",
+          "how": "La tabella esiste, ma l'app non può leggerla. Senza questo sparisce dalla Lineage e la diagnostica lo segnala. Esegui i GRANT qui sotto."
+        },
+        "data_base_column": {
+          "title": "Colonna di data-base",
+          "how": "La tabella non ha né dt_base né data_base_month. Le sue validazioni compaiono solo in \"Ultima elaborazione\", mai in un mese di riferimento."
+        },
+        "studio_runs": {
+          "title": "Esecuzioni in DQX Studio",
+          "how": "Nessuna esecuzione pubblicata di questa tabella in {runs_table}. In DQX Studio, pubblica il binding della tabella ed eseguila; verifica anche che il nome digitato sia identico a quello di Studio."
+        }
+      }
+    },
+    "modeBrowse": "Sfoglia il catalogo",
+    "modeManual": "Scrivi il nome",
+    "fieldCatalog": "Catalogo",
+    "browseTip": "L'elenco mostra solo ciò che l'app riesce a vedere. Non trovi il catalogo, lo schema o la tabella? Allora l'app non vi ha accesso.",
+    "browseTipAction": "Scrivi il nome per vedere cosa manca.",
+    "browseNoAccessTitle": "L'app non riesce a elencare questo catalogo/schema",
+    "browseNoAccess": "Manca USE CATALOG/USE SCHEMA per l'app. Usa \"Scrivi il nome\" per vedere i GRANT necessari.",
+    "browseNoTables": "Nessuna tabella visibile all'app in questo schema.",
+    "alreadyHere": "Già in questo CADOC",
+    "picked": "Selezionata:"
   },
   "nav": {
     "complianceR18": "Conformità R.18",
@@ -627,6 +694,11 @@
         "title": "Nessun permesso per leggere lo storico delle date di riferimento",
         "what": "La tabella {table} esiste, ma l'app non ha SELECT su di essa. Le schermate funzionano, ma senza identificare la data di riferimento di ogni validazione.",
         "how": "Esegui il GRANT qui sotto, oppure rc18_end_to_end, che riapplica i permessi dell'app (il job gold da solo crea la tabella ma non concede l'accesso)."
+      },
+      "external_tables_access": {
+        "title": "Tabelle di un altro catalogo senza lettura",
+        "what": "L'app non legge queste tabelle associate ai CADOC: {tables}. Il deploy concede accesso solo al proprio catalogo.",
+        "how": "Esegui i GRANT qui sotto come proprietario delle tabelle (o admin). Dettagli per tabella in Vincolo delle Regole → Tabelle dei CADOC."
       }
     },
     "unexpected": "Fallito per un motivo che la diagnostica non sa prescrivere — controlla il dettaglio tecnico prima di concedere qualsiasi permesso."

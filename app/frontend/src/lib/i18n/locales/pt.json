@@ -288,7 +288,74 @@
     "cadocColPeriodicity": "Periodicidade",
     "fieldPeriodicity": "Periodicidade",
     "fieldGroup": "Grupo",
-    "fieldGroupHint": "Ex.: SCR, COSIF, Prudencial"
+    "fieldGroupHint": "Ex.: SCR, COSIF, Prudencial",
+    "tabTables": "Tabelas dos CADOCs",
+    "tablesIntro": "Cada CADOC precisa saber em quais tabelas as regras dele rodam. Pode ser uma tabela deste catálogo ou de outro — por exemplo, um CADOC que já é processado em outro catálogo e validado na DQX Studio. Para tabelas de outro catálogo, o app verifica o acesso e mostra o que falta, mas não impede o cadastro.",
+    "newTable": "Associar tabela",
+    "newTableTitle": "Associar tabela a um CADOC",
+    "fieldTableFqn": "Tabela (catálogo.schema.tabela)",
+    "fieldTableFqnHint": "Use o nome exatamente como aparece na DQX Studio — é por ele que as regras são encontradas.",
+    "tablesEmptyAll": "Nenhuma tabela associada ainda.",
+    "tableColOrigin": "Origem",
+    "tableColAccess": "Acesso do app",
+    "originOwn": "Este catálogo",
+    "originExternal": "Outro catálogo",
+    "accessOk": "Acesso OK",
+    "accessPending": "Ver pendências",
+    "accessChecking": "Verificando…",
+    "accessToggle": "Mostrar/ocultar o resultado da verificação",
+    "accessOwn": "Pelo deploy",
+    "accessOwnTitle": "Tabelas deste catálogo recebem as permissões no deploy (task grant_warehouse_perms).",
+    "verifyAccess": "Verificar acesso",
+    "associateAnyway": "Associar mesmo assim",
+    "associatedWithWarnings": "Tabela associada. Há pendências de acesso — veja o alerta na lista.",
+    "confirmRemoveTable": "Remover a tabela {table} do CADOC {documento}?",
+    "errorTableLinked": "Esta tabela já está associada a este CADOC.",
+    "errorTableFqn": "Informe catálogo.schema.tabela, só com letras, números e _ (o schema governance deste catálogo não é aceito).",
+    "access": {
+      "okTitle": "Tudo certo com esta tabela",
+      "okSubtitle": "O app lê a tabela e a DQX Studio já tem execução dela.",
+      "warnTitle": "Esta tabela pode não aparecer nas Críticas",
+      "warnSubtitle": "O cadastro é permitido. Resolva os itens em laranja para as regras dela aparecerem completas.",
+      "unexpected": "Não foi possível verificar (erro inesperado, não de permissão). Tente de novo em instantes.",
+      "skipped": "Não verificado — depende do item anterior.",
+      "runAsAdmin": "SQL — rodar como dono da tabela ou admin",
+      "notVerifiableTitle": "O app não consegue verificar daqui (confira com o time de plataforma):",
+      "notVerifiableStudio": "O SP da DQX Studio precisa de SELECT nesta tabela para as regras rodarem — se elas já rodam hoje, isto está OK.",
+      "notVerifiableLedger": "A identidade que roda o job gold/rc18_end_to_end precisa do mesmo SELECT, e o job precisa rodar depois da carga desta tabela — senão as validações aparecem só em \"Último processamento\", sem mês de referência.",
+      "checks": {
+        "table_readable": {
+          "title": "O app consegue ler a tabela",
+          "how": ""
+        },
+        "table_not_found": {
+          "title": "Tabela não encontrada",
+          "how": "Ou o nome está errado, ou o app não tem acesso ao catálogo/schema (o Unity Catalog responde \"não existe\" nos dois casos). Confira o nome; se estiver certo, rode os GRANTs abaixo."
+        },
+        "table_select": {
+          "title": "O app não tem permissão de leitura",
+          "how": "A tabela existe, mas o app não pode lê-la. Sem isso, ela some da Linhagem e o diagnóstico acusa. Rode os GRANTs abaixo."
+        },
+        "data_base_column": {
+          "title": "Coluna de data-base",
+          "how": "A tabela não tem dt_base nem data_base_month. As validações dela aparecem só em \"Último processamento\", nunca num mês de referência."
+        },
+        "studio_runs": {
+          "title": "Execuções na DQX Studio",
+          "how": "Nenhuma execução publicada desta tabela em {runs_table}. Na DQX Studio, publique o vínculo da tabela e execute-a; confira também se o nome digitado é idêntico ao da Studio."
+        }
+      }
+    },
+    "modeBrowse": "Navegar no catálogo",
+    "modeManual": "Digitar o nome",
+    "fieldCatalog": "Catálogo",
+    "browseTip": "A lista mostra só o que o app consegue enxergar. Não achou o catálogo, o schema ou a tabela? Então o app não tem acesso a eles.",
+    "browseTipAction": "Digite o nome para ver o que falta.",
+    "browseNoAccessTitle": "O app não consegue listar este catálogo/schema",
+    "browseNoAccess": "Falta USE CATALOG/USE SCHEMA para o app. Use \"Digitar o nome\" para ver os GRANTs necessários.",
+    "browseNoTables": "Nenhuma tabela visível para o app neste schema.",
+    "alreadyHere": "Já neste CADOC",
+    "picked": "Selecionada:"
   },
   "nav": {
     "complianceR18": "Conformidade R.18",
@@ -627,6 +694,11 @@
         "title": "Sem permissão para ler o histórico de data-base",
         "what": "A tabela {table} existe, mas o app não tem SELECT nela. As telas funcionam, só que sem identificar a data-base de cada validação.",
         "how": "Rode o GRANT abaixo, ou execute o rc18_end_to_end, que reaplica as permissões do app (o job gold sozinho cria a tabela, mas não concede o acesso)."
+      },
+      "external_tables_access": {
+        "title": "Tabelas de outro catálogo sem leitura",
+        "what": "O app não lê estas tabelas associadas a CADOCs: {tables}. O deploy só concede acesso ao próprio catálogo.",
+        "how": "Rode os GRANTs abaixo como dono das tabelas (ou admin). Detalhes por tabela em Vínculo de Regras → Tabelas dos CADOCs."
       }
     },
     "unexpected": "Falhou por um motivo que o diagnóstico não sabe prescrever — veja o detalhe técnico abaixo antes de conceder qualquer permissão."

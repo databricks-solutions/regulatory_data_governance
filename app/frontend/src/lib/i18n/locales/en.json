@@ -288,7 +288,74 @@
     "cadocColPeriodicity": "Periodicity",
     "fieldPeriodicity": "Periodicity",
     "fieldGroup": "Group",
-    "fieldGroupHint": "E.g. SCR, COSIF, Prudential"
+    "fieldGroupHint": "E.g. SCR, COSIF, Prudential",
+    "tabTables": "CADOC tables",
+    "tablesIntro": "Each CADOC needs to know which tables its rules run on. They can live in this catalog or in another one — for example, a CADOC already processed in another catalog and validated in DQX Studio. For tables in another catalog, the app checks access and shows what is missing, but never blocks the registration.",
+    "newTable": "Associate table",
+    "newTableTitle": "Associate a table to a CADOC",
+    "fieldTableFqn": "Table (catalog.schema.table)",
+    "fieldTableFqnHint": "Use the name exactly as it appears in DQX Studio — that is how its rules are matched.",
+    "tablesEmptyAll": "No tables associated yet.",
+    "tableColOrigin": "Origin",
+    "tableColAccess": "App access",
+    "originOwn": "This catalog",
+    "originExternal": "Other catalog",
+    "accessOk": "Access OK",
+    "accessPending": "See pending items",
+    "accessChecking": "Checking…",
+    "accessToggle": "Show/hide the check result",
+    "accessOwn": "Via deploy",
+    "accessOwnTitle": "Tables in this catalog get their grants at deploy time (grant_warehouse_perms task).",
+    "verifyAccess": "Check access",
+    "associateAnyway": "Associate anyway",
+    "associatedWithWarnings": "Table associated. There are pending access items — see the alert in the list.",
+    "confirmRemoveTable": "Remove table {table} from CADOC {documento}?",
+    "errorTableLinked": "This table is already associated to this CADOC.",
+    "errorTableFqn": "Enter catalog.schema.table using only letters, numbers and _ (this catalog's governance schema is not allowed).",
+    "access": {
+      "okTitle": "All good with this table",
+      "okSubtitle": "The app can read the table and DQX Studio already has runs for it.",
+      "warnTitle": "This table may not show up in Críticas",
+      "warnSubtitle": "Registration is allowed. Resolve the orange items so its rules show up complete.",
+      "unexpected": "Could not check (unexpected error, not a permission one). Try again shortly.",
+      "skipped": "Not checked — depends on the previous item.",
+      "runAsAdmin": "SQL — run as table owner or admin",
+      "notVerifiableTitle": "The app cannot check these from here (confirm with the platform team):",
+      "notVerifiableStudio": "DQX Studio's SP needs SELECT on this table for the rules to run — if they already run today, this is fine.",
+      "notVerifiableLedger": "The identity running the gold/rc18_end_to_end job needs the same SELECT, and the job must run after this table is loaded — otherwise validations only show under \"Latest processing\", with no reference month.",
+      "checks": {
+        "table_readable": {
+          "title": "The app can read the table",
+          "how": ""
+        },
+        "table_not_found": {
+          "title": "Table not found",
+          "how": "Either the name is wrong or the app has no access to the catalog/schema (Unity Catalog answers \"does not exist\" in both cases). Check the name; if it is right, run the GRANTs below."
+        },
+        "table_select": {
+          "title": "The app has no read permission",
+          "how": "The table exists but the app cannot read it. Without this it disappears from Lineage and diagnostics flag it. Run the GRANTs below."
+        },
+        "data_base_column": {
+          "title": "Data-base column",
+          "how": "The table has neither dt_base nor data_base_month. Its validations only show under \"Latest processing\", never in a reference month."
+        },
+        "studio_runs": {
+          "title": "Runs in DQX Studio",
+          "how": "No published run for this table in {runs_table}. In DQX Studio, publish the table binding and run it; also check that the typed name is identical to Studio's."
+        }
+      }
+    },
+    "modeBrowse": "Browse catalog",
+    "modeManual": "Type the name",
+    "fieldCatalog": "Catalog",
+    "browseTip": "The list only shows what the app can see. Can't find the catalog, schema or table? Then the app has no access to it.",
+    "browseTipAction": "Type the name to see what is missing.",
+    "browseNoAccessTitle": "The app cannot list this catalog/schema",
+    "browseNoAccess": "The app lacks USE CATALOG/USE SCHEMA. Use \"Type the name\" to see the required GRANTs.",
+    "browseNoTables": "No tables visible to the app in this schema.",
+    "alreadyHere": "Already in this CADOC",
+    "picked": "Selected:"
   },
   "nav": {
     "complianceR18": "R.18 Compliance",
@@ -627,6 +694,11 @@
         "title": "No permission to read the reference-date history",
         "what": "The table {table} exists, but the app has no SELECT on it. Screens work, but without identifying the reference date of each validation.",
         "how": "Run the GRANT below, or run rc18_end_to_end, which reapplies the app's permissions (the gold job alone creates the table but does not grant access)."
+      },
+      "external_tables_access": {
+        "title": "Tables from another catalog without read access",
+        "what": "The app cannot read these tables associated to CADOCs: {tables}. The deploy only grants access to its own catalog.",
+        "how": "Run the GRANTs below as the tables' owner (or an admin). Per-table details in Rule Linking → CADOC tables."
       }
     },
     "unexpected": "Failed for a reason the diagnostic cannot prescribe — check the technical detail below before granting any permission."

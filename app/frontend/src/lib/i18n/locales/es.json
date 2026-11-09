@@ -288,7 +288,74 @@
     "cadocColPeriodicity": "Periodicidad",
     "fieldPeriodicity": "Periodicidad",
     "fieldGroup": "Grupo",
-    "fieldGroupHint": "Ej.: SCR, COSIF, Prudencial"
+    "fieldGroupHint": "Ej.: SCR, COSIF, Prudencial",
+    "tabTables": "Tablas de los CADOC",
+    "tablesIntro": "Cada CADOC necesita saber en qué tablas corren sus reglas. Pueden estar en este catálogo o en otro — por ejemplo, un CADOC que ya se procesa en otro catálogo y se valida en DQX Studio. Para tablas de otro catálogo, la app verifica el acceso y muestra lo que falta, pero no impide el registro.",
+    "newTable": "Asociar tabla",
+    "newTableTitle": "Asociar una tabla a un CADOC",
+    "fieldTableFqn": "Tabla (catálogo.schema.tabla)",
+    "fieldTableFqnHint": "Use el nombre exactamente como aparece en DQX Studio — es por él que se encuentran las reglas.",
+    "tablesEmptyAll": "Todavía no hay tablas asociadas.",
+    "tableColOrigin": "Origen",
+    "tableColAccess": "Acceso de la app",
+    "originOwn": "Este catálogo",
+    "originExternal": "Otro catálogo",
+    "accessOk": "Acceso OK",
+    "accessPending": "Ver pendientes",
+    "accessChecking": "Verificando…",
+    "accessToggle": "Mostrar/ocultar el resultado de la verificación",
+    "accessOwn": "Por el deploy",
+    "accessOwnTitle": "Las tablas de este catálogo reciben los permisos en el deploy (task grant_warehouse_perms).",
+    "verifyAccess": "Verificar acceso",
+    "associateAnyway": "Asociar de todos modos",
+    "associatedWithWarnings": "Tabla asociada. Hay pendientes de acceso — vea la alerta en la lista.",
+    "confirmRemoveTable": "¿Quitar la tabla {table} del CADOC {documento}?",
+    "errorTableLinked": "Esta tabla ya está asociada a este CADOC.",
+    "errorTableFqn": "Informe catálogo.schema.tabla, solo con letras, números y _ (no se acepta el schema governance de este catálogo).",
+    "access": {
+      "okTitle": "Todo bien con esta tabla",
+      "okSubtitle": "La app lee la tabla y DQX Studio ya tiene ejecuciones de ella.",
+      "warnTitle": "Esta tabla puede no aparecer en Críticas",
+      "warnSubtitle": "El registro está permitido. Resuelva los ítems en naranja para que sus reglas aparezcan completas.",
+      "unexpected": "No fue posible verificar (error inesperado, no de permiso). Intente de nuevo en unos instantes.",
+      "skipped": "No verificado — depende del ítem anterior.",
+      "runAsAdmin": "SQL — ejecutar como dueño de la tabla o admin",
+      "notVerifiableTitle": "La app no puede verificar esto desde aquí (confirme con el equipo de plataforma):",
+      "notVerifiableStudio": "El SP de DQX Studio necesita SELECT en esta tabla para que las reglas corran — si ya corren hoy, esto está OK.",
+      "notVerifiableLedger": "La identidad que ejecuta el job gold/rc18_end_to_end necesita el mismo SELECT, y el job debe correr después de la carga de esta tabla — si no, las validaciones aparecen solo en \"Último procesamiento\", sin mes de referencia.",
+      "checks": {
+        "table_readable": {
+          "title": "La app puede leer la tabla",
+          "how": ""
+        },
+        "table_not_found": {
+          "title": "Tabla no encontrada",
+          "how": "O el nombre está mal, o la app no tiene acceso al catálogo/schema (Unity Catalog responde \"no existe\" en ambos casos). Revise el nombre; si es correcto, ejecute los GRANT de abajo."
+        },
+        "table_select": {
+          "title": "La app no tiene permiso de lectura",
+          "how": "La tabla existe, pero la app no puede leerla. Sin esto, desaparece del Linaje y el diagnóstico lo señala. Ejecute los GRANT de abajo."
+        },
+        "data_base_column": {
+          "title": "Columna de data-base",
+          "how": "La tabla no tiene dt_base ni data_base_month. Sus validaciones aparecen solo en \"Último procesamiento\", nunca en un mes de referencia."
+        },
+        "studio_runs": {
+          "title": "Ejecuciones en DQX Studio",
+          "how": "No hay ejecución publicada de esta tabla en {runs_table}. En DQX Studio, publique el vínculo de la tabla y ejecútela; verifique también que el nombre escrito sea idéntico al de Studio."
+        }
+      }
+    },
+    "modeBrowse": "Navegar el catálogo",
+    "modeManual": "Escribir el nombre",
+    "fieldCatalog": "Catálogo",
+    "browseTip": "La lista muestra solo lo que la app puede ver. ¿No encontró el catálogo, el schema o la tabla? Entonces la app no tiene acceso.",
+    "browseTipAction": "Escriba el nombre para ver lo que falta.",
+    "browseNoAccessTitle": "La app no puede listar este catálogo/schema",
+    "browseNoAccess": "Falta USE CATALOG/USE SCHEMA para la app. Use \"Escribir el nombre\" para ver los GRANT necesarios.",
+    "browseNoTables": "Ninguna tabla visible para la app en este schema.",
+    "alreadyHere": "Ya en este CADOC",
+    "picked": "Seleccionada:"
   },
   "nav": {
     "complianceR18": "Cumplimiento R.18",
@@ -627,6 +694,11 @@
         "title": "Sin permiso para leer el historial de fechas base",
         "what": "La tabla {table} existe, pero la app no tiene SELECT sobre ella. Las pantallas funcionan, pero sin identificar la fecha base de cada validación.",
         "how": "Ejecute el GRANT de abajo, o el rc18_end_to_end, que vuelve a aplicar los permisos de la app (el job gold solo crea la tabla, pero no concede el acceso)."
+      },
+      "external_tables_access": {
+        "title": "Tablas de otro catálogo sin lectura",
+        "what": "La app no lee estas tablas asociadas a CADOC: {tables}. El deploy solo concede acceso al propio catálogo.",
+        "how": "Ejecute los GRANT de abajo como dueño de las tablas (o admin). Detalle por tabla en Vínculo de Reglas → Tablas de los CADOC."
       }
     },
     "unexpected": "Falló por un motivo que el diagnóstico no sabe prescribir — revise el detalle técnico antes de conceder cualquier permiso."
