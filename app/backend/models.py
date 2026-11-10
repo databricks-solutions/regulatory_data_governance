@@ -153,12 +153,52 @@ class DimensionDetailResponse(BaseModel):
 
 # --- Validation Results ---
 
+class TableDataBase(BaseModel):
+    """Data-base avaliada pelo último run aprovado de uma tabela (ver data_base.py)."""
+    table_fqn: str
+    data_base: str | None = None      # ISO, fim do período; nulo = não identificada
+    origin: str                       # historico | desconhecida | sem_historico
+    run_id: str | None = None
+    run_started_at: str | None = None
+
+
+class DocumentSummary(BaseModel):
+    """Um CADOC com execução na DQX: a data-base do último processamento."""
+    documento: str
+    nome: str | None = None
+    grupo: str | None = None
+    periodicidade: str | None = None
+    data_base: str | None = None      # a mais recente entre as tabelas (ISO, fim do período)
+    mixed: bool = False               # tabelas em data-bases diferentes, ou alguma não identificada
+    last_run_at: str | None = None
+    total_rules: int = 0
+    failed_rules: int = 0             # reprovadas + alertas, como no card das Críticas
+    tables: list[TableDataBase] = []
+
+
+class CadocRef(BaseModel):
+    """CADOC cadastrado sem execução na seleção (mês de referência ou geral)."""
+    documento: str
+    nome: str | None = None
+    grupo: str | None = None
+    periodicidade: str | None = None
+    ever_processed: bool = False      # tem execução, só não no mês de referência
+
+
+class DocumentsResponse(BaseModel):
+    documents: list[DocumentSummary] = []
+    # Cadastrados e ativos, sem execução aprovada na seleção.
+    unprocessed: list[CadocRef] = []
+
+
 class ValidationSummary(BaseModel):
-    total_rules: int
+    total_rules: int          # verificações (um check por coluna) — base das contas
     passed: int
     failed: int
     warnings: int
     pass_rate_pct: float
+    # Regras distintas: verificações da mesma regra do Registry contam uma vez.
+    total_rule_groups: int | None = None
 
 
 class ValidationResult(BaseModel):
@@ -183,6 +223,11 @@ class ValidationResult(BaseModel):
     dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
     critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
     table_fqn: str | None = None         # tabela-alvo do check (source_table_fqn do run DQX)
+    # Regra do Registry de que esta verificação faz parte (`applied_rule_id`):
+    # a tela agrupa por ela. Nulo em check sem regra (YAML antigo).
+    rule_group_id: str | None = None
+    rule_group_name: str | None = None
+    verification_columns: list[str] = []
 
 
 class ValidationResultsResponse(BaseModel):
@@ -195,6 +240,8 @@ class ValidationResultsResponse(BaseModel):
     pagination: Pagination
     # Linkback to DQX Studio for the whole run (no run_config_name filter applied).
     studio_url: str | None = None
+    # Documento exibido: data-base avaliada pelo último run de cada tabela.
+    document: DocumentSummary | None = None
 
 
 # --- Validation Trigger / Run ---
@@ -927,6 +974,8 @@ class CadocDocument(BaseModel):
     descricao: str | None = None
     leiaute_versao: str | None = None
     is_ativo: bool = True
+    periodicidade: str | None = None  # diaria|semanal|mensal|trimestral|semestral|anual|eventual
+    grupo: str | None = None          # agrupa o seletor de documentos das Críticas
     # Contagens derivadas (preenchidas no GET /cadocs para a tela de gestão).
     table_count: int = 0
     rule_count: int = 0
@@ -941,6 +990,8 @@ class CadocCreateRequest(BaseModel):
     nome: str
     descricao: str | None = None
     leiaute_versao: str | None = None
+    periodicidade: str | None = None
+    grupo: str | None = None
 
 
 class CadocUpdateRequest(BaseModel):
@@ -948,6 +999,8 @@ class CadocUpdateRequest(BaseModel):
     descricao: str | None = None
     leiaute_versao: str | None = None
     is_ativo: bool | None = None
+    periodicidade: str | None = None
+    grupo: str | None = None
 
 
 class CadocListResponse(BaseModel):
@@ -955,10 +1008,15 @@ class CadocListResponse(BaseModel):
 
 
 class CadocTable(BaseModel):
-    """Associação CADOC → tabela silver (1:N)."""
+    """Associação CADOC → tabela (1:N). A tabela pode ser de outro catálogo."""
     documento: str
     table_fqn: str
     is_ativo: bool = True
+    external: bool = False  # fora do catálogo do deployment
+
+
+class AllCadocTablesResponse(BaseModel):
+    tables: list[CadocTable] = []
 
 
 class CadocTableAssociateRequest(BaseModel):
@@ -980,10 +1038,29 @@ class SchemaTable(BaseModel):
 
 
 class SchemaTablesResponse(BaseModel):
+    catalog: str = ""
     # `schema` é palavra reservada do BaseModel (Pydantic); expõe via alias.
     schema_name: str = Field(serialization_alias="schema", validation_alias="schema")
     tables: list[SchemaTable] = []
+    # Erro UC ao listar (o SP do app não enxerga) — a tela explica, não quebra.
+    access_error: str | None = None
     model_config = ConfigDict(populate_by_name=True)
+
+
+class BrowseCatalog(BaseModel):
+    name: str
+    own: bool = False  # o catálogo do deployment
+
+
+class BrowseCatalogsResponse(BaseModel):
+    catalogs: list[BrowseCatalog] = []
+    access_error: str | None = None
+
+
+class BrowseSchemasResponse(BaseModel):
+    catalog: str
+    schemas: list[str] = []
+    access_error: str | None = None
 
 
 class RegraVinculo(BaseModel):
@@ -1010,6 +1087,9 @@ class RegraVinculoCreateRequest(BaseModel):
     critica_id: str | None = None
     nivel_verificacao: int | None = None
     descricao: str | None = None
+    # Vínculo da REGRA: vínculos antigos destas verificações (mesma tabela) são
+    # desativados — uma regra, uma dimensão.
+    supersede_check_names: list[str] = []
 
 
 class RegraVinculoUpdateRequest(BaseModel):
@@ -1025,6 +1105,12 @@ class RegraVinculoUpdateRequest(BaseModel):
 class LinksResponse(BaseModel):
     total: int = 0
     links: list[RegraVinculo] = []
+
+
+class RuleVerification(BaseModel):
+    """Uma verificação = a regra aplicada a uma coluna (um check no run)."""
+    check_name: str
+    columns: list[str] = []
 
 
 class LinkableRule(BaseModel):
@@ -1048,6 +1134,11 @@ class LinkableRule(BaseModel):
     # Nulo quando não há tag/fallback OU quando já existe current_link.
     tag_dimension_r18: int | None = None
     tag_dimension_name: str | None = None
+    # Regra do Registry (grão da linha): as verificações dela, uma por coluna.
+    # Vazio em check sem `applied_rule_id` (YAML antigo) — a linha É o check.
+    verifications: list[RuleVerification] = []
+    # Vínculos antigos POR VERIFICAÇÃO desta regra: valem até a regra ser vinculada.
+    legacy_links: list[RegraVinculo] = []
 
 
 class LinkableRulesResponse(BaseModel):

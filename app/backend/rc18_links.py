@@ -17,8 +17,19 @@ from __future__ import annotations
 from db import CATALOG
 from db import execute_query_or_empty as execute_query
 
+_DOCS = f"{CATALOG}.governance.cadoc_documentos"
 _TBLS = f"{CATALOG}.governance.cadoc_tabelas"
 _LINKS = f"{CATALOG}.governance.regra_vinculos"
+
+
+async def load_cadoc_documents() -> dict[str, dict]:
+    """CADOCs ativos por documento, com nome, grupo e periodicidade.
+
+    `SELECT *` de propósito: `periodicidade`/`grupo` chegaram depois e só existem
+    depois do setup_reference_tables — listar as colunas esvaziaria o resultado.
+    """
+    rows = await execute_query(f"SELECT * FROM {_DOCS} WHERE is_ativo", {}, cache_ns="links")
+    return {r["documento"]: r for r in rows if r.get("documento")}
 
 
 async def load_cadoc_tables() -> tuple[dict[str, list[str]], dict[str, str]]:

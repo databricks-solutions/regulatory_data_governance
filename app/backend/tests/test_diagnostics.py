@@ -2,14 +2,20 @@
 
 Classificação errada = prescrição errada, pior que não diagnosticar. Cobre a
 cadeia: URL da Studio · leitura dos runs (GRANT de UC preenchido, ou falha sem
-prescrição) · há regra executada no escopo.
+prescrição) · há regra executada no escopo · histórico de data-base presente e
+em dia.
 """
 
 import asyncio
+import sys
 import unittest
 from unittest.mock import patch
 
 from app.backend import diagnostics as diag
+
+# O módulo que o `diagnostics` de fato usa (importado via sys.path, não como
+# `app.backend.table_access`) — patchar o outro não tem efeito.
+table_access = sys.modules[diag.check_readable.__module__]
 
 
 def _run(coro):
@@ -23,14 +29,32 @@ def _by_id(report):
 class ReportTest(unittest.TestCase):
     """Monta o relatório inteiro e checa a prescrição."""
 
-    def _report(self, *, rules_count=7, delta_error=None, studio_url="https://dqx.example.com"):
+    def _report(self, *, rules_count=7, delta_error=None, studio_url="https://dqx.example.com",
+                ledger=None, history=None, ledger_error=None, cadoc_tables=None, table_error=None):
         async def fake_identity():
             return "00000000-1111-2222-3333-444444444444"
 
         async def fake_execute(sql, params=None):
             if delta_error:
                 raise RuntimeError(delta_error)
+            if sql.startswith("DESCRIBE HISTORY"):
+                return history or []
             return []
+
+        async def fake_cadoc_tables():
+            by_doc = cadoc_tables or {"3040": ["c.s.a"]}
+            return by_doc, {t: d for d, ts in by_doc.items() for t in ts}
+
+        async def fake_table_query(sql, params=None):
+            # Leitura das tabelas de `cadoc_tabelas` (table_access.check_readable).
+            if table_error:
+                raise RuntimeError(table_error)
+            return []
+
+        async def fake_ledger(tables, strict=False):
+            if ledger_error:
+                raise RuntimeError(ledger_error)
+            return {"c.s.a": [{"last_seen_version": 3}]} if ledger is None else ledger
 
         async def fake_rules():
             return [{"table_fqn": "c.s.a", "checks": {"name": f"n{i}"}} for i in range(rules_count)]
@@ -38,7 +62,10 @@ class ReportTest(unittest.TestCase):
         with patch.object(diag, "USE_MOCK", False), \
              patch.object(diag, "_identity", fake_identity), \
              patch.object(diag, "execute_query", fake_execute), \
+             patch.object(table_access, "execute_query", fake_table_query), \
              patch.object(diag, "load_executed_rules", fake_rules), \
+             patch.object(diag, "load_cadoc_tables", fake_cadoc_tables), \
+             patch.object(diag, "load_ledger", fake_ledger), \
              patch.object(diag, "dqx_studio_base_url", lambda: studio_url):
             return _run(diag.run_prereq_checks())
 
@@ -49,8 +76,45 @@ class ReportTest(unittest.TestCase):
 
     def test_no_lakebase_check_is_reported(self):
         """O RC18 não lê mais o Lakebase: prescrever GRANT lá seria trabalho à toa."""
-        ids = [c.id for c in self._report().checks]
-        self.assertEqual(ids, [diag.STUDIO_URL, diag.DELTA_RUNS_SELECT, diag.RULES_EXECUTED])
+        ids = [c.id for c in self._report(cadoc_tables={"3040": ["rc18_catalog.s.a"]}).checks]
+        self.assertEqual(
+            ids, [diag.STUDIO_URL, diag.DELTA_RUNS_SELECT, diag.RULES_EXECUTED, diag.DATA_BASE_HISTORY],
+        )
+
+    def test_missing_history_points_at_end_to_end(self):
+        """Depois do upgrade, até o pipeline rodar, não há histórico."""
+        c = _by_id(self._report(ledger={}))[diag.DATA_BASE_HISTORY]
+        self.assertEqual(c.state, diag.ACTION_REQUIRED)
+        self.assertEqual(c.remediation, "databricks bundle run rc18_end_to_end")
+
+    def test_ledger_without_select_prescribes_the_grant(self):
+        """Quem rodou só o job gold tem a tabela, mas não o GRANT do app."""
+        c = _by_id(self._report(ledger_error="[INSUFFICIENT_PERMISSIONS] SELECT on data_base_ledger"))[
+            diag.DATA_BASE_HISTORY_GRANT]
+        self.assertEqual(c.state, diag.ACTION_REQUIRED)
+        self.assertIn("GRANT SELECT ON TABLE", c.remediation)
+        self.assertIn("00000000-1111-2222-3333-444444444444", c.remediation)
+
+    def test_ledger_unexpected_error_prescribes_nothing(self):
+        c = _by_id(self._report(ledger_error="Connection reset by peer"))[diag.DATA_BASE_HISTORY]
+        self.assertEqual(c.state, diag.FAILED)
+        self.assertIsNone(c.remediation)
+
+    def test_table_rewritten_outside_gold_flags_lagging_history(self):
+        """Versão com dado mais nova que a última vista = silver regravada fora do job."""
+        history = [{"version": 5, "operation": "SET TBLPROPERTIES"},
+                   {"version": 4, "operation": "CREATE OR REPLACE TABLE AS SELECT"}]
+        c = _by_id(self._report(history=history))[diag.DATA_BASE_HISTORY_LAG]
+        self.assertEqual(c.state, diag.ACTION_REQUIRED)
+        self.assertEqual(c.params["tables"], "s.a")
+        self.assertEqual(c.remediation, "databricks bundle run gold")
+
+    def test_non_data_operations_do_not_flag_lag(self):
+        """OPTIMIZE/SET TBLPROPERTIES não mudam dado: não atrasam o histórico."""
+        history = [{"version": 5, "operation": "OPTIMIZE"},
+                   {"version": 3, "operation": "CREATE OR REPLACE TABLE AS SELECT"}]
+        c = _by_id(self._report(history=history))[diag.DATA_BASE_HISTORY]
+        self.assertEqual(c.state, diag.PASSED)
 
     def test_access_ok_without_rules_points_at_publish_and_run(self):
         """Aprovar sem rodar não basta: a regra só aparece depois do run."""
@@ -95,6 +159,29 @@ class ReportTest(unittest.TestCase):
         c = _by_id(report)[diag.STUDIO_URL]
         self.assertEqual(c.state, diag.ACTION_REQUIRED)
         self.assertEqual(c.remediation_kind, "yaml")
+
+    def test_external_table_without_grant_prescribes_the_three_grants(self):
+        report = self._report(
+            cadoc_tables={"3040": ["rc18_catalog.silver.scr3040_clientes"], "9999": ["outro.dados.tab"]},
+            table_error="[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table 'outro.dados.tab'",
+        )
+        c = _by_id(report)[diag.EXTERNAL_TABLES_ACCESS]
+        self.assertEqual(c.state, diag.ACTION_REQUIRED)
+        self.assertEqual(c.params["tables"], "outro.dados.tab")  # só a externa é verificada
+        self.assertIn("GRANT USE CATALOG ON CATALOG `outro`", c.remediation)
+        self.assertIn("GRANT SELECT      ON TABLE   `outro`.`dados`.`tab` TO `00000000-1111-2222-3333-444444444444`", c.remediation)
+        self.assertEqual(report.state, diag.ACTION_REQUIRED)
+
+    def test_external_table_non_permission_failure_prescribes_nothing(self):
+        report = self._report(cadoc_tables={"9999": ["outro.dados.tab"]},
+                              table_error="Error during request to server: warehouse stopped")
+        c = _by_id(report)[diag.EXTERNAL_TABLES_ACCESS]
+        self.assertEqual(c.state, diag.FAILED)
+        self.assertIsNone(c.remediation)
+
+    def test_no_external_table_means_no_check(self):
+        report = self._report(cadoc_tables={"3040": ["rc18_catalog.silver.scr3040_clientes"]})
+        self.assertNotIn(diag.EXTERNAL_TABLES_ACCESS, _by_id(report))
 
     def test_mock_mode_reports_no_action(self):
         # Devloop não tem workspace; alarme aqui seria ruído.

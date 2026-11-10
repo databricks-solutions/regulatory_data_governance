@@ -42,10 +42,17 @@ export function getDashboardKpis(dataBase) {
   return apiFetch(`/dashboard/kpis${params}`);
 }
 
-// Data-bases disponíveis + a corrente (último CADOC processado). Alimenta o
-// seletor de Data-Base no header — substitui a lista antes hardcoded.
+// Meses de referência do seletor do header + o padrão ("" = último processamento
+// de cada documento).
 export function getDataBases() {
   return apiFetch('/dashboard/data-bases');
+}
+
+// CADOCs com execução na DQX, cada um com a data-base do último processamento.
+// Alimenta o seletor de documentos das Críticas e o card "Data-bases avaliadas".
+export function getValidationDocuments(dataBase) {
+  const params = dataBase ? `?data_base=${dataBase}` : '';
+  return apiFetch(`/validations/documents${params}`);
 }
 
 // Quality
@@ -290,6 +297,14 @@ export function deleteCadoc(documento) {
 }
 
 // CADOC ↔ tabelas
+export function getAllCadocTables() {
+  return apiFetch('/linking/tables');
+}
+// Verificação de acesso (só aviso — o cadastro nunca é bloqueado).
+export function getTableAccess(tableFqn) {
+  const params = new URLSearchParams({ table_fqn: tableFqn });
+  return apiFetch(`/linking/table-access?${params}`);
+}
 export function getCadocTables(documento) {
   return apiFetch(`/linking/cadocs/${encodeURIComponent(documento)}/tables`);
 }
@@ -304,8 +319,16 @@ export function removeCadocTable(documento, tableFqn) {
 }
 
 // Navegação de schema
-export function getSchemaTables(schema = 'silver', search = '') {
+// Navegador catálogo → schema → tabela: lista só o que o SP do app enxerga.
+export function getBrowseCatalogs() {
+  return apiFetch('/linking/browse/catalogs');
+}
+export function getBrowseSchemas(catalog) {
+  return apiFetch(`/linking/browse/schemas?${new URLSearchParams({ catalog })}`);
+}
+export function getSchemaTables(schema = 'silver', search = '', catalog = '') {
   const params = new URLSearchParams({ schema });
+  if (catalog) params.set('catalog', catalog);
   if (search) params.set('search', search);
   return apiFetch(`/linking/schema-tables?${params}`);
 }

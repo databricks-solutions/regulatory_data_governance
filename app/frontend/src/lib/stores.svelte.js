@@ -11,8 +11,8 @@ function readInitialTheme() {
 }
 
 export const appState = $state({
-  // dataBase e dataBaseOptions são preenchidos em runtime a partir de
-  // /dashboard/data-bases (último CADOC processado). Inicia vazio; o layout
+  // Mês de referência (`AAAA-MM`) das telas; "" = último processamento de cada
+  // documento. Preenchidos em runtime a partir de /dashboard/data-bases; o layout
   // resolve no onMount. Nada de meses hardcoded.
   dataBase: '',
   dataBaseOptions: [],
@@ -37,10 +37,10 @@ export function setDataBase(value) {
   appState.dataBase = value;
 }
 
-// Preenche o seletor de Data-Base a partir do backend. `current` é o último
-// CADOC processado (de gold.processing_state); `available` são as data-bases
-// distintas observadas nas posições. Só sobrescreve a seleção atual se ela
-// ainda não foi definida pelo usuário.
+// Preenche o seletor de mês de referência a partir do backend. `available` são os
+// meses com processamento de data-base identificada; `current` é o mais recente
+// deles, ou "" (último processamento de cada documento). Só sobrescreve a seleção
+// atual se ela ainda não foi definida pelo usuário.
 export function setDataBaseOptions({ current, available } = {}) {
   appState.dataBaseOptions = Array.isArray(available) ? available : [];
   if (!appState.dataBase && current) appState.dataBase = current;

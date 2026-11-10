@@ -146,10 +146,11 @@ class LinkingRouterMockTest(unittest.TestCase):
         # (defense-in-depth against stored injection), not stored verbatim.
         for bad in [
             "x') UNION SELECT cpf_cnpj, nome_cliente, '' FROM rc18_catalog.silver.scr3040_clientes -- ",
-            "other_catalog.silver.scr3040_clientes",       # wrong catalog
             "rc18_catalog.governance.regra_vinculos",       # non-browsable schema
             "rc18_catalog.silver.tab; DROP TABLE x",        # junk table name
             "rc18_catalog.silver",                           # not 3 parts
+            "outro.dados.tab`; DROP TABLE x",               # junk in another catalog
+            "RC18_CATALOG.governance.regra_vinculos",       # case doesn't bypass the block
         ]:
             r = self.client.post("/api/v1/linking/links", json={
                 "check_name": "c", "table_fqn": bad, "dimensao_r18": 1,
@@ -157,6 +158,53 @@ class LinkingRouterMockTest(unittest.TestCase):
             self.assertEqual(r.status_code, 400, f"esperado 400 para {bad!r}, veio {r.status_code}")
             r2 = self.client.post("/api/v1/linking/cadocs/3040/tables", json={"table_fqn": bad})
             self.assertEqual(r2.status_code, 400, f"associate esperava 400 para {bad!r}")
+
+    def test_table_from_another_catalog_accepted_and_flagged_external(self):
+        # CADOCs cujas regras já rodam na Studio podem viver em outro catálogo.
+        r = self.client.post("/api/v1/linking/cadocs/3040/tables", json={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertTrue(r.json()["external"])
+        tables = self.client.get("/api/v1/linking/tables").json()["tables"]
+        self.assertIn({"documento": "3040", "table_fqn": "outro_cat.dados.scr9999", "is_ativo": True, "external": True}, tables)
+        self.assertTrue(any(t["table_fqn"].startswith("rc18_catalog.") and not t["external"] for t in tables))
+        # Remoção pela tela também funciona para a externa.
+        r = self.client.delete("/api/v1/linking/cadocs/3040/tables", params={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 204)
+
+    def test_table_access_warns_but_never_blocks(self):
+        r = self.client.get("/api/v1/linking/table-access", params={"table_fqn": "outro_cat.dados.scr9999"})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertTrue(body["external"])
+        self.assertEqual(body["state"], "action_required")
+        grant = next(c for c in body["checks"] if c["id"] == "table_select")
+        self.assertIn("GRANT SELECT", grant["remediation"])
+        ok = self.client.get("/api/v1/linking/table-access",
+                             params={"table_fqn": "rc18_catalog.silver.scr3040_clientes"}).json()
+        self.assertEqual(ok["state"], "passed")
+        self.assertEqual(self.client.get("/api/v1/linking/table-access",
+                                         params={"table_fqn": "x.y"}).status_code, 400)
+
+    def test_browse_catalog_schema_table(self):
+        cats = self.client.get("/api/v1/linking/browse/catalogs").json()["catalogs"]
+        self.assertEqual(cats[0], {"name": "rc18_catalog", "own": True})  # o do deployment primeiro
+        self.assertIn({"name": "cliente_cat", "own": False}, cats)
+        own = self.client.get("/api/v1/linking/browse/schemas", params={"catalog": "rc18_catalog"}).json()
+        self.assertNotIn("governance", own["schemas"])
+        tabs = self.client.get("/api/v1/linking/schema-tables",
+                               params={"catalog": "cliente_cat", "schema": "cosif"}).json()
+        self.assertEqual(tabs["catalog"], "cliente_cat")
+        self.assertIn("cliente_cat.cosif.scr4060_saldos", [t["table_fqn"] for t in tabs["tables"]])
+        # Já associada vem anotada com o CADOC.
+        tabs = self.client.get("/api/v1/linking/schema-tables",
+                               params={"catalog": "rc18_catalog", "schema": "silver"}).json()["tables"]
+        self.assertEqual(next(t for t in tabs if t["table_name"] == "scr3050")["already_linked_documento"], "3050")
+
+    def test_browse_rejects_bad_identifiers_and_governance(self):
+        self.assertEqual(self.client.get("/api/v1/linking/browse/schemas",
+                                         params={"catalog": "x`; DROP"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/v1/linking/schema-tables",
+                                         params={"catalog": "rc18_catalog", "schema": "governance"}).status_code, 400)
 
     def test_valid_table_fqn_accepted(self):
         r = self.client.post("/api/v1/linking/links", json={
@@ -203,6 +251,138 @@ class LinkableRuleKeyTest(unittest.TestCase):
         self.assertEqual(len(set(keys)), 4, keys)
         self.assertTrue(all(r.rule_id == "" for r in resp.rules))
 
+
+
+def _verification(col, applied="e48253c8109149c4"):
+    """Check como a Studio grava: a regra do Registry aplicada a UMA coluna."""
+    return {
+        "criticality": "error",
+        "check": {"function": "is_not_null", "arguments": {"column": col}},
+        "name": f"file_name must not be null ({col})",
+        "user_metadata": {"name": "file_name must not be null", "applied_rule_id": applied,
+                          "registry_rule_id": "fb25426266fe4f46", "mapped_columns": f'["{col}"]'},
+    }
+
+
+class RuleGrainTest(unittest.TestCase):
+    """Grão do Vínculo de Regras = REGRA do Registry, não verificação.
+
+    Regressão do teste com rc18_ext_test.cadoc_externo.scr9999_saldos: 1 regra
+    aplicada a 4 colunas virava 4 linhas, e as 3 sem vínculo emprestavam o
+    vínculo da verificação do cnpj_base (fallback "qualquer nome observado").
+    """
+
+    TBL = "rc18_ext_test.cadoc_externo.scr9999_saldos"
+    COLS = ("dt_base", "cnpj_base", "codigo_conta", "saldo")
+
+    def _rules(self, checks, links):
+        import asyncio
+        from app.backend.routers import linking
+
+        async def fake_query(sql, params=None, **kw):
+            if "cadoc_tabelas" in sql:
+                return [{"documento": "9999", "table_fqn": self.TBL}]
+            if "regra_vinculos" in sql:
+                return links
+            return []
+
+        async def fake_executed(tables):
+            return [{"table_fqn": self.TBL, "checks": c} for c in checks]
+
+        async def fake_eff(tables):
+            return {self.TBL: [check["name"] for check in checks if "name" in check]}
+
+        with patch.object(linking, "USE_MOCK", False), \
+             patch.object(linking, "execute_query", fake_query), \
+             patch.object(linking, "load_executed_rules", fake_executed), \
+             patch.object(linking, "_effective_names_by_table", fake_eff):
+            return asyncio.run(linking.list_linkable_rules(document=None, table_fqn=None, linked=None)).rules
+
+    def _link(self, check_name, rule_id=None, dim=1):
+        return {"vinculo_id": f"v-{check_name}", "check_name": check_name, "rule_id": rule_id,
+                "table_fqn": self.TBL, "documento": "9999", "dimensao_r18": dim, "is_ativo": True}
+
+    def test_verifications_of_one_rule_are_one_row(self):
+        legacy = self._link("file_name must not be null (cnpj_base)")
+        rules = self._rules([_verification(c) for c in self.COLS], [legacy])
+        self.assertEqual(len(rules), 1)
+        r = rules[0]
+        self.assertEqual(r.rule_id, "e48253c8109149c4")
+        self.assertEqual(r.definition_name, "file_name must not be null")
+        self.assertEqual([v.columns for v in r.verifications], [[c] for c in self.COLS])
+        # O vínculo antigo é de UMA verificação: não vira vínculo da regra.
+        self.assertIsNone(r.current_link)
+        self.assertEqual([l.check_name for l in r.legacy_links], ["file_name must not be null (cnpj_base)"])
+
+    def test_rule_link_by_applied_rule_id(self):
+        rule_link = self._link("file_name must not be null", rule_id="e48253c8109149c4", dim=3)
+        rules = self._rules([_verification(c) for c in self.COLS], [rule_link])
+        self.assertEqual(rules[0].current_link.dimensao_r18, 3)
+        self.assertEqual(rules[0].legacy_links, [])
+
+    def test_named_check_does_not_borrow_another_checks_link(self):
+        # Sem applied_rule_id (YAML antigo), mas COM name: cada um só casa o seu.
+        checks = [{"check": {"function": "is_not_null", "arguments": {"column": c}}, "name": f"{c}_is_null"}
+                  for c in ("a", "b")]
+        rules = self._rules(checks, [self._link("a_is_null")])
+        by_name = {r.definition_name: r for r in rules}
+        self.assertIsNotNone(by_name["a_is_null"].current_link)
+        self.assertIsNone(by_name["b_is_null"].current_link)
+
+
+class RuleLinkResolutionTest(unittest.TestCase):
+    """Críticas/scorecard: um vínculo da regra cobre todas as verificações."""
+
+    def test_rule_link_covers_every_verification(self):
+        tbl = "rc18_ext_test.cadoc_externo.scr9999_saldos"
+        link = {"check_name": "file_name must not be null", "rule_id": "e48253c8109149c4",
+                "table_fqn": tbl, "dimensao_r18": 3}
+        for col in ("dt_base", "saldo"):
+            meta = m.resolve_meta(f"file_name must not be null ({col})", table_fqn=tbl,
+                                  user_metadata=_verification(col)["user_metadata"],
+                                  vinculos_by_pair={}, vinculos_by_rule_id={"e48253c8109149c4": link})
+            self.assertEqual(meta["dimension_r18"], 3, col)
+
+    def test_legacy_verification_link_still_wins(self):
+        tbl = "t.s.x"
+        name = "file_name must not be null (cnpj_base)"
+        meta = m.resolve_meta(name, table_fqn=tbl, user_metadata=_verification("cnpj_base")["user_metadata"],
+                              vinculos_by_pair={(tbl, name): {"table_fqn": tbl, "check_name": name, "dimensao_r18": 1}},
+                              vinculos_by_rule_id={"e48253c8109149c4": {"table_fqn": tbl, "dimensao_r18": 3}})
+        self.assertEqual(meta["dimension_r18"], 1)
+
+    def test_rule_link_of_another_table_is_ignored(self):
+        meta = m.resolve_meta("x", table_fqn="t.s.outra", user_metadata=_verification("x")["user_metadata"],
+                              vinculos_by_pair={}, vinculos_by_rule_id={
+                                  "e48253c8109149c4": {"table_fqn": "t.s.x", "dimensao_r18": 3}})
+        self.assertNotEqual(meta["dimension_r18"], 3)
+
+
+class RuleLinkSupersedeMockTest(unittest.TestCase):
+    def setUp(self):
+        os.environ["USE_MOCK_BACKEND"] = "true"
+        from fastapi.testclient import TestClient
+        from app.backend import main
+        import sys
+        self.client = TestClient(main.app)
+        # O módulo que o app usa (importado via sys.path, não como app.backend.routers.linking).
+        sys.modules[main.linking.__name__]._MOCK_LINKS.clear()
+
+    def test_rule_link_replaces_verification_links_and_dedups_by_rule(self):
+        tbl = "rc18_catalog.silver.scr3040_clientes"
+        old = self.client.post("/api/v1/linking/links", json={
+            "check_name": "regra (cnpj)", "table_fqn": tbl, "dimensao_r18": 1}).json()
+        r = self.client.post("/api/v1/linking/links", json={
+            "check_name": "regra", "rule_id": "app1", "table_fqn": tbl, "dimensao_r18": 3,
+            "supersede_check_names": ["regra (cnpj)", "regra (saldo)"]})
+        self.assertEqual(r.status_code, 201, r.text)
+        ativos = self.client.get("/api/v1/linking/links").json()["links"]
+        self.assertEqual([l["rule_id"] for l in ativos], ["app1"])
+        self.assertNotIn(old["vinculo_id"], [l["vinculo_id"] for l in ativos])
+        # Mesma regra com outro nome (renomeada na Studio) → 409.
+        dup = self.client.post("/api/v1/linking/links", json={
+            "check_name": "regra renomeada", "rule_id": "app1", "table_fqn": tbl, "dimensao_r18": 2})
+        self.assertEqual(dup.status_code, 409)
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,6 +25,7 @@
 #                    └─→ grant_warehouse_perms (paralelo)
 #
 #   gold_reconciliacao_cosif  ←  silver_3040 + silver_4010   (batimento N01)
+#   data_base_ledger          ←  todas as tasks gold (histórico de data-base)
 #
 # Uma trilha bronze→silver→gold POR CADOC: falha em um não bloqueia os outros, e
 # `--only <task>` reprocessa um documento isolado ponta a ponta. Só os dois
@@ -385,3 +386,26 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               gold_schema: ${resources.schemas.gold_schema.name}
+
+        # Histórico de data-base das tabelas de cadoc_tabelas (silver + gold), lido
+        # pelo app para saber qual data-base cada run da DQX avaliou. ALL_DONE: uma
+        # trilha que falhou não impede registrar as outras.
+        - task_key: "data_base_ledger"
+          depends_on:
+            - task_key: "gold_3040"
+            - task_key: "gold_3050"
+            - task_key: "gold_4010"
+            - task_key: "gold_4016"
+            - task_key: "gold_4060"
+            - task_key: "gold_2011"
+            - task_key: "gold_criticas_2011"
+            - task_key: "gold_reconciliacao_cosif"
+            - task_key: "gold_criticas_4060"
+            - task_key: "gold_processing_state"
+          run_if: ALL_DONE
+          environment_key: serverless_env
+          notebook_task:
+            notebook_path: ../../notebooks/governance/data_base_ledger.py
+            base_parameters:
+              catalog: ${var.catalog}
+              governance_schema: ${resources.schemas.governance.name}

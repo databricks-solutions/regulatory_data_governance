@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from db import CATALOG, USE_MOCK
+from data_base import current_month
 from dqx_config import dqx_studio_entry_url
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
@@ -944,6 +945,11 @@ async def create_incident(
     """
     actor = _caller_email(request)
     detected_by = f"manual:{actor}"
+    # A tela manda o mês da data-base que o run avaliou; vazio quando ela não foi
+    # identificada (run anterior ao histórico). Aí vale o mês do processing_state —
+    # o que o antigo seletor de Data-Base mandava, para a deduplicação não mudar.
+    if not body.dt_base and not USE_MOCK:
+        body.dt_base = await current_month()
 
     if USE_MOCK:
         mock_items = _irregularities(locale)

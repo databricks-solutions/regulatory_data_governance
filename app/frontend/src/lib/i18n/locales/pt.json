@@ -57,7 +57,7 @@
   },
   "dashboard": {
     "activeAlerts": "Alertas Ativos",
-    "appBaseDate": "Data-base do app",
+    "appBaseDate": "Data-base avaliada",
     "complianceTrend": "Tendência de Conformidade",
     "daysRemaining": "dias restantes",
     "daysUnit": " dias",
@@ -166,11 +166,12 @@
     "alerts": "Alertas",
     "brandSettings": "Configurações de marca",
     "darkMode": "Modo escuro",
-    "dataBase": "Data-Base",
+    "dataBase": "Mês de referência",
     "language": "Idioma",
     "lightMode": "Modo claro",
     "months": "Jan,Fev,Mar,Abr,Mai,Jun,Jul,Ago,Set,Out,Nov,Dez",
-    "toggleMenu": "Alternar menu"
+    "toggleMenu": "Alternar menu",
+    "latestProcessing": "Último processamento"
   },
   "lineage": {
     "autoColumnMapping": "Mapeamento automático por nome de coluna",
@@ -240,7 +241,7 @@
     "statusViaTag": "via tag",
     "statusViaTagTitle": "Dimensão derivada da tag do check (user_metadata) — sem vínculo explícito. Crie um vínculo para sobrescrever.",
     "ruleColId": "ID da regra",
-    "ruleColCheck": "Check",
+    "ruleColCheck": "Regra",
     "ruleColFunction": "Função",
     "ruleColTable": "Tabela",
     "ruleColDocument": "Documento",
@@ -282,7 +283,84 @@
     "errorCadocHasLinks": "Este CADOC possui vínculos ativos; remova-os primeiro.",
     "confirmDeleteLink": "Remover este vínculo?",
     "confirmDeleteCadoc": "Remover este CADOC?",
-    "notLinked": "—"
+    "notLinked": "—",
+    "cadocColGroup": "Grupo",
+    "cadocColPeriodicity": "Periodicidade",
+    "fieldPeriodicity": "Periodicidade",
+    "fieldGroup": "Grupo",
+    "fieldGroupHint": "Ex.: SCR, COSIF, Prudencial",
+    "tabTables": "Tabelas dos CADOCs",
+    "newTable": "Associar tabela",
+    "newTableTitle": "Associar tabela a um CADOC",
+    "fieldTableFqn": "Tabela (catálogo.schema.tabela)",
+    "fieldTableFqnHint": "Use o nome exatamente como aparece na DQX Studio — é por ele que as regras são encontradas.",
+    "tablesEmptyAll": "Nenhuma tabela associada ainda.",
+    "tableColOrigin": "Origem",
+    "tableColAccess": "Acesso do app",
+    "originOwn": "Este catálogo",
+    "originExternal": "Outro catálogo",
+    "accessOk": "Acesso OK",
+    "accessPending": "Ver pendências",
+    "accessChecking": "Verificando…",
+    "accessToggle": "Mostrar/ocultar o resultado da verificação",
+    "accessOwn": "Pelo deploy",
+    "accessOwnTitle": "Tabelas deste catálogo recebem as permissões no deploy (task grant_warehouse_perms).",
+    "verifyAccess": "Verificar acesso",
+    "associateAnyway": "Associar mesmo assim",
+    "associatedWithWarnings": "Tabela associada. Há pendências de acesso — veja o alerta na lista.",
+    "confirmRemoveTable": "Remover a tabela {table} do CADOC {documento}?",
+    "errorTableLinked": "Esta tabela já está associada a este CADOC.",
+    "errorTableFqn": "Informe catálogo.schema.tabela, só com letras, números e _ (o schema governance deste catálogo não é aceito).",
+    "access": {
+      "okTitle": "Tudo certo com esta tabela",
+      "okSubtitle": "O app lê a tabela e a DQX Studio já tem execução dela.",
+      "warnTitle": "Esta tabela pode não aparecer nas Críticas",
+      "warnSubtitle": "O cadastro é permitido. Resolva os itens em laranja para as regras dela aparecerem completas.",
+      "unexpected": "Não foi possível verificar (erro inesperado, não de permissão). Tente de novo em instantes.",
+      "skipped": "Não verificado — depende do item anterior.",
+      "runAsAdmin": "SQL — rodar como dono da tabela ou admin",
+      "notVerifiableTitle": "O app não consegue verificar daqui (confira com o time de plataforma):",
+      "notVerifiableStudio": "O SP da DQX Studio precisa de SELECT nesta tabela para as regras rodarem — se elas já rodam hoje, isto está OK.",
+      "notVerifiableLedger": "A identidade que roda o job gold/rc18_end_to_end precisa do mesmo SELECT, e o job precisa rodar depois da carga desta tabela — senão as validações aparecem só em \"Último processamento\", sem mês de referência.",
+      "checks": {
+        "table_readable": {
+          "title": "O app consegue ler a tabela",
+          "how": ""
+        },
+        "table_not_found": {
+          "title": "Tabela não encontrada",
+          "how": "Ou o nome está errado, ou o app não tem acesso ao catálogo/schema (o Unity Catalog responde \"não existe\" nos dois casos). Confira o nome; se estiver certo, rode os GRANTs abaixo."
+        },
+        "table_select": {
+          "title": "O app não tem permissão de leitura",
+          "how": "A tabela existe, mas o app não pode lê-la. Sem isso, ela some da Linhagem e o diagnóstico acusa. Rode os GRANTs abaixo."
+        },
+        "data_base_column": {
+          "title": "Coluna de data-base",
+          "how": "A tabela não tem dt_base nem data_base_month. As validações dela aparecem só em \"Último processamento\", nunca num mês de referência."
+        },
+        "studio_runs": {
+          "title": "Execuções na DQX Studio",
+          "how": "Nenhuma execução publicada desta tabela em {runs_table}. Na DQX Studio, publique o vínculo da tabela e execute-a; confira também se o nome digitado é idêntico ao da Studio."
+        }
+      },
+      "recheck": "Verificar de novo"
+    },
+    "modeBrowse": "Navegar no catálogo",
+    "modeManual": "Digitar o nome",
+    "fieldCatalog": "Catálogo",
+    "browseTip": "A lista mostra só o que o app consegue enxergar. Não achou o catálogo, o schema ou a tabela? Então o app não tem acesso a eles.",
+    "browseTipAction": "Digite o nome para ver o que falta.",
+    "browseNoAccessTitle": "O app não consegue listar este catálogo/schema",
+    "browseNoAccess": "Falta USE CATALOG/USE SCHEMA para o app. Use \"Digitar o nome\" para ver os GRANTs necessários.",
+    "browseNoTables": "Nenhuma tabela visível para o app neste schema.",
+    "alreadyHere": "Já neste CADOC",
+    "picked": "Selecionada:",
+    "verificationsCount": "{n} verificações:",
+    "legacyBadge": "{n} de {total} verificações com vínculo antigo",
+    "legacyTitle": "Vínculo feito por verificação, antes do vínculo por regra ({cols}). Continua valendo para essas verificações; vincule a regra para unificar.",
+    "ruleGrainHint": "O vínculo vale para a regra inteira: as {n} verificações (uma por coluna) ficam na mesma dimensão. Para uma coluna ter dimensão diferente, separe-a em outra regra na DQX Studio.",
+    "legacyReplace": "Os vínculos antigos por verificação ({cols}) serão substituídos por este."
   },
   "nav": {
     "complianceR18": "Conformidade R.18",
@@ -480,7 +558,7 @@
     "passedShort": "{n} aprov.",
     "rule": "Regra",
     "targetTable": "Tabela",
-    "rulesCount": "{n} regras",
+    "rulesCount": "{n, plural, =1 {# regra} other {# regras}}",
     "runLabel": "Run",
     "semantic": "Semântica",
     "showAll": "Mostrar todos",
@@ -489,7 +567,15 @@
     "totalRules": "Total: {n} regras",
     "type": "Tipo",
     "viewId": "Ver {id}",
-    "viewInDqxStudio": "Ver no DQX Studio"
+    "viewInDqxStudio": "Ver no DQX Studio",
+    "dataBaseLabel": "Data-base",
+    "dataBaseUnknown": "não identificada",
+    "noRun": "Este documento ainda não tem execução de regras na DQX Studio. Associe as tabelas dele e vincule as regras em Vínculo de Regras, publique o vínculo da tabela na DQX Studio e execute-o.",
+    "noRunInMonth": "Este documento não tem execução de regras com data-base em {month}. Escolha outro mês de referência no cabeçalho, ou \"Último processamento\".",
+    "totalRulesVerifs": "Total: {rules, plural, =1 {# regra} other {# regras}} · {n} verificações",
+    "verificationsCount": "{n} verificações",
+    "verificationsFailed": "{n} de {total} reprovadas",
+    "verificationsHint": "Uma verificação por coluna. O resultado é de cada uma; a regra fica reprovada se qualquer verificação reprovar."
   },
   "xml": {
     "clickElement": "Clique em um elemento para ver validação",
@@ -602,8 +688,53 @@
         "title": "Nenhuma regra executada para este deployment",
         "what": "O acesso está OK, então não é permissão: nenhuma tabela deste catálogo tem execução da versão aprovada das regras.",
         "how": "O RC18 mostra as regras que RODARAM na versão aprovada. Na DQX Studio, publique o vínculo da tabela na aba Tabelas (draft → approved) e execute-a — Run ou agendamento por tabela. Run de rascunho não conta."
+      },
+      "data_base_history": {
+        "title": "Histórico de data-base ausente",
+        "what": "Sem o histórico, as telas mostram a última validação sem saber qual data-base ela avaliou.",
+        "how": "O histórico é gravado no fim do rc18_end_to_end e do job gold. Depois de atualizar o acelerador, rode o rc18_end_to_end uma vez: ele também cria a tabela e reaplica os grants."
+      },
+      "data_base_history_lag": {
+        "title": "Histórico de data-base atrasado",
+        "what": "Estas tabelas foram regravadas depois do último registro do histórico: {tables}. Até ele ser atualizado, a data-base das validações novas dessas tabelas pode sair errada.",
+        "how": "Rode o job gold (ou o rc18_end_to_end). Se a silver ou a gold é carregada por outro processo, encadeie o job gold no fim dele."
+      },
+      "data_base_history_grant": {
+        "title": "Sem permissão para ler o histórico de data-base",
+        "what": "A tabela {table} existe, mas o app não tem SELECT nela. As telas funcionam, só que sem identificar a data-base de cada validação.",
+        "how": "Rode o GRANT abaixo, ou execute o rc18_end_to_end, que reaplica as permissões do app (o job gold sozinho cria a tabela, mas não concede o acesso)."
+      },
+      "external_tables_access": {
+        "title": "Tabelas de outro catálogo sem leitura",
+        "what": "O app não lê estas tabelas associadas a CADOCs: {tables}. O deploy só concede acesso ao próprio catálogo.",
+        "how": "Rode os GRANTs abaixo como dono das tabelas (ou admin). Detalhes por tabela em Vínculo de Regras → Tabelas dos CADOCs."
       }
     },
     "unexpected": "Falhou por um motivo que o diagnóstico não sabe prescrever — veja o detalhe técnico abaixo antes de conceder qualquer permissão."
+  },
+  "documentPicker": {
+    "label": "Documento",
+    "placeholder": "Selecione um documento",
+    "search": "Buscar por código ou nome…",
+    "otherGroup": "Outros",
+    "mixed": "As tabelas deste documento estão em data-bases diferentes",
+    "noMatch": "Nenhum documento encontrado",
+    "noRun": "sem execução",
+    "noRunInMonth": "sem execução no mês"
+  },
+  "documentDataBases": {
+    "title": "Data-bases avaliadas",
+    "more": "+{count} → Críticas",
+    "hintLatest": "Último processamento de cada documento",
+    "hintMonth": "Último processamento de cada documento com data-base em {month}"
+  },
+  "periodicity": {
+    "diaria": "Diária",
+    "semanal": "Semanal",
+    "mensal": "Mensal",
+    "trimestral": "Trimestral",
+    "semestral": "Semestral",
+    "anual": "Anual",
+    "eventual": "Eventual"
   }
 }

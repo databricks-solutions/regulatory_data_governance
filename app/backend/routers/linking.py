@@ -38,13 +38,20 @@ from db import (
     USE_MOCK,
 )
 import cache
-from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
+from data_base import PERIODICIDADES
+from dqx_rules import PUBLISHED_RUN_FILTER, check_name_of, load_executed_rules, mapped_columns_of
 from db import execute_query as _execute_query
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
 from db import execute_query_or_empty as execute_query
+from diagnostics import _identity
 from i18n import get_locale
-from rc18_rule_meta import _DIM_NAMES, meta_for
+from table_access import TableAccessReport, check_table_access, is_external
+from rc18_rule_meta import _DIM_NAMES, applied_rule_id_of, meta_for
 from models import (
+    AllCadocTablesResponse,
+    BrowseCatalog,
+    BrowseCatalogsResponse,
+    BrowseSchemasResponse,
     CadocCreateRequest,
     CadocDocument,
     CadocListResponse,
@@ -58,6 +65,7 @@ from models import (
     RegraVinculo,
     RegraVinculoCreateRequest,
     RegraVinculoUpdateRequest,
+    RuleVerification,
     SchemaTable,
     SchemaTablesResponse,
 )
@@ -82,25 +90,25 @@ _BROWSABLE_SCHEMAS = {"silver", "bronze", "gold", "reference"}
 
 
 def _validate_table_fqn(table_fqn: str) -> str:
-    """Validate a written `table_fqn` to `{CATALOG}.<browsable_schema>.<table>`.
+    """Validate a written `table_fqn`: 3 plain identifiers.
 
-    Defense-in-depth against a stored value later reaching a query: even though
-    all IN-lists are now parameterized, a stored FQN pointing at another
-    catalog/schema is a data-integrity + least-privilege concern. Rejects
-    anything outside the app's own catalog and allowlisted data schemas, and
-    any table name that isn't a plain identifier.
+    Defense-in-depth against a stored value later reaching a query: every part
+    must be a plain identifier. Inside the app's own catalog only the data
+    schemas are allowed (never `governance`). OTHER catalogs are accepted —
+    CADOCs whose rules already run in the DQX Studio may live elsewhere; the
+    real gate there is the app SP's UC grants, which `GET /table-access` checks
+    and the UI surfaces as a warning (linking a table grants nothing).
     """
+    # Sem normalizar caixa: o valor tem de casar com o `source_table_fqn` da Studio.
     fqn = (table_fqn or "").strip()
     parts = fqn.split(".")
     if len(parts) != 3:
         raise HTTPException(status_code=400, detail=f"table_fqn inválido (esperado catalog.schema.tabela): {table_fqn!r}")
-    cat, schema, table = parts
-    if cat != CATALOG:
-        raise HTTPException(status_code=400, detail=f"table_fqn deve estar no catálogo {CATALOG}")
-    if schema not in _BROWSABLE_SCHEMAS:
+    if not all(re.fullmatch(r"[A-Za-z0-9_]+", p) for p in parts):
+        raise HTTPException(status_code=400, detail="Nome de catálogo/schema/tabela inválido")
+    cat, schema, _table = parts
+    if cat.lower() == CATALOG.lower() and schema.lower() not in _BROWSABLE_SCHEMAS:
         raise HTTPException(status_code=400, detail=f"Schema não permitido: {schema}")
-    if not re.fullmatch(r"[A-Za-z0-9_]+", table):
-        raise HTTPException(status_code=400, detail="Nome de tabela inválido")
     return fqn
 
 
@@ -141,10 +149,10 @@ _MOCK_CADOC_TABLES: dict[str, list[str]] = {
 _MOCK_CADOCS: list[dict] = [
     {"documento": "3040", "nome": "SCR 3040 - Operações de crédito individualizadas",
      "descricao": "Documento SCR 3040 — operações de crédito detalhadas (130+ campos, IPOC).",
-     "leiaute_versao": "V1", "is_ativo": True},
+     "leiaute_versao": "V1", "is_ativo": True, "periodicidade": "mensal", "grupo": "SCR"},
     {"documento": "3050", "nome": "SCR 3050 - Estoque mensal agregado",
      "descricao": "Documento SCR 3050 — dados agregados de crédito (TXB/XML).",
-     "leiaute_versao": "V11", "is_ativo": True},
+     "leiaute_versao": "V11", "is_ativo": True, "periodicidade": "mensal", "grupo": "SCR"},
 ]
 # In-memory link store for mock mode (module-level; resets on reload).
 _MOCK_LINKS: list[dict] = []
@@ -159,6 +167,19 @@ def _mock_cadoc(doc: dict) -> CadocDocument:
     )
 
 
+def _check_periodicidade(value: str | None) -> None:
+    if value and value not in PERIODICIDADES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"periodicidade inválida: {value!r} (use {', '.join(PERIODICIDADES)})",
+        )
+
+
+def _str_or_none(value) -> str | None:
+    # `SELECT d.*` devolve TIMESTAMP como datetime; o modelo espera str.
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value is not None else None)
+
+
 # ── CADOC CRUD ───────────────────────────────────────────────────────────────
 
 @router.get("/cadocs", response_model=CadocListResponse)
@@ -167,10 +188,10 @@ async def list_cadocs(locale: str = Depends(get_locale)):
     if USE_MOCK:
         return CadocListResponse(cadocs=[_mock_cadoc(d) for d in _MOCK_CADOCS])
 
+    # `d.*`: periodicidade/grupo só existem depois do setup_reference_tables, e
+    # listar colunas inexistentes esvaziaria a tela de quem atualizou só o app.
     rows = await execute_query(
-        "SELECT d.documento, d.nome, d.descricao, d.leiaute_versao, d.is_ativo, "
-        "  CAST(d.created_at AS STRING) AS created_at, d.created_by, "
-        "  CAST(d.updated_at AS STRING) AS updated_at, d.updated_by, "
+        "SELECT d.*, "
         f"  (SELECT COUNT(*) FROM {_TBLS} t WHERE t.documento = d.documento AND t.is_ativo) AS table_count, "
         f"  (SELECT COUNT(*) FROM {_LINKS} l WHERE l.documento = d.documento AND l.is_ativo) AS rule_count "
         f"FROM {_DOCS} d WHERE d.is_ativo ORDER BY d.documento",
@@ -180,9 +201,10 @@ async def list_cadocs(locale: str = Depends(get_locale)):
         CadocDocument(
             documento=r["documento"], nome=r["nome"], descricao=r.get("descricao"),
             leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")),
+            periodicidade=r.get("periodicidade"), grupo=r.get("grupo"),
             table_count=int(r.get("table_count") or 0), rule_count=int(r.get("rule_count") or 0),
-            created_at=r.get("created_at"), created_by=r.get("created_by"),
-            updated_at=r.get("updated_at"), updated_by=r.get("updated_by"),
+            created_at=_str_or_none(r.get("created_at")), created_by=r.get("created_by"),
+            updated_at=_str_or_none(r.get("updated_at")), updated_by=r.get("updated_by"),
         )
         for r in rows
     ])
@@ -194,13 +216,15 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
     documento = (body.documento or "").strip()
     if not documento:
         raise HTTPException(status_code=400, detail="documento é obrigatório")
+    _check_periodicidade(body.periodicidade)
     actor = _caller_email(request)
 
     if USE_MOCK:
         if any(d["documento"] == documento for d in _MOCK_CADOCS):
             raise HTTPException(status_code=409, detail={"code": "cadoc_exists", "message": "CADOC já cadastrado.", "documento": documento})
         doc = {"documento": documento, "nome": body.nome, "descricao": body.descricao,
-               "leiaute_versao": body.leiaute_versao, "is_ativo": True}
+               "leiaute_versao": body.leiaute_versao, "is_ativo": True,
+               "periodicidade": body.periodicidade, "grupo": body.grupo}
         _MOCK_CADOCS.append(doc)
         return _mock_cadoc(doc)
 
@@ -211,16 +235,20 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
     if dedup:
         raise HTTPException(status_code=409, detail={"code": "cadoc_exists", "message": "CADOC já cadastrado.", "documento": documento})
 
+    # periodicidade/grupo só entram quando informados: sem o setup novo a coluna
+    # não existe, e o cadastro sem elas continua funcionando.
+    extra = {f: getattr(body, f) for f in ("periodicidade", "grupo") if getattr(body, f)}
     await execute_query_strict(
         f"INSERT INTO {_DOCS} (documento, nome, descricao, leiaute_versao, is_ativo, "
-        "  created_at, created_by, updated_at, updated_by) VALUES ("
+        f"  created_at, created_by, updated_at, updated_by{''.join(f', {f}' for f in extra)}) VALUES ("
         "  :documento, :nome, :descricao, :leiaute_versao, true, "
-        "  current_timestamp(), :actor, current_timestamp(), :actor)",
+        f"  current_timestamp(), :actor, current_timestamp(), :actor{''.join(f', :{f}' for f in extra)})",
         {"documento": documento, "nome": body.nome, "descricao": body.descricao,
-         "leiaute_versao": body.leiaute_versao, "actor": actor},
+         "leiaute_versao": body.leiaute_versao, "actor": actor, **extra},
     )
     return CadocDocument(documento=documento, nome=body.nome, descricao=body.descricao,
                          leiaute_versao=body.leiaute_versao, is_ativo=True,
+                         periodicidade=body.periodicidade, grupo=body.grupo,
                          created_by=actor, updated_by=actor)
 
 
@@ -228,10 +256,11 @@ async def create_cadoc(body: CadocCreateRequest, request: Request):
 async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Request):
     """Update mutable CADOC fields. Dynamic SET like governance.py PATCH."""
     actor = _caller_email(request)
+    _check_periodicidade(body.periodicidade)
     if USE_MOCK:
         for d in _MOCK_CADOCS:
             if d["documento"] == documento:
-                for f in ("nome", "descricao", "leiaute_versao", "is_ativo"):
+                for f in ("nome", "descricao", "leiaute_versao", "is_ativo", "periodicidade", "grupo"):
                     v = getattr(body, f)
                     if v is not None:
                         d[f] = v
@@ -239,7 +268,7 @@ async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Reques
         raise HTTPException(status_code=404, detail="CADOC não encontrado")
 
     sets, params = [], {"documento": documento, "actor": actor}
-    for f in ("nome", "descricao", "leiaute_versao", "is_ativo"):
+    for f in ("nome", "descricao", "leiaute_versao", "is_ativo", "periodicidade", "grupo"):
         v = getattr(body, f)
         if v is not None:
             sets.append(f"{f} = :{f}")
@@ -251,14 +280,14 @@ async def update_cadoc(documento: str, body: CadocUpdateRequest, request: Reques
         f"UPDATE {_DOCS} SET {', '.join(sets)} WHERE documento = :documento", params,
     )
     rows = await execute_query(
-        "SELECT documento, nome, descricao, leiaute_versao, is_ativo "
-        f"FROM {_DOCS} WHERE documento = :documento LIMIT 1", {"documento": documento},
+        f"SELECT * FROM {_DOCS} WHERE documento = :documento LIMIT 1", {"documento": documento},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="CADOC não encontrado")
     r = rows[0]
     return CadocDocument(documento=r["documento"], nome=r["nome"], descricao=r.get("descricao"),
-                         leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")))
+                         leiaute_versao=r.get("leiaute_versao"), is_ativo=bool(r.get("is_ativo")),
+                         periodicidade=r.get("periodicidade"), grupo=r.get("grupo"))
 
 
 @router.delete("/cadocs/{documento}", status_code=204)
@@ -290,12 +319,40 @@ async def delete_cadoc(documento: str, request: Request):
 
 # ── CADOC ↔ tables ───────────────────────────────────────────────────────────
 
+@router.get("/tables", response_model=AllCadocTablesResponse)
+async def list_all_cadoc_tables():
+    """Every active CADOC↔table association (the "Tabelas" tab)."""
+    if USE_MOCK:
+        pairs = [(d, t) for d, ts in _MOCK_CADOC_TABLES.items() for t in ts]
+    else:
+        rows = await execute_query(
+            f"SELECT documento, table_fqn FROM {_TBLS} WHERE is_ativo ORDER BY documento, table_fqn", {},
+        )
+        pairs = [(r["documento"], r["table_fqn"]) for r in rows]
+    return AllCadocTablesResponse(tables=[
+        CadocTable(documento=d, table_fqn=t, external=is_external(t)) for d, t in pairs
+    ])
+
+
+@router.get("/table-access", response_model=TableAccessReport)
+async def table_access(table_fqn: str = Query(...)):
+    """What the app SP can verify about a table, before or after associating it.
+
+    Never blocks: a missing grant is a warning with the GRANT already filled in
+    with the app's identity. The DQX Studio SP and the job identity can't be
+    checked from here — the UI states that.
+    """
+    fqn = _validate_table_fqn(table_fqn)
+    role = "" if USE_MOCK else await _identity()
+    return await check_table_access(fqn, role or "<client-id-do-sp-do-app>")
+
+
 @router.get("/cadocs/{documento}/tables", response_model=CadocTablesResponse)
 async def list_cadoc_tables(documento: str):
     """List silver tables associated to a CADOC."""
     if USE_MOCK:
         return CadocTablesResponse(documento=documento, tables=[
-            CadocTable(documento=documento, table_fqn=t)
+            CadocTable(documento=documento, table_fqn=t, external=is_external(t))
             for t in _MOCK_CADOC_TABLES.get(documento, [])
         ])
     rows = await execute_query(
@@ -303,13 +360,14 @@ async def list_cadoc_tables(documento: str):
         "ORDER BY table_fqn", {"documento": documento},
     )
     return CadocTablesResponse(documento=documento, tables=[
-        CadocTable(documento=r["documento"], table_fqn=r["table_fqn"]) for r in rows
+        CadocTable(documento=r["documento"], table_fqn=r["table_fqn"], external=is_external(r["table_fqn"]))
+        for r in rows
     ])
 
 
 @router.post("/cadocs/{documento}/tables", response_model=CadocTable, status_code=201)
 async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest, request: Request):
-    """Associate a silver table to a CADOC (409 on duplicate)."""
+    """Associate a table to a CADOC (409 on duplicate). Any catalog — see `_validate_table_fqn`."""
     actor = _caller_email(request)
     table_fqn = (body.table_fqn or "").strip()
     if not table_fqn:
@@ -321,7 +379,7 @@ async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest
         if table_fqn in cur:
             raise HTTPException(status_code=409, detail={"code": "table_linked", "message": "Tabela já associada."})
         cur.append(table_fqn)
-        return CadocTable(documento=documento, table_fqn=table_fqn)
+        return CadocTable(documento=documento, table_fqn=table_fqn, external=is_external(table_fqn))
 
     dedup = await execute_query(
         f"SELECT table_fqn FROM {_TBLS} WHERE documento = :documento AND table_fqn = :table_fqn AND is_ativo LIMIT 1",
@@ -334,7 +392,7 @@ async def associate_cadoc_table(documento: str, body: CadocTableAssociateRequest
         "VALUES (:documento, :table_fqn, true, current_timestamp(), :actor, current_timestamp(), :actor)",
         {"documento": documento, "table_fqn": table_fqn, "actor": actor},
     )
-    return CadocTable(documento=documento, table_fqn=table_fqn)
+    return CadocTable(documento=documento, table_fqn=table_fqn, external=is_external(table_fqn))
 
 
 @router.delete("/cadocs/{documento}/tables", status_code=204)
@@ -352,43 +410,118 @@ async def disassociate_cadoc_table(documento: str, request: Request, table_fqn: 
     )
 
 
-# ── Schema browsing ──────────────────────────────────────────────────────────
+# ── Catalog browsing (catálogo → schema → tabela, como o SP do app) ─────────
+#
+# Lista só o que o SP do app enxerga — por isso o navegador também É um
+# indicador de acesso: o que não aparece, o app não vê. Para esse caso a tela
+# tem o "digitar o nome", que chega na verificação com os GRANTs.
+
+# Catálogos de sistema não são alvo de CADOC.
+_HIDDEN_CATALOGS = {"system", "samples", "__databricks_internal"}
+_IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
+
+_MOCK_BROWSE = {
+    CATALOG: {
+        "silver": ["scr3040_operacoes", "scr3040_clientes", "scr3040_garantias",
+                   "scr3040_vencimentos", "scr3040_cont_4966", "scr3050"],
+        "gold": ["posicao_3040", "posicao_3050"],
+    },
+    "cliente_cat": {"cosif": ["scr4060_saldos", "scr4060_contas"]},
+}
+
+
+def _ident(value: str, what: str) -> str:
+    v = (value or "").strip()
+    if not _IDENT_RE.fullmatch(v):
+        raise HTTPException(status_code=400, detail=f"{what} inválido")
+    return v
+
+
+def _is_own(catalog: str) -> bool:
+    return catalog.lower() == CATALOG.lower()
+
+
+def _access_error(exc: Exception) -> str:
+    """Primeira linha do erro UC (o frontend explica; o detalhe vai junto)."""
+    raw = str(exc).strip()
+    return raw.splitlines()[0] if raw else "erro"
+
+
+@router.get("/browse/catalogs", response_model=BrowseCatalogsResponse)
+async def browse_catalogs():
+    """Catálogos que o SP do app enxerga (o do deployment primeiro)."""
+    if USE_MOCK:
+        names = list(_MOCK_BROWSE)
+    else:
+        try:
+            rows = await _execute_query("SHOW CATALOGS", {})
+        except Exception as exc:  # noqa: BLE001
+            return BrowseCatalogsResponse(catalogs=[], access_error=_access_error(exc))
+        names = [str(next(iter(r.values()))) for r in rows if r]
+    names = sorted({n for n in names if n not in _HIDDEN_CATALOGS}, key=lambda n: (not _is_own(n), n))
+    return BrowseCatalogsResponse(catalogs=[BrowseCatalog(name=n, own=_is_own(n)) for n in names])
+
+
+@router.get("/browse/schemas", response_model=BrowseSchemasResponse)
+async def browse_schemas(catalog: str = Query(...)):
+    """Schemas de um catálogo. No do deployment, só os de dados (nunca `governance`)."""
+    catalog = _ident(catalog, "Catálogo")
+    if USE_MOCK:
+        names = list(_MOCK_BROWSE.get(catalog, {}))
+    else:
+        try:
+            rows = await _execute_query(
+                f"SELECT schema_name FROM `{catalog}`.information_schema.schemata ORDER BY schema_name", {},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return BrowseSchemasResponse(catalog=catalog, schemas=[], access_error=_access_error(exc))
+        names = [r["schema_name"] for r in rows]
+    names = [n for n in names if n != "information_schema"]
+    if _is_own(catalog):
+        names = [n for n in names if n.lower() in _BROWSABLE_SCHEMAS]
+    return BrowseSchemasResponse(catalog=catalog, schemas=sorted(names))
+
 
 @router.get("/schema-tables", response_model=SchemaTablesResponse)
 async def browse_schema_tables(
     schema: str = Query("silver"),
+    catalog: str | None = Query(None),
     search: str | None = Query(None),
 ):
-    """Browse tables in a data schema of `${CATALOG}` (information_schema).
+    """Tabelas de `<catalog>.<schema>` que o SP do app enxerga (information_schema).
 
-    Restricted to the granted data schemas. Each table is annotated with the
-    CADOC it's already linked to (if any), so the UI can disable/badge it.
+    Cada tabela vem anotada com o CADOC a que já está associada, para a tela
+    desabilitar/sinalizar. `catalog` ausente = o do deployment (compatível).
     """
-    schema = (schema or "silver").strip()
-    if schema not in _BROWSABLE_SCHEMAS:
+    catalog = _ident(catalog or CATALOG, "Catálogo")
+    schema = _ident(schema or "silver", "Schema")
+    if _is_own(catalog) and schema.lower() not in _BROWSABLE_SCHEMAS:
         raise HTTPException(status_code=400, detail=f"Schema não navegável: {schema}")
 
-    if USE_MOCK:
-        base = [f"scr3040_operacoes", "scr3040_clientes", "scr3040_garantias",
-                "scr3040_vencimentos", "scr3040_cont_4966", "scr3050"]
-        linked = {t: d for d, ts in _MOCK_CADOC_TABLES.items() for t in ts}
-        tables = []
-        for name in base:
-            if search and search.lower() not in name.lower():
-                continue
-            fqn = f"{CATALOG}.{schema}.{name}"
-            tables.append(SchemaTable(table_fqn=fqn, table_schema=schema, table_name=name,
-                                      already_linked_documento=linked.get(fqn)))
-        return SchemaTablesResponse(schema_name=schema, tables=tables)
+    def _matches(name: str) -> bool:
+        return not search or search.lower() in name.lower()
 
-    rows = await execute_query(
-        "SELECT table_schema, table_name "
-        f"FROM {CATALOG}.information_schema.tables "
-        "WHERE table_schema = :schema "
-        "  AND (:search IS NULL OR lower(table_name) LIKE '%' || lower(:search) || '%') "
-        "ORDER BY table_name",
-        {"schema": schema, "search": search},
-    )
+    if USE_MOCK:
+        linked = {t: d for d, ts in _MOCK_CADOC_TABLES.items() for t in ts}
+        names = [n for n in _MOCK_BROWSE.get(catalog, {}).get(schema, []) if _matches(n)]
+        return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=[
+            SchemaTable(table_fqn=f"{catalog}.{schema}.{n}", table_schema=schema, table_name=n,
+                        already_linked_documento=linked.get(f"{catalog}.{schema}.{n}"))
+            for n in names
+        ])
+
+    try:
+        rows = await _execute_query(
+            "SELECT table_schema, table_name "
+            f"FROM `{catalog}`.information_schema.tables "
+            "WHERE table_schema = :schema "
+            "  AND (:search IS NULL OR lower(table_name) LIKE '%' || lower(:search) || '%') "
+            "ORDER BY table_name",
+            {"schema": schema, "search": search},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=[],
+                                    access_error=_access_error(exc))
     # Which of these are already linked (active), to annotate the browser.
     linked_rows = await execute_query(
         f"SELECT table_fqn, documento FROM {_TBLS} WHERE is_ativo", {},
@@ -396,12 +529,12 @@ async def browse_schema_tables(
     linked = {r["table_fqn"]: r["documento"] for r in linked_rows}
     tables = []
     for r in rows:
-        fqn = f"{CATALOG}.{r['table_schema']}.{r['table_name']}"
+        fqn = f"{catalog}.{r['table_schema']}.{r['table_name']}"
         tables.append(SchemaTable(
             table_fqn=fqn, table_schema=r["table_schema"], table_name=r["table_name"],
             already_linked_documento=linked.get(fqn),
         ))
-    return SchemaTablesResponse(schema_name=schema, tables=tables)
+    return SchemaTablesResponse(catalog=catalog, schema_name=schema, tables=tables)
 
 
 # ── Linkable rules (DQX rules + effective check_name + link status) ──────────
@@ -496,6 +629,17 @@ async def list_linkable_rules(
                                    if l["table_fqn"] == f"{CATALOG}.silver.scr3040_clientes"
                                    and l["check_name"] == "parte_not_in_range" and l.get("is_ativo", True)), None),
             ),
+            # Regra do Registry aplicada a 3 colunas = 3 verificações, uma linha.
+            LinkableRule(
+                key=f"{CATALOG}.silver.scr3040_operacoes|mock-applied-1",
+                rule_id="mock-applied-1", definition_name="Campo obrigatório preenchido",
+                function="is_not_null", arguments_summary="cd_mod, dt_contr, vl_contr",
+                table_fqn=f"{CATALOG}.silver.scr3040_operacoes", documento="3040",
+                verifications=[RuleVerification(check_name=f"Campo obrigatório preenchido ({c})", columns=[c])
+                               for c in ("cd_mod", "dt_contr", "vl_contr")],
+                current_link=next((_vinculo_from_row(l) for l in _MOCK_LINKS
+                                   if l.get("rule_id") == "mock-applied-1" and l.get("is_ativo", True)), None),
+            ),
         ]
         if table_fqn:
             rules = [r for r in rules if r.table_fqn == table_fqn]
@@ -530,55 +674,97 @@ async def list_linkable_rules(
     links_by_rule = {r["rule_id"]: r for r in link_rows if r.get("rule_id")}
     links_by_pair = {(r["table_fqn"], r["check_name"]): r for r in link_rows}
 
-    out: list[LinkableRule] = []
-    seen_keys: set[str] = set()
+    # Grão = REGRA. A Studio aplica uma regra do Registry a várias colunas e
+    # grava um check por coluna (as "verificações"), todos com o mesmo
+    # `applied_rule_id` — elas viram UMA linha, vinculada uma vez. Check sem
+    # esse id (YAML antigo) continua sendo uma linha por check.
+    groups: dict[tuple[str, str], list[dict]] = {}
     for rr in rule_rows:
         tfqn = rr.get("table_fqn") or ""
         for chk in _parse_check_def(rr.get("checks")):
             if not isinstance(chk, dict):
                 continue
-            inner = chk.get("check") or {}
-            args = inner.get("arguments") or {}
-            def_name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None) or ""
-            func = inner.get("function") or ""
-            arg_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:4]) if isinstance(args, dict) else ""
-            candidates = eff_names.get(tfqn, [])
-            # Current link: prefer explicit name, else rule_id, else any observed name.
+            applied = applied_rule_id_of(chk.get("user_metadata"))
+            if applied:
+                gkey = (tfqn, applied)
+            else:
+                # Sem regra do Registry: cada check é a sua linha, mesmo repetido.
+                digest = hashlib.sha1(json.dumps(chk, sort_keys=True, default=str).encode()).hexdigest()[:16]
+                gkey, n = (tfqn, digest), 1
+                while gkey in groups:
+                    n += 1
+                    gkey = (tfqn, f"{digest}#{n}")
+                groups[gkey] = [chk]
+                continue
+            groups.setdefault(gkey, []).append(chk)
+
+    out: list[LinkableRule] = []
+    seen_keys: set[str] = set()
+    for (tfqn, gid), checks in groups.items():
+        first = checks[0]
+        inner = first.get("check") or {}
+        args = inner.get("arguments") or {}
+        um = first.get("user_metadata") if isinstance(first.get("user_metadata"), dict) else {}
+        applied = applied_rule_id_of(um)
+        func = inner.get("function") or ""
+        candidates = eff_names.get(tfqn, [])
+        verif_names = [n for n in (check_name_of(c) for c in checks) if n]
+
+        if applied:
+            # Nome da REGRA (o da Studio), não o de uma verificação.
+            def_name = str(um.get("name") or "") or (verif_names[0] if verif_names else "")
+            verifications = [
+                RuleVerification(check_name=check_name_of(c) or "", columns=mapped_columns_of(c))
+                for c in checks
+            ]
+            cur = links_by_rule.get(applied)
+            if cur and cur.get("table_fqn") not in (None, "", tfqn):
+                cur = None
+            # Vínculos antigos, um por verificação: respeitados (vencem no
+            # resolve_meta) e substituídos quando a regra é vinculada.
+            legacy = [links_by_pair[(tfqn, n)] for n in verif_names
+                      if (tfqn, n) in links_by_pair and links_by_pair[(tfqn, n)] is not cur]
+            arg_summary = ", ".join(sorted({col for v in verifications for col in v.columns}))
+        else:
+            def_name = verif_names[0] if verif_names else ""
+            verifications, legacy = [], []
             cur = links_by_pair.get((tfqn, def_name)) if def_name else None
-            if not cur:
-                cur = links_by_rule.get(rr.get("rule_id"))
-            if not cur:
+            # Sem `name`, o nome só existe em runtime: aí (e só aí) qualquer nome
+            # observado no run da tabela serve. Com `name`, emprestaria o vínculo
+            # de outra regra.
+            if not cur and not def_name:
                 for c in candidates:
                     if (tfqn, c) in links_by_pair:
                         cur = links_by_pair[(tfqn, c)]
                         break
-            # Sem vínculo explícito: derive a dimensão que a tela de Críticas/
-            # scorecard já usa (tag `user_metadata.dimensao_r18` do check → RC18
-            # hard-code → default). Isso sinaliza na UI "via tag" em vez de
-            # "Não vinculada", eliminando a impressão contraditória entre telas.
-            tag_dim = tag_dim_name = None
-            if not cur:
-                um = chk.get("user_metadata") if isinstance(chk, dict) else None
-                tag_meta = meta_for(def_name or None, table_fqn=tfqn, user_metadata=um)
-                if tag_meta["dimension_r18"]:
-                    tag_dim = tag_meta["dimension_r18"]
-                    tag_dim_name = tag_meta["dimension_name"]
-            digest = hashlib.sha1(json.dumps(chk, sort_keys=True, default=str).encode()).hexdigest()[:16]
-            key = f"{tfqn}|{digest}"
-            n = 1
-            while key in seen_keys:  # definição idêntica repetida: a tela não pode ter chave igual
-                n += 1
-                key = f"{tfqn}|{digest}#{n}"
-            seen_keys.add(key)
-            out.append(LinkableRule(
-                key=key, rule_id=rr.get("rule_id") or "", definition_name=def_name, function=func,
-                arguments_summary=arg_summary[:200], table_fqn=tfqn,
-                documento=doc_by_table.get(tfqn), effective_check_names=candidates,
-                current_link=_vinculo_from_row(cur) if cur else None,
-                tag_dimension_r18=tag_dim, tag_dimension_name=tag_dim_name,
-            ))
+            arg_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:4]) if isinstance(args, dict) else ""
+
+        # Sem vínculo explícito: a dimensão que Críticas/scorecard já usam
+        # (tag → hard-code → default), sinalizada "via tag".
+        tag_dim = tag_dim_name = None
+        if not cur and not legacy:
+            tag_meta = meta_for(def_name or None, table_fqn=tfqn, user_metadata=um or None)
+            if tag_meta["dimension_r18"]:
+                tag_dim = tag_meta["dimension_r18"]
+                tag_dim_name = tag_meta["dimension_name"]
+
+        key = f"{tfqn}|{gid}"
+        n = 1
+        while key in seen_keys:  # definição idêntica repetida: a tela não pode ter chave igual
+            n += 1
+            key = f"{tfqn}|{gid}#{n}"
+        seen_keys.add(key)
+        out.append(LinkableRule(
+            key=key, rule_id=applied or "", definition_name=def_name, function=func,
+            arguments_summary=arg_summary[:200], table_fqn=tfqn,
+            documento=doc_by_table.get(tfqn), effective_check_names=candidates,
+            current_link=_vinculo_from_row(cur) if cur else None,
+            verifications=verifications,
+            legacy_links=[_vinculo_from_row(l) for l in legacy],
+            tag_dimension_r18=tag_dim, tag_dimension_name=tag_dim_name,
+        ))
     if linked is not None:
-        out = [r for r in out if (r.current_link is not None) == linked]
+        out = [r for r in out if (r.current_link is not None or bool(r.legacy_links)) == linked]
     return LinkableRulesResponse(rules=out)
 
 
@@ -628,20 +814,30 @@ async def create_link(body: RegraVinculoCreateRequest, request: Request):
     if not (1 <= int(body.dimensao_r18) <= 12):
         raise HTTPException(status_code=400, detail="dimensao_r18 deve estar entre 1 e 12")
 
+    rule_id = (body.rule_id or "").strip() or None
+    supersede = sorted({n.strip() for n in body.supersede_check_names if n and n.strip()} - {check_name})
+
     if USE_MOCK:
-        if any(l["table_fqn"] == table_fqn and l["check_name"] == check_name and l.get("is_ativo", True) for l in _MOCK_LINKS):
+        if any(l["table_fqn"] == table_fqn and l.get("is_ativo", True)
+               and (l["check_name"] == check_name or (rule_id and l.get("rule_id") == rule_id))
+               for l in _MOCK_LINKS):
             raise HTTPException(status_code=409, detail={"code": "link_exists", "message": "Vínculo já existe."})
+        for l in _MOCK_LINKS:
+            if l["table_fqn"] == table_fqn and l["check_name"] in supersede and not l.get("rule_id"):
+                l["is_ativo"] = False
         vid = str(uuid.uuid4())
-        row = {"vinculo_id": vid, "check_name": check_name, "rule_id": body.rule_id,
+        row = {"vinculo_id": vid, "check_name": check_name, "rule_id": rule_id,
                "table_fqn": table_fqn, "documento": body.documento or _mock_doc_for(table_fqn),
                "dimensao_r18": body.dimensao_r18, "critica_id": body.critica_id,
                "nivel_verificacao": body.nivel_verificacao, "descricao": body.descricao, "is_ativo": True}
         _MOCK_LINKS.append(row)
         return _vinculo_from_row(row)
 
+    # Vínculo de regra: dedup também pelo rule_id (o nome da regra pode mudar na Studio).
     dedup = await execute_query(
-        f"SELECT vinculo_id FROM {_LINKS} WHERE table_fqn = :table_fqn AND check_name = :check_name AND is_ativo LIMIT 1",
-        {"table_fqn": table_fqn, "check_name": check_name},
+        f"SELECT vinculo_id FROM {_LINKS} WHERE table_fqn = :table_fqn AND is_ativo "
+        "  AND (check_name = :check_name OR (:rule_id IS NOT NULL AND rule_id = :rule_id)) LIMIT 1",
+        {"table_fqn": table_fqn, "check_name": check_name, "rule_id": rule_id},
     )
     if dedup:
         existing = dedup[0]["vinculo_id"]
@@ -667,13 +863,22 @@ async def create_link(body: RegraVinculoCreateRequest, request: Request):
         "  :vinculo_id, :check_name, :rule_id, :table_fqn, :documento, "
         "  :dimensao_r18, :critica_id, :nivel_verificacao, :descricao, true, "
         "  current_timestamp(), :actor, current_timestamp(), :actor)",
-        {"vinculo_id": vid, "check_name": check_name, "rule_id": body.rule_id,
+        {"vinculo_id": vid, "check_name": check_name, "rule_id": rule_id,
          "table_fqn": table_fqn, "documento": documento, "dimensao_r18": body.dimensao_r18,
          "critica_id": body.critica_id, "nivel_verificacao": body.nivel_verificacao,
          "descricao": body.descricao, "actor": actor},
     )
+    if supersede:
+        # Depois do INSERT: se ele falhar, os vínculos antigos continuam valendo.
+        keys = [f"s{i}" for i in range(len(supersede))]
+        await execute_query_strict(
+            f"UPDATE {_LINKS} SET is_ativo = false, updated_at = current_timestamp(), updated_by = :actor "
+            f"WHERE table_fqn = :table_fqn AND is_ativo AND rule_id IS NULL "
+            f"  AND check_name IN ({','.join(f':{k}' for k in keys)})",
+            {"table_fqn": table_fqn, "actor": actor, **dict(zip(keys, supersede))},
+        )
     return RegraVinculo(
-        vinculo_id=vid, check_name=check_name, rule_id=body.rule_id, table_fqn=table_fqn,
+        vinculo_id=vid, check_name=check_name, rule_id=rule_id, table_fqn=table_fqn,
         documento=documento, dimensao_r18=body.dimensao_r18, dimension_name=_dim_name(body.dimensao_r18),
         critica_id=body.critica_id, nivel_verificacao=body.nivel_verificacao,
         descricao=body.descricao, is_ativo=True,

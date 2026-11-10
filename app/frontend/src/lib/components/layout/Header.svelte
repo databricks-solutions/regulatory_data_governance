@@ -54,19 +54,18 @@
         <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
       </svg>
       <span class="db-label">{$_('header.dataBase')}</span>
-      {#if dataBaseOptions.length > 0}
-        <select
-          class="db-select"
-          value={dataBase}
-          onchange={(e) => onDataBaseChange(e.target.value)}
-        >
-          {#each dataBaseOptions as opt}
-            <option value={opt}>{formatDataBaseLabel(opt)}</option>
-          {/each}
-        </select>
-      {:else}
-        <span class="db-empty">{dataBase ? formatDataBaseLabel(dataBase) : '—'}</span>
-      {/if}
+      <!-- "" = último processamento de cada documento; os meses são os que têm
+           processamento com data-base identificada (GET /dashboard/data-bases). -->
+      <select
+        class="db-select"
+        value={dataBase}
+        onchange={(e) => onDataBaseChange(e.target.value)}
+      >
+        <option value="">{$_('header.latestProcessing')}</option>
+        {#each dataBaseOptions as opt}
+          <option value={opt}>{formatDataBaseLabel(opt)}</option>
+        {/each}
+      </select>
     </div>
 
     <div class="header-divider"></div>
@@ -262,7 +261,6 @@
     appearance: auto;
     outline: none;
   }
-  .db-empty { font-size: var(--font-size-sm); font-weight: 600; color: var(--primary); white-space: nowrap; }
 
   .icon-btn {
     position: relative;

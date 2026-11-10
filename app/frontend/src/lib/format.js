@@ -31,9 +31,18 @@ export function formatDateTime(d) {
   return dateTimeFmt.format(new Date(d));
 }
 
-export function formatDataBase(db) {
-  if (!db) return '-';
-  const [y, m] = db.split('-');
-  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  return `${months[parseInt(m) - 1]}/${y}`;
+// Mês de referência `AAAA-MM` → "Abr 2026". `monthNames` vem do i18n
+// (`$_('header.months').split(',')`).
+export function formatMonth(ym, monthNames) {
+  const [y, m] = String(ym || '').split('-');
+  const name = monthNames?.[parseInt(m) - 1];
+  return name ? `${name} ${y}` : ym || '';
+}
+
+// Data-base ISO (`AAAA-MM-DD`, já no fim do período) em `DD/MM/AAAA`. Por texto,
+// não por Date: `new Date('2026-04-30')` é meia-noite UTC e vira 29/04 no Brasil.
+export function formatDataBase(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return d ? `${d}/${m}/${y}` : iso;
 }

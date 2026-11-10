@@ -159,11 +159,14 @@ for s in "${UC[@]}"; do run_sql "$s"; done
 
 # Essas tabelas nascem no rc18_end_to_end, não no deploy: ausente = pendente, não falha.
 PENDING=()
-for t in incidents cadoc_documentos cadoc_tabelas regra_vinculos; do
+# data_base_ledger é só leitura: quem grava é o job gold.
+for t in incidents cadoc_documentos cadoc_tabelas regra_vinculos data_base_ledger; do
   fqn="${CATALOG}.governance.${t}"
+  privs="SELECT, MODIFY"
+  [[ "$t" == "data_base_ledger" ]] && privs="SELECT"
   if [[ "$(databricks tables exists "$fqn" -p "$PROFILE" -o json 2>/dev/null \
           | python3 -c 'import json,sys; print(json.load(sys.stdin).get("table_exists", False))' 2>/dev/null)" == "True" ]]; then
-    run_sql "GRANT SELECT, MODIFY ON TABLE \`${CATALOG}\`.\`governance\`.\`${t}\` TO \`${SP}\`"
+    run_sql "GRANT ${privs} ON TABLE \`${CATALOG}\`.\`governance\`.\`${t}\` TO \`${SP}\`"
   else
     PENDING+=("$fqn")
     echo "    PENDENTE ${fqn} ainda não existe"
