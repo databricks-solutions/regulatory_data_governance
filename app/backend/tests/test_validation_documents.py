@@ -134,3 +134,46 @@ class CadocPeriodicityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RuleGroupTest(unittest.TestCase):
+    """Críticas: cada verificação é um resultado, marcado com a regra (applied_rule_id).
+
+    A tela agrupa por ela; o resumo conta regras e verificações separadamente.
+    """
+
+    TBL = "rc18_ext_test.cadoc_externo.scr9999_saldos"
+
+    def _results(self):
+        from app.backend.dqx_rules import build_index
+
+        def chk(col):
+            return {"criticality": "error", "check": {"function": "is_not_null", "arguments": {"column": col}},
+                    "name": f"file_name must not be null ({col})",
+                    "user_metadata": {"name": "file_name must not be null", "applied_rule_id": "e48253c8109149c4",
+                                      "mapped_columns": f'["{col}"]'}}
+
+        cols = ("dt_base", "cnpj_base", "codigo_conta", "saldo")
+        legacy = {"criticality": "error", "check": {"function": "is_not_null", "arguments": {"column": "x"}},
+                  "name": "x_is_null"}
+        index = build_index([{"table_fqn": self.TBL, "checks": chk(c)} for c in cols]
+                            + [{"table_fqn": self.TBL, "checks": legacy}],
+                            value_of=lambda row, c: {**c, "_row_table_fqn": row["table_fqn"]})
+        metrics = [{"check_name": f"file_name must not be null ({c})", "error_count": 2 if c == "saldo" else 0}
+                   for c in cols] + [{"check_name": "x_is_null", "error_count": 0}]
+        run = {"run_id": "r1", "source_table_fqn": self.TBL, "total_rows": 6}
+        return val._results_for_run(run, metrics, index, {}, {})
+
+    def test_verifications_carry_their_rule(self):
+        res = {r.check_name: r for r in self._results()}
+        saldo = res["file_name must not be null (saldo)"]
+        self.assertEqual(saldo.rule_group_id, "e48253c8109149c4")
+        self.assertEqual(saldo.rule_group_name, "file_name must not be null")
+        self.assertEqual(saldo.verification_columns, ["saldo"])
+        self.assertEqual(saldo.status, "fail")  # o resultado continua por verificação
+        self.assertIsNone(res["x_is_null"].rule_group_id)  # check sem regra do Registry
+
+    def test_summary_counts_rules_and_verifications(self):
+        s = val._summary_from_results(self._results())
+        self.assertEqual(s.total_rules, 5)        # verificações
+        self.assertEqual(s.total_rule_groups, 2)  # 1 regra (4 verificações) + 1 check avulso

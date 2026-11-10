@@ -39,14 +39,14 @@ from db import (
 )
 import cache
 from data_base import PERIODICIDADES
-from dqx_rules import PUBLISHED_RUN_FILTER, load_executed_rules
+from dqx_rules import PUBLISHED_RUN_FILTER, check_name_of, load_executed_rules, mapped_columns_of
 from db import execute_query as _execute_query
 # Tolerant variant for reads: degrades to [] when a table doesn't exist yet.
 from db import execute_query_or_empty as execute_query
 from diagnostics import _identity
 from i18n import get_locale
 from table_access import TableAccessReport, check_table_access, is_external
-from rc18_rule_meta import _DIM_NAMES, meta_for
+from rc18_rule_meta import _DIM_NAMES, applied_rule_id_of, meta_for
 from models import (
     AllCadocTablesResponse,
     BrowseCatalog,
@@ -65,6 +65,7 @@ from models import (
     RegraVinculo,
     RegraVinculoCreateRequest,
     RegraVinculoUpdateRequest,
+    RuleVerification,
     SchemaTable,
     SchemaTablesResponse,
 )
@@ -628,6 +629,17 @@ async def list_linkable_rules(
                                    if l["table_fqn"] == f"{CATALOG}.silver.scr3040_clientes"
                                    and l["check_name"] == "parte_not_in_range" and l.get("is_ativo", True)), None),
             ),
+            # Regra do Registry aplicada a 3 colunas = 3 verificações, uma linha.
+            LinkableRule(
+                key=f"{CATALOG}.silver.scr3040_operacoes|mock-applied-1",
+                rule_id="mock-applied-1", definition_name="Campo obrigatório preenchido",
+                function="is_not_null", arguments_summary="cd_mod, dt_contr, vl_contr",
+                table_fqn=f"{CATALOG}.silver.scr3040_operacoes", documento="3040",
+                verifications=[RuleVerification(check_name=f"Campo obrigatório preenchido ({c})", columns=[c])
+                               for c in ("cd_mod", "dt_contr", "vl_contr")],
+                current_link=next((_vinculo_from_row(l) for l in _MOCK_LINKS
+                                   if l.get("rule_id") == "mock-applied-1" and l.get("is_ativo", True)), None),
+            ),
         ]
         if table_fqn:
             rules = [r for r in rules if r.table_fqn == table_fqn]
@@ -662,55 +674,97 @@ async def list_linkable_rules(
     links_by_rule = {r["rule_id"]: r for r in link_rows if r.get("rule_id")}
     links_by_pair = {(r["table_fqn"], r["check_name"]): r for r in link_rows}
 
-    out: list[LinkableRule] = []
-    seen_keys: set[str] = set()
+    # Grão = REGRA. A Studio aplica uma regra do Registry a várias colunas e
+    # grava um check por coluna (as "verificações"), todos com o mesmo
+    # `applied_rule_id` — elas viram UMA linha, vinculada uma vez. Check sem
+    # esse id (YAML antigo) continua sendo uma linha por check.
+    groups: dict[tuple[str, str], list[dict]] = {}
     for rr in rule_rows:
         tfqn = rr.get("table_fqn") or ""
         for chk in _parse_check_def(rr.get("checks")):
             if not isinstance(chk, dict):
                 continue
-            inner = chk.get("check") or {}
-            args = inner.get("arguments") or {}
-            def_name = chk.get("name") or (args.get("name") if isinstance(args, dict) else None) or ""
-            func = inner.get("function") or ""
-            arg_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:4]) if isinstance(args, dict) else ""
-            candidates = eff_names.get(tfqn, [])
-            # Current link: prefer explicit name, else rule_id, else any observed name.
+            applied = applied_rule_id_of(chk.get("user_metadata"))
+            if applied:
+                gkey = (tfqn, applied)
+            else:
+                # Sem regra do Registry: cada check é a sua linha, mesmo repetido.
+                digest = hashlib.sha1(json.dumps(chk, sort_keys=True, default=str).encode()).hexdigest()[:16]
+                gkey, n = (tfqn, digest), 1
+                while gkey in groups:
+                    n += 1
+                    gkey = (tfqn, f"{digest}#{n}")
+                groups[gkey] = [chk]
+                continue
+            groups.setdefault(gkey, []).append(chk)
+
+    out: list[LinkableRule] = []
+    seen_keys: set[str] = set()
+    for (tfqn, gid), checks in groups.items():
+        first = checks[0]
+        inner = first.get("check") or {}
+        args = inner.get("arguments") or {}
+        um = first.get("user_metadata") if isinstance(first.get("user_metadata"), dict) else {}
+        applied = applied_rule_id_of(um)
+        func = inner.get("function") or ""
+        candidates = eff_names.get(tfqn, [])
+        verif_names = [n for n in (check_name_of(c) for c in checks) if n]
+
+        if applied:
+            # Nome da REGRA (o da Studio), não o de uma verificação.
+            def_name = str(um.get("name") or "") or (verif_names[0] if verif_names else "")
+            verifications = [
+                RuleVerification(check_name=check_name_of(c) or "", columns=mapped_columns_of(c))
+                for c in checks
+            ]
+            cur = links_by_rule.get(applied)
+            if cur and cur.get("table_fqn") not in (None, "", tfqn):
+                cur = None
+            # Vínculos antigos, um por verificação: respeitados (vencem no
+            # resolve_meta) e substituídos quando a regra é vinculada.
+            legacy = [links_by_pair[(tfqn, n)] for n in verif_names
+                      if (tfqn, n) in links_by_pair and links_by_pair[(tfqn, n)] is not cur]
+            arg_summary = ", ".join(sorted({col for v in verifications for col in v.columns}))
+        else:
+            def_name = verif_names[0] if verif_names else ""
+            verifications, legacy = [], []
             cur = links_by_pair.get((tfqn, def_name)) if def_name else None
-            if not cur:
-                cur = links_by_rule.get(rr.get("rule_id"))
-            if not cur:
+            # Sem `name`, o nome só existe em runtime: aí (e só aí) qualquer nome
+            # observado no run da tabela serve. Com `name`, emprestaria o vínculo
+            # de outra regra.
+            if not cur and not def_name:
                 for c in candidates:
                     if (tfqn, c) in links_by_pair:
                         cur = links_by_pair[(tfqn, c)]
                         break
-            # Sem vínculo explícito: derive a dimensão que a tela de Críticas/
-            # scorecard já usa (tag `user_metadata.dimensao_r18` do check → RC18
-            # hard-code → default). Isso sinaliza na UI "via tag" em vez de
-            # "Não vinculada", eliminando a impressão contraditória entre telas.
-            tag_dim = tag_dim_name = None
-            if not cur:
-                um = chk.get("user_metadata") if isinstance(chk, dict) else None
-                tag_meta = meta_for(def_name or None, table_fqn=tfqn, user_metadata=um)
-                if tag_meta["dimension_r18"]:
-                    tag_dim = tag_meta["dimension_r18"]
-                    tag_dim_name = tag_meta["dimension_name"]
-            digest = hashlib.sha1(json.dumps(chk, sort_keys=True, default=str).encode()).hexdigest()[:16]
-            key = f"{tfqn}|{digest}"
-            n = 1
-            while key in seen_keys:  # definição idêntica repetida: a tela não pode ter chave igual
-                n += 1
-                key = f"{tfqn}|{digest}#{n}"
-            seen_keys.add(key)
-            out.append(LinkableRule(
-                key=key, rule_id=rr.get("rule_id") or "", definition_name=def_name, function=func,
-                arguments_summary=arg_summary[:200], table_fqn=tfqn,
-                documento=doc_by_table.get(tfqn), effective_check_names=candidates,
-                current_link=_vinculo_from_row(cur) if cur else None,
-                tag_dimension_r18=tag_dim, tag_dimension_name=tag_dim_name,
-            ))
+            arg_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:4]) if isinstance(args, dict) else ""
+
+        # Sem vínculo explícito: a dimensão que Críticas/scorecard já usam
+        # (tag → hard-code → default), sinalizada "via tag".
+        tag_dim = tag_dim_name = None
+        if not cur and not legacy:
+            tag_meta = meta_for(def_name or None, table_fqn=tfqn, user_metadata=um or None)
+            if tag_meta["dimension_r18"]:
+                tag_dim = tag_meta["dimension_r18"]
+                tag_dim_name = tag_meta["dimension_name"]
+
+        key = f"{tfqn}|{gid}"
+        n = 1
+        while key in seen_keys:  # definição idêntica repetida: a tela não pode ter chave igual
+            n += 1
+            key = f"{tfqn}|{gid}#{n}"
+        seen_keys.add(key)
+        out.append(LinkableRule(
+            key=key, rule_id=applied or "", definition_name=def_name, function=func,
+            arguments_summary=arg_summary[:200], table_fqn=tfqn,
+            documento=doc_by_table.get(tfqn), effective_check_names=candidates,
+            current_link=_vinculo_from_row(cur) if cur else None,
+            verifications=verifications,
+            legacy_links=[_vinculo_from_row(l) for l in legacy],
+            tag_dimension_r18=tag_dim, tag_dimension_name=tag_dim_name,
+        ))
     if linked is not None:
-        out = [r for r in out if (r.current_link is not None) == linked]
+        out = [r for r in out if (r.current_link is not None or bool(r.legacy_links)) == linked]
     return LinkableRulesResponse(rules=out)
 
 
@@ -760,20 +814,30 @@ async def create_link(body: RegraVinculoCreateRequest, request: Request):
     if not (1 <= int(body.dimensao_r18) <= 12):
         raise HTTPException(status_code=400, detail="dimensao_r18 deve estar entre 1 e 12")
 
+    rule_id = (body.rule_id or "").strip() or None
+    supersede = sorted({n.strip() for n in body.supersede_check_names if n and n.strip()} - {check_name})
+
     if USE_MOCK:
-        if any(l["table_fqn"] == table_fqn and l["check_name"] == check_name and l.get("is_ativo", True) for l in _MOCK_LINKS):
+        if any(l["table_fqn"] == table_fqn and l.get("is_ativo", True)
+               and (l["check_name"] == check_name or (rule_id and l.get("rule_id") == rule_id))
+               for l in _MOCK_LINKS):
             raise HTTPException(status_code=409, detail={"code": "link_exists", "message": "Vínculo já existe."})
+        for l in _MOCK_LINKS:
+            if l["table_fqn"] == table_fqn and l["check_name"] in supersede and not l.get("rule_id"):
+                l["is_ativo"] = False
         vid = str(uuid.uuid4())
-        row = {"vinculo_id": vid, "check_name": check_name, "rule_id": body.rule_id,
+        row = {"vinculo_id": vid, "check_name": check_name, "rule_id": rule_id,
                "table_fqn": table_fqn, "documento": body.documento or _mock_doc_for(table_fqn),
                "dimensao_r18": body.dimensao_r18, "critica_id": body.critica_id,
                "nivel_verificacao": body.nivel_verificacao, "descricao": body.descricao, "is_ativo": True}
         _MOCK_LINKS.append(row)
         return _vinculo_from_row(row)
 
+    # Vínculo de regra: dedup também pelo rule_id (o nome da regra pode mudar na Studio).
     dedup = await execute_query(
-        f"SELECT vinculo_id FROM {_LINKS} WHERE table_fqn = :table_fqn AND check_name = :check_name AND is_ativo LIMIT 1",
-        {"table_fqn": table_fqn, "check_name": check_name},
+        f"SELECT vinculo_id FROM {_LINKS} WHERE table_fqn = :table_fqn AND is_ativo "
+        "  AND (check_name = :check_name OR (:rule_id IS NOT NULL AND rule_id = :rule_id)) LIMIT 1",
+        {"table_fqn": table_fqn, "check_name": check_name, "rule_id": rule_id},
     )
     if dedup:
         existing = dedup[0]["vinculo_id"]
@@ -799,13 +863,22 @@ async def create_link(body: RegraVinculoCreateRequest, request: Request):
         "  :vinculo_id, :check_name, :rule_id, :table_fqn, :documento, "
         "  :dimensao_r18, :critica_id, :nivel_verificacao, :descricao, true, "
         "  current_timestamp(), :actor, current_timestamp(), :actor)",
-        {"vinculo_id": vid, "check_name": check_name, "rule_id": body.rule_id,
+        {"vinculo_id": vid, "check_name": check_name, "rule_id": rule_id,
          "table_fqn": table_fqn, "documento": documento, "dimensao_r18": body.dimensao_r18,
          "critica_id": body.critica_id, "nivel_verificacao": body.nivel_verificacao,
          "descricao": body.descricao, "actor": actor},
     )
+    if supersede:
+        # Depois do INSERT: se ele falhar, os vínculos antigos continuam valendo.
+        keys = [f"s{i}" for i in range(len(supersede))]
+        await execute_query_strict(
+            f"UPDATE {_LINKS} SET is_ativo = false, updated_at = current_timestamp(), updated_by = :actor "
+            f"WHERE table_fqn = :table_fqn AND is_ativo AND rule_id IS NULL "
+            f"  AND check_name IN ({','.join(f':{k}' for k in keys)})",
+            {"table_fqn": table_fqn, "actor": actor, **dict(zip(keys, supersede))},
+        )
     return RegraVinculo(
-        vinculo_id=vid, check_name=check_name, rule_id=body.rule_id, table_fqn=table_fqn,
+        vinculo_id=vid, check_name=check_name, rule_id=rule_id, table_fqn=table_fqn,
         documento=documento, dimensao_r18=body.dimensao_r18, dimension_name=_dim_name(body.dimensao_r18),
         critica_id=body.critica_id, nivel_verificacao=body.nivel_verificacao,
         descricao=body.descricao, is_ativo=True,

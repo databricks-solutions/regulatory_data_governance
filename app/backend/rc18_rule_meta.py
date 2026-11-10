@@ -164,6 +164,17 @@ def _meta_from_vinculo(vinculo: dict, *, fallback: RuleMeta) -> RuleMeta:
     return out
 
 
+def applied_rule_id_of(user_metadata: dict | None) -> str | None:
+    """Id da regra do Registry aplicada à tabela (`user_metadata.applied_rule_id`).
+
+    A Studio aplica UMA regra a várias colunas e grava um check por coluna (as
+    "verificações"); todos carregam o mesmo id. Ausente em check de YAML antigo.
+    """
+    if not isinstance(user_metadata, dict):
+        return None
+    return str(user_metadata.get("applied_rule_id") or "") or None
+
+
 def resolve_meta(
     check_name: str | None,
     *,
@@ -176,9 +187,12 @@ def resolve_meta(
     """Resolve rule metadata with the RC18 link table as the source of truth.
 
     Order:
-      1. `regra_vinculos` matched by (table_fqn, check_name) — link wins.
-      2. `regra_vinculos` matched by rule_id — covers rules whose definition has
-         no `name` (parsed check_name empty) but whose stable rule_id is linked.
+      1. `regra_vinculos` matched by (table_fqn, check_name) — link wins. Hoje é
+         o vínculo legado POR VERIFICAÇÃO (a tela passou a vincular a regra).
+      2. `regra_vinculos` matched by rule_id. Sem `rule_id` explícito, usa o
+         `applied_rule_id` do `user_metadata`: a regra do Registry aplicada à
+         tabela, comum a todas as suas verificações (uma por coluna) — um
+         vínculo cobre todas. Só casa vínculo da MESMA tabela.
       3. Fall back to `meta_for(...)` (tag → RC18_RULE_META → default) unchanged.
 
     The link only OVERRIDES the fields it carries; everything else keeps the
@@ -190,8 +204,11 @@ def resolve_meta(
     vinculo = None
     if vinculos_by_pair and check_name:
         vinculo = vinculos_by_pair.get((table_fqn, check_name))
+    rule_id = rule_id or applied_rule_id_of(user_metadata)
     if not vinculo and vinculos_by_rule_id and rule_id:
         vinculo = vinculos_by_rule_id.get(rule_id)
+        if vinculo and table_fqn and vinculo.get("table_fqn") not in (None, "", table_fqn):
+            vinculo = None
     if vinculo:
         return _meta_from_vinculo(vinculo, fallback=baseline)
     return baseline

@@ -192,11 +192,13 @@ class DocumentsResponse(BaseModel):
 
 
 class ValidationSummary(BaseModel):
-    total_rules: int
+    total_rules: int          # verificações (um check por coluna) — base das contas
     passed: int
     failed: int
     warnings: int
     pass_rate_pct: float
+    # Regras distintas: verificações da mesma regra do Registry contam uma vez.
+    total_rule_groups: int | None = None
 
 
 class ValidationResult(BaseModel):
@@ -221,6 +223,11 @@ class ValidationResult(BaseModel):
     dqx_run_id: str | None = None        # latest DQX run_id that observed this critica (for traceability)
     critica_id: str | None = None        # explicit alias of rule_id (kept distinct since rule_id may be empty)
     table_fqn: str | None = None         # tabela-alvo do check (source_table_fqn do run DQX)
+    # Regra do Registry de que esta verificação faz parte (`applied_rule_id`):
+    # a tela agrupa por ela. Nulo em check sem regra (YAML antigo).
+    rule_group_id: str | None = None
+    rule_group_name: str | None = None
+    verification_columns: list[str] = []
 
 
 class ValidationResultsResponse(BaseModel):
@@ -1080,6 +1087,9 @@ class RegraVinculoCreateRequest(BaseModel):
     critica_id: str | None = None
     nivel_verificacao: int | None = None
     descricao: str | None = None
+    # Vínculo da REGRA: vínculos antigos destas verificações (mesma tabela) são
+    # desativados — uma regra, uma dimensão.
+    supersede_check_names: list[str] = []
 
 
 class RegraVinculoUpdateRequest(BaseModel):
@@ -1095,6 +1105,12 @@ class RegraVinculoUpdateRequest(BaseModel):
 class LinksResponse(BaseModel):
     total: int = 0
     links: list[RegraVinculo] = []
+
+
+class RuleVerification(BaseModel):
+    """Uma verificação = a regra aplicada a uma coluna (um check no run)."""
+    check_name: str
+    columns: list[str] = []
 
 
 class LinkableRule(BaseModel):
@@ -1118,6 +1134,11 @@ class LinkableRule(BaseModel):
     # Nulo quando não há tag/fallback OU quando já existe current_link.
     tag_dimension_r18: int | None = None
     tag_dimension_name: str | None = None
+    # Regra do Registry (grão da linha): as verificações dela, uma por coluna.
+    # Vazio em check sem `applied_rule_id` (YAML antigo) — a linha É o check.
+    verifications: list[RuleVerification] = []
+    # Vínculos antigos POR VERIFICAÇÃO desta regra: valem até a regra ser vinculada.
+    legacy_links: list[RegraVinculo] = []
 
 
 class LinkableRulesResponse(BaseModel):

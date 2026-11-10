@@ -153,6 +153,27 @@ def check_name_of(chk: Any) -> str | None:
     return chk.get("name") or (args.get("name") if isinstance(args, dict) else None)
 
 
+def mapped_columns_of(chk: Any) -> list[str]:
+    """Colunas de uma verificação: `user_metadata.mapped_columns` (JSON) ou o argumento."""
+    if not isinstance(chk, dict):
+        return []
+    um = chk.get("user_metadata") if isinstance(chk.get("user_metadata"), dict) else {}
+    raw = um.get("mapped_columns")
+    try:
+        cols = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        cols = None
+    if isinstance(cols, list) and cols:
+        return [str(c) for c in cols]
+    args = (chk.get("check") or {}).get("arguments") or {}
+    if isinstance(args, dict):
+        if args.get("column"):
+            return [str(args["column"])]
+        if isinstance(args.get("columns"), list):
+            return [str(c) for c in args["columns"]]
+    return []
+
+
 class RuleIndex:
     """Regras DQX indexadas por `(table_fqn, check_name)`.
 

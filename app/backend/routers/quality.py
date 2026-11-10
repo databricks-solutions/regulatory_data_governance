@@ -327,7 +327,7 @@ async def _aggregate_by_dimension(month: str | None = None) -> dict[int, dict]:
     # DQX Studio é a fonte autoritativa para o agrupamento por dimensão.
     rule_meta_cache = await _load_rule_user_metadata()
     # Link maps: uma regra vinculada via /linking conta mesmo sem `name` explícito.
-    vinc_by_pair, _vinc_by_rule = await load_vinculos()
+    vinc_by_pair, vinc_by_rule = await load_vinculos()
 
     out: dict[int, dict] = {}
     for r in runs:
@@ -363,6 +363,7 @@ async def _aggregate_by_dimension(month: str | None = None) -> dict[int, dict]:
                 table_fqn=source_table,
                 user_metadata=um,
                 vinculos_by_pair=vinc_by_pair,
+                vinculos_by_rule_id=vinc_by_rule,
             )
             dim_id = meta["dimension_r18"]
             err = int(cmrow.get("error_count") or 0)
@@ -428,7 +429,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
     metrics_by_run = {m["run_id"]: m for m in metrics_rows}
 
     rule_meta_cache = await _load_rule_user_metadata()
-    vinc_by_pair, _vinc_by_rule = await load_vinculos()
+    vinc_by_pair, vinc_by_rule = await load_vinculos()
 
     # month → {total, invalid} agregado só desta dimensão.
     by_month: dict[str, dict] = {}
@@ -461,6 +462,7 @@ async def _dimension_trend(dimension_id: int) -> list[TrendPoint]:
                 table_fqn=source_table,
                 user_metadata=um,
                 vinculos_by_pair=vinc_by_pair,
+                vinculos_by_rule_id=vinc_by_rule,
             )
             if meta["dimension_r18"] != dimension_id:
                 continue

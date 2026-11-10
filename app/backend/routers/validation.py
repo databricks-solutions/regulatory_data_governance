@@ -26,8 +26,8 @@ from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when silver tables haven't been populated yet (pipeline not run).
 from db import execute_query_or_empty as execute_query
-from rc18_rule_meta import meta_for, resolve_meta
-from dqx_rules import RuleIndex, build_index, load_executed_rules
+from rc18_rule_meta import applied_rule_id_of, meta_for, resolve_meta
+from dqx_rules import RuleIndex, build_index, load_executed_rules, mapped_columns_of
 from rc18_links import load_cadoc_documents, load_cadoc_tables, load_vinculos
 from models import (
     CadocRef,
@@ -206,9 +206,23 @@ _MOCK_RULES_3040_EN = [
 ]
 
 
+def _mock_grouped_3040() -> list[ValidationResult]:
+    """Regra do Registry aplicada a 3 colunas = 3 verificações (uma reprovada)."""
+    out = []
+    for col, bad in (("cd_mod", 0), ("dt_contr", 12), ("vl_contr", 0)):
+        vr = _mock_vr(rule_id=f"Campo obrigatório preenchido ({col})", run_config_name=_RC_3040_OPER,
+                      check_name=f"Campo obrigatório preenchido ({col})", dqx_check_function="is_not_null",
+                      rule_name=f"Campo obrigatório preenchido ({col})", rule_type="syntactic", severity="error",
+                      dimension_r18=6, dimension_name="Completude", status="fail" if bad else "pass",
+                      affected_records=bad, total_records=1200, description=f"{col} não pode ser nulo.", nivel=1)
+        vr.rule_group_id, vr.rule_group_name, vr.verification_columns = "mock-applied-1", "Campo obrigatório preenchido", [col]
+        out.append(vr)
+    return out
+
+
 def _mock_rules_3040(locale: str) -> list[ValidationResult]:
     """Pick the locale-matched 3040 mock fixture set (en-US, else pt-BR default)."""
-    return _MOCK_RULES_3040_EN if locale == "en" else _MOCK_RULES_3040
+    return (_MOCK_RULES_3040_EN if locale == "en" else _MOCK_RULES_3040) + _mock_grouped_3040()
 
 
 # 3050: ainda sem regras iniciais. O usuário pode autorizar regras adicionais
@@ -246,8 +260,11 @@ def _summary_from_results(results) -> ValidationSummary:
     failed = sum(1 for r in results if r.status == "fail")
     warnings = sum(1 for r in results if r.status == "warning")
     pass_rate = round(passed / total * 100, 1) if total else 0.0
+    # Regra = (tabela, applied_rule_id); verificação sem regra conta sozinha.
+    groups = {(r.table_fqn, r.rule_group_id) if r.rule_group_id else ("check", i) for i, r in enumerate(results)}
     return ValidationSummary(total_rules=total, passed=passed, failed=failed,
-                             warnings=warnings, pass_rate_pct=pass_rate)
+                             warnings=warnings, pass_rate_pct=pass_rate,
+                             total_rule_groups=len(groups))
 
 
 # ── DQX Studio run-results integration ──────────────────────────────────────
@@ -386,6 +403,9 @@ def _results_for_run(
             dqx_run_id=run_id,
             critica_id=meta["critica_id"] or check_name,
             table_fqn=source_table or None,
+            rule_group_id=applied_rule_id_of(um),
+            rule_group_name=(str(um.get("name") or "") or None) if applied_rule_id_of(um) else None,
+            verification_columns=mapped_columns_of(rule) if rule else [],
         ))
     return out
 
