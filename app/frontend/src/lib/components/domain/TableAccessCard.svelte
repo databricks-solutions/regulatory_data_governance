@@ -8,7 +8,9 @@
    */
   import { _ } from 'svelte-i18n';
 
-  let { report } = $props();
+  // `onrecheck`: botão "Verificar de novo" no alerta — só quando há pendência
+  // (depois do GRANT, confere sem sair da lista).
+  let { report, onrecheck = null, rechecking = false } = $props();
 
   let copiedId = $state('');
   async function copy(text, id) {
@@ -33,6 +35,11 @@
         <h4>{ok ? $_('linking.access.okTitle') : $_('linking.access.warnTitle')}</h4>
         <p>{ok ? $_('linking.access.okSubtitle') : $_('linking.access.warnSubtitle')}</p>
       </div>
+      {#if onrecheck && !ok}
+        <button class="recheck" onclick={onrecheck} disabled={rechecking}>
+          {rechecking ? $_('linking.accessChecking') : $_('linking.access.recheck')}
+        </button>
+      {/if}
     </header>
 
     <ul class="checks">
@@ -92,7 +99,10 @@
   }
   .access.ok { border-color: var(--success); background: var(--success-light); color: var(--gray-700); }
   header { display: flex; gap: var(--space-3); align-items: flex-start; }
+  header > div { flex: 1; min-width: 0; }
   header h4 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+  .recheck { flex-shrink: 0; background: var(--surface); color: var(--orange-900); border: 1px solid rgba(243, 112, 33, 0.4); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-3); font-size: var(--font-size-xs); font-weight: 600; cursor: pointer; }
+  .recheck:disabled { opacity: 0.6; cursor: default; }
   header p { margin: 2px 0 0; opacity: 0.85; }
   .head-icon {
     width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;

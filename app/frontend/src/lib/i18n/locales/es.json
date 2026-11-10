@@ -241,7 +241,7 @@
     "statusViaTag": "vía tag",
     "statusViaTagTitle": "Dimensión derivada de la etiqueta del check (user_metadata) — sin vínculo explícito. Cree un vínculo para sobrescribir.",
     "ruleColId": "ID de regla",
-    "ruleColCheck": "Check",
+    "ruleColCheck": "Regla",
     "ruleColFunction": "Función",
     "ruleColTable": "Tabla",
     "ruleColDocument": "Documento",
@@ -290,7 +290,6 @@
     "fieldGroup": "Grupo",
     "fieldGroupHint": "Ej.: SCR, COSIF, Prudencial",
     "tabTables": "Tablas de los CADOC",
-    "tablesIntro": "Cada CADOC necesita saber en qué tablas corren sus reglas. Pueden estar en este catálogo o en otro — por ejemplo, un CADOC que ya se procesa en otro catálogo y se valida en DQX Studio. Para tablas de otro catálogo, la app verifica el acceso y muestra lo que falta, pero no impide el registro.",
     "newTable": "Asociar tabla",
     "newTableTitle": "Asociar una tabla a un CADOC",
     "fieldTableFqn": "Tabla (catálogo.schema.tabla)",
@@ -344,7 +343,8 @@
           "title": "Ejecuciones en DQX Studio",
           "how": "No hay ejecución publicada de esta tabla en {runs_table}. En DQX Studio, publique el vínculo de la tabla y ejecútela; verifique también que el nombre escrito sea idéntico al de Studio."
         }
-      }
+      },
+      "recheck": "Verificar de nuevo"
     },
     "modeBrowse": "Navegar el catálogo",
     "modeManual": "Escribir el nombre",
@@ -355,7 +355,12 @@
     "browseNoAccess": "Falta USE CATALOG/USE SCHEMA para la app. Use \"Escribir el nombre\" para ver los GRANT necesarios.",
     "browseNoTables": "Ninguna tabla visible para la app en este schema.",
     "alreadyHere": "Ya en este CADOC",
-    "picked": "Seleccionada:"
+    "picked": "Seleccionada:",
+    "verificationsCount": "{n} verificaciones:",
+    "legacyBadge": "{n} de {total} verificaciones con vínculo antiguo",
+    "legacyTitle": "Vínculo hecho por verificación, antes del vínculo por regla ({cols}). Sigue valiendo para esas verificaciones; vincule la regla para unificar.",
+    "ruleGrainHint": "El vínculo vale para la regla entera: las {n} verificaciones (una por columna) quedan en la misma dimensión. Para que una columna tenga otra dimensión, sepárela en otra regla en DQX Studio.",
+    "legacyReplace": "Los vínculos antiguos por verificación ({cols}) serán reemplazados por este."
   },
   "nav": {
     "complianceR18": "Cumplimiento R.18",
@@ -553,7 +558,7 @@
     "passedShort": "{n} aprob.",
     "rule": "Regla",
     "targetTable": "Tabla",
-    "rulesCount": "{n} reglas",
+    "rulesCount": "{n, plural, =1 {# regla} other {# reglas}}",
     "runLabel": "Run",
     "semantic": "Semántica",
     "showAll": "Mostrar todos",
@@ -566,7 +571,11 @@
     "dataBaseLabel": "Fecha base",
     "dataBaseUnknown": "no identificada",
     "noRun": "Este documento aún no tiene ejecución de reglas en DQX Studio. Asocie sus tablas y vincule las reglas en Vínculo de Reglas, publique el vínculo de la tabla en DQX Studio y ejecútelo.",
-    "noRunInMonth": "Este documento no tiene ejecución de reglas con fecha base en {month}. Elija otro mes de referencia en el encabezado, o \"Último procesamiento\"."
+    "noRunInMonth": "Este documento no tiene ejecución de reglas con fecha base en {month}. Elija otro mes de referencia en el encabezado, o \"Último procesamiento\".",
+    "totalRulesVerifs": "Total: {rules, plural, =1 {# regla} other {# reglas}} · {n} verificaciones",
+    "verificationsCount": "{n} verificaciones",
+    "verificationsFailed": "{n} de {total} reprobadas",
+    "verificationsHint": "Una verificación por columna. El resultado es de cada una; la regla queda reprobada si cualquier verificación reprueba."
   },
   "xml": {
     "clickElement": "Haga clic en un elemento para ver la validación",

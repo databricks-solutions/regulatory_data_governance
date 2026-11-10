@@ -241,7 +241,7 @@
     "statusViaTag": "via tag",
     "statusViaTagTitle": "Dimension derived from the check's tag (user_metadata) — no explicit link. Create a link to override.",
     "ruleColId": "Rule ID",
-    "ruleColCheck": "Check",
+    "ruleColCheck": "Rule",
     "ruleColFunction": "Function",
     "ruleColTable": "Table",
     "ruleColDocument": "Document",
@@ -290,7 +290,6 @@
     "fieldGroup": "Group",
     "fieldGroupHint": "E.g. SCR, COSIF, Prudential",
     "tabTables": "CADOC tables",
-    "tablesIntro": "Each CADOC needs to know which tables its rules run on. They can live in this catalog or in another one — for example, a CADOC already processed in another catalog and validated in DQX Studio. For tables in another catalog, the app checks access and shows what is missing, but never blocks the registration.",
     "newTable": "Associate table",
     "newTableTitle": "Associate a table to a CADOC",
     "fieldTableFqn": "Table (catalog.schema.table)",
@@ -344,7 +343,8 @@
           "title": "Runs in DQX Studio",
           "how": "No published run for this table in {runs_table}. In DQX Studio, publish the table binding and run it; also check that the typed name is identical to Studio's."
         }
-      }
+      },
+      "recheck": "Check again"
     },
     "modeBrowse": "Browse catalog",
     "modeManual": "Type the name",
@@ -355,7 +355,12 @@
     "browseNoAccess": "The app lacks USE CATALOG/USE SCHEMA. Use \"Type the name\" to see the required GRANTs.",
     "browseNoTables": "No tables visible to the app in this schema.",
     "alreadyHere": "Already in this CADOC",
-    "picked": "Selected:"
+    "picked": "Selected:",
+    "verificationsCount": "{n} checks:",
+    "legacyBadge": "{n} of {total} checks with a legacy link",
+    "legacyTitle": "Link made per check, before rule-level linking ({cols}). It still applies to those checks; link the rule to unify.",
+    "ruleGrainHint": "The link applies to the whole rule: all {n} checks (one per column) share the same dimension. For a column to have a different dimension, split it into another rule in DQX Studio.",
+    "legacyReplace": "The legacy per-check links ({cols}) will be replaced by this one."
   },
   "nav": {
     "complianceR18": "R.18 Compliance",
@@ -553,7 +558,7 @@
     "passedShort": "{n} passed",
     "rule": "Rule",
     "targetTable": "Table",
-    "rulesCount": "{n} rules",
+    "rulesCount": "{n, plural, =1 {# rule} other {# rules}}",
     "runLabel": "Run",
     "semantic": "Semantic",
     "showAll": "Show all",
@@ -566,7 +571,11 @@
     "dataBaseLabel": "Reference date",
     "dataBaseUnknown": "unidentified",
     "noRun": "This document has no rule runs in DQX Studio yet. Associate its tables and link the rules in Rule Linking, publish the table binding in DQX Studio and run it.",
-    "noRunInMonth": "This document has no rule runs with reference date in {month}. Choose another reference month in the header, or \"Latest run\"."
+    "noRunInMonth": "This document has no rule runs with reference date in {month}. Choose another reference month in the header, or \"Latest run\".",
+    "totalRulesVerifs": "Total: {rules, plural, =1 {# rule} other {# rules}} · {n} checks",
+    "verificationsCount": "{n} checks",
+    "verificationsFailed": "{n} of {total} failed",
+    "verificationsHint": "One check per column. Results are per check; the rule fails if any check fails."
   },
   "xml": {
     "clickElement": "Click an element to see validation",

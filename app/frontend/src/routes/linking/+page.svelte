@@ -165,8 +165,32 @@
   function ruleFilterChange(key, value) { ruleFilters = { ...ruleFilters, [key]: value }; loadRules(); }
   function ruleFilterReset() { ruleFilters = {}; loadRules(); }
 
+  // Regra do Registry (tem verificações): vínculo da REGRA, uma dimensão para todas.
+  const isRuleGrain = (r) => (r?.verifications || []).length > 0;
+  const verifCols = (r) => (r?.verifications || []).flatMap(v => v.columns.length ? v.columns : [v.check_name]);
+  const legacyCols = (r) => {
+    const byName = Object.fromEntries((r?.verifications || []).map(v => [v.check_name, v.columns.join(', ') || v.check_name]));
+    return (r?.legacy_links || []).map(l => byName[l.check_name] || l.check_name);
+  };
+
   function openLink(rule) {
     editing = rule;
+    if (isRuleGrain(rule)) {
+      const cur = rule.current_link;
+      // Sem vínculo da regra, parte do vínculo antigo (se houver) para não perder a escolha.
+      const base = cur || rule.legacy_links?.[0];
+      derivedDocumento = rule.documento || '';
+      linkForm = {
+        check_name: cur?.check_name || rule.definition_name,
+        documento: cur?.documento || rule.documento || '',
+        dimensao_r18: base?.dimensao_r18 ? String(base.dimensao_r18) : '',
+        nivel_verificacao: base?.nivel_verificacao ? String(base.nivel_verificacao) : '',
+        descricao: base?.descricao || '',
+        manualCheck: false
+      };
+      linkModalOpen = true;
+      return;
+    }
     const cur = rule.current_link;
     const candidates = rule.effective_check_names || [];
     // CADOC derivado: o documento que o backend resolveu a partir da tabela.
@@ -203,7 +227,9 @@
           documento: linkForm.documento || editing.documento || null,
           dimensao_r18: Number(linkForm.dimensao_r18),
           nivel_verificacao: linkForm.nivel_verificacao ? Number(linkForm.nivel_verificacao) : null,
-          descricao: linkForm.descricao || null
+          descricao: linkForm.descricao || null,
+          // Vínculo da regra substitui os antigos, um por verificação.
+          supersede_check_names: (editing.legacy_links || []).map(l => l.check_name)
         });
       }
       linkModalOpen = false;
@@ -458,8 +484,7 @@
       </div>
     {/if}
   {:else if activeTab === 'tables'}
-    <div class="section-head between">
-      <p class="tab-intro">{$_('linking.tablesIntro')}</p>
+    <div class="section-head">
       <button class="btn-primary" onclick={openNewTable} disabled={cadocs.length === 0}>+ {$_('linking.newTable')}</button>
     </div>
 
@@ -504,13 +529,13 @@
                   {/if}
                 </td>
                 <td class="actions">
-                  <button class="btn-secondary sm" onclick={async () => { await verify(t.table_fqn); expanded = t.table_fqn; }}
-                          disabled={a?.loading}>{$_('linking.verifyAccess')}</button>
                   <button class="btn-link-danger" onclick={() => onRemoveTable(t)}>{$_('linking.remove')}</button>
                 </td>
               </tr>
               {#if expanded === t.table_fqn && a?.report}
-                <tr class="expand-row"><td colspan="5"><TableAccessCard report={a.report} /></td></tr>
+                <tr class="expand-row"><td colspan="5">
+                  <TableAccessCard report={a.report} rechecking={a.loading} onrecheck={() => verify(t.table_fqn)} />
+                </td></tr>
               {/if}
             {/each}
           </tbody>
@@ -544,16 +569,28 @@
             <!-- `key` vem do backend: regras lidas dos runs não têm rule_id e podem
                  não ter name; chave repetida derruba o render. -->
             {#each rules as r (r.key)}
-              {@const effName = r.current_link?.check_name || r.definition_name || (r.effective_check_names && r.effective_check_names[0]) || '—'}
+              {@const effName = isRuleGrain(r) ? r.definition_name : (r.current_link?.check_name || r.definition_name || (r.effective_check_names && r.effective_check_names[0]) || '—')}
               <tr>
                 <td class="mono">{r.rule_id || '—'}</td>
-                <td class="mono">{effName}</td>
+                <td>
+                  <span class="mono">{effName}</span>
+                  {#if isRuleGrain(r)}
+                    <div class="verifs" title={(r.verifications || []).map(v => v.check_name).join('\n')}>
+                      <span class="verifs-label">{$_('linking.verificationsCount', { values: { n: r.verifications.length } })}</span>
+                      {#each verifCols(r) as col}<span class="verif-chip mono">{col}</span>{/each}
+                    </div>
+                  {/if}
+                </td>
                 <td>{r.function || '—'}</td>
                 <td class="mono tbl-cell">{r.table_fqn.split('.').pop()}</td>
                 <td>{r.current_link?.documento || r.documento || '—'}</td>
                 <td>
                   {#if r.current_link}
                     <Badge label={`${r.current_link.dimensao_r18} · ${r.current_link.dimension_name}`} variant="success" />
+                  {:else if (r.legacy_links || []).length}
+                    <span title={$_('linking.legacyTitle', { values: { cols: legacyCols(r).join(', ') } })}>
+                      <Badge label={$_('linking.legacyBadge', { values: { n: r.legacy_links.length, total: r.verifications.length } })} variant="warning" />
+                    </span>
                   {:else if r.tag_dimension_r18}
                     <span title={$_('linking.statusViaTagTitle')}>
                       <Badge label={`${r.tag_dimension_r18} · ${r.tag_dimension_name} (${$_('linking.statusViaTag')})`} variant="info" />
@@ -728,6 +765,16 @@
         <span class="ctx-sep">·</span>
         <span class="mono">{editing.table_fqn}</span>
       </div>
+      {#if isRuleGrain(editing)}
+        <div class="rule-grain">
+          <strong>{editing.definition_name}</strong>
+          <p>{$_('linking.ruleGrainHint', { values: { n: editing.verifications.length } })}</p>
+          <div class="verifs">{#each verifCols(editing) as col}<span class="verif-chip mono">{col}</span>{/each}</div>
+          {#if (editing.legacy_links || []).length && !editing.current_link}
+            <p class="hint warn">{$_('linking.legacyReplace', { values: { cols: legacyCols(editing).join(', ') } })}</p>
+          {/if}
+        </div>
+      {:else}
       <label>{$_('linking.fieldCheckName')}
         {#if !linkForm.manualCheck && (editing.effective_check_names || []).length > 0}
           <select bind:value={linkForm.check_name}>
@@ -743,6 +790,7 @@
           {/if}
         {/if}
       </label>
+      {/if}
       <label>{$_('linking.fieldCadoc')}
         <select bind:value={linkForm.documento}>
           <option value="" disabled>—</option>
@@ -791,8 +839,6 @@
   .page { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
   .subtitle { color: var(--gray-600); font-size: var(--font-size-sm); max-width: 70ch; margin: 0; }
   .section-head { display: flex; justify-content: flex-end; }
-  .section-head.between { justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
-  .tab-intro { margin: 0; color: var(--gray-600); font-size: var(--font-size-sm); max-width: 75ch; line-height: 1.5; }
   .badge-btn { background: none; border: none; padding: 0; cursor: pointer; }
   .expand-row td { background: var(--gray-50); padding: var(--space-3); }
   .cadoc-table tbody tr.expand-row:hover { background: var(--gray-50); }
@@ -846,6 +892,12 @@
   .form-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
   .rule-ctx { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--gray-50); border-radius: var(--radius-sm); }
   .ctx-sep { color: var(--gray-400); }
+  .verifs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+  .verifs-label { font-size: var(--font-size-xs); color: var(--gray-500); margin-right: 2px; }
+  .verif-chip { font-size: 0.75em; padding: 1px 6px; border-radius: var(--radius-full); background: var(--gray-100); color: var(--gray-700); }
+  .rule-grain { display: flex; flex-direction: column; gap: 4px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+  .rule-grain p { margin: 0; font-size: var(--font-size-xs); color: var(--gray-600); }
+  .rule-grain .hint.warn { color: var(--orange-900); }
 
   .btn-primary { background: var(--primary); color: white; border: none; border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); font-weight: 600; font-size: var(--font-size-sm); cursor: pointer; }
   .btn-primary.sm { padding: var(--space-1) var(--space-3); }

@@ -109,7 +109,10 @@
       // Tabela-alvo do check (só o nome, sem catálogo.schema). O rule_id/critica_id
       // continua visível no painel expandido da linha.
       render: (v) => v ? String(v).split('.').pop() : '—' },
-    { key: 'rule_name', label: $_('validations.description'), sortable: true },
+    { key: 'rule_name', label: $_('validations.description'), sortable: true,
+      render: (v, row) => row?._group
+        ? `<span class="group-caret">${openGroupKey === row._key ? '▾' : '▸'}</span> ${esc(v)} <span class="verif-count">${esc($_('validations.verificationsCount', { values: { n: row._children.length } }))}</span>`
+        : esc(v ?? '-') },
     { key: 'nivel_verificacao', label: $_('validations.level'), sortable: true, width: '80px', render: (v) => `<span class="nivel-badge nivel-${v}">N${v}</span>` },
     { key: 'dimension_name', label: $_('validations.dimensionR18'), sortable: true, width: '120px' },
     { key: 'severity', label: $_('validations.blocking'), sortable: true, width: '100px',
@@ -138,6 +141,10 @@
     // A leitura "tudo OK" vem do badge ✓ Aprovado da coluna Status, não daqui.
     { key: 'affected_records', label: $_('validations.inconsistenciesTotal'), sortable: true, width: '160px',
       render: (v, row) => {
+        if (row?._group) {
+          const cls = row._failed > 0 ? 'inc-strong' : 'inc-muted';
+          return `<span class="${cls}">${esc($_('validations.verificationsFailed', { values: { n: row._failed, total: row._children.length } }))}</span>`;
+        }
         const total = row?.total_records ?? 0;
         const affected = v ?? 0;
         const cls = affected > 0 ? 'inc-strong' : 'inc-muted';
@@ -157,9 +164,50 @@
     return data;
   });
 
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const isFail = (st) => st === 'fail' || st === 'warning' || st === 'warn';
+
+  // Uma linha por REGRA: as verificações (uma por coluna) da mesma regra do
+  // Registry viram uma linha que expande. Resultado é por verificação — a
+  // regra mostra o pior status e quantas reprovaram (somar inconsistências
+  // contaria duas vezes a linha que falha em duas colunas).
+  function groupByRule(rows) {
+    const out = [];
+    const byKey = new Map();
+    for (const r of rows) {
+      if (!r.rule_group_id) { out.push(r); continue; }
+      const k = `${r.table_fqn}|${r.rule_group_id}`;
+      if (!byKey.has(k)) { byKey.set(k, []); out.push(k); }
+      byKey.get(k).push(r);
+    }
+    return out.map((item) => {
+      if (typeof item !== 'string') return item;
+      const kids = byKey.get(item);
+      if (kids.length === 1) return kids[0];
+      const failed = kids.filter((c) => isFail(c.status)).length;
+      const first = kids[0];
+      return {
+        _group: true, _key: item, _children: kids, _failed: failed,
+        rule_id: first.rule_group_id, table_fqn: first.table_fqn,
+        rule_name: first.rule_group_name || first.rule_name,
+        nivel_verificacao: first.nivel_verificacao, dimension_r18: first.dimension_r18,
+        dimension_name: first.dimension_name,
+        severity: kids.some((c) => c.severity === 'error') ? 'error' : first.severity,
+        status: failed > 0 ? 'fail' : 'pass',
+        affected_records: kids.reduce((a, c) => a + (c.affected_records || 0), 0),  // só para ordenar
+        total_records: first.total_records
+      };
+    });
+  }
+  let displayRows = $derived(groupByRule(filteredResults));
+  let expandedChild = $state(null); // check_name da verificação aberta dentro da regra
+  // Regra aberta, pela chave: o índice do DataTable muda quando a tabela é ordenada.
+  let openGroupKey = $state(null);
+
   let nivelCounts = $derived.by(() => {
     const counts = { 1: { total: 0, fail: 0, pass: 0, warn: 0 }, 2: { total: 0, fail: 0, pass: 0, warn: 0 }, 3: { total: 0, fail: 0, pass: 0, warn: 0 } };
-    for (const r of results) {
+    // Conta REGRAS (a verificação agrupada conta uma vez, com o pior status).
+    for (const r of groupByRule(results)) {
       const nv = r.nivel_verificacao || 1;
       if (counts[nv]) {
         counts[nv].total++;
@@ -334,13 +382,15 @@
   $effect(() => {
     if (!pendingCheck && !pendingRule) return;
     if (!filteredResults.length) return;
-    const i = filteredResults.findIndex((r) =>
-      (pendingCheck && r.check_name === pendingCheck) || (pendingRule && r.rule_id === pendingRule)
-    );
+    const hit = (r) => (pendingCheck && r.check_name === pendingCheck) || (pendingRule && r.rule_id === pendingRule);
+    const i = displayRows.findIndex((r) => r._group ? (hit(r) || r._children.some(hit)) : hit(r));
+    const child = i >= 0 && displayRows[i]._group ? displayRows[i]._children.find(hit) : null;
     pendingCheck = null;
     pendingRule = null;
     if (i < 0) return;
     expandedRow = i;
+    openGroupKey = displayRows[i]._group ? displayRows[i]._key : null;
+    expandedChild = child?.check_name || null;
     requestAnimationFrame(() =>
       document.querySelector('.expand-detail')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     );
@@ -387,7 +437,11 @@
       {/if}
     </div>
     <div class="run-stats">
-      {$_('validations.totalRules', { values: { n: runSummary.total_rules } })}
+      {#if runSummary.total_rule_groups && runSummary.total_rule_groups < runSummary.total_rules}
+        {$_('validations.totalRulesVerifs', { values: { rules: runSummary.total_rule_groups, n: runSummary.total_rules } })}
+      {:else}
+        {$_('validations.totalRules', { values: { n: runSummary.total_rules } })}
+      {/if}
       <span class="run-sep">|</span>
       <span class="stat-pass">✓ {$_('validations.passedCount', { values: { n: runSummary.passed } })}</span>
       <span class="run-sep">|</span>
@@ -458,12 +512,45 @@
   <div class="card">
     <DataTable
       {columns}
-      data={filteredResults}
+      data={displayRows}
       {expandedRow}
-      onRowClick={(row, i) => expandedRow = expandedRow === i ? null : i}
+      onRowClick={(row, i) => {
+        expandedRow = expandedRow === i ? null : i;
+        openGroupKey = expandedRow !== null && row._group ? row._key : null;
+        expandedChild = null;
+      }}
       emptyMessage={$_('validations.noResults')}
     >
       {#snippet expandSnippet(row)}
+        {#if row._group}
+          <div class="verif-list">
+            <p class="verif-hint">{$_('validations.verificationsHint')}</p>
+            {#each row._children as c (c.check_name)}
+              <button type="button" class="verif-row" class:open={expandedChild === c.check_name}
+                      onclick={(e) => { e.stopPropagation(); expandedChild = expandedChild === c.check_name ? null : c.check_name; }}>
+                <span class="group-caret">{expandedChild === c.check_name ? '▾' : '▸'}</span>
+                <span class="verif-col mono">{(c.verification_columns || []).join(', ') || c.check_name}</span>
+                {#if isFail(c.status)}
+                  <span class="status-badge status-fail">✗ {$_('validations.failed')}</span>
+                {:else}
+                  <span class="status-badge status-pass">✓ {$_('validations.passed')}</span>
+                {/if}
+                <span class="verif-inc">
+                  <span class={c.affected_records > 0 ? 'inc-strong' : 'inc-muted'}>{(c.affected_records ?? 0).toLocaleString('pt-BR')}</span>
+                  <span class="run-sep-inline">/</span> <span class="run-total">{(c.total_records ?? 0).toLocaleString('pt-BR')}</span>
+                </span>
+              </button>
+              {#if expandedChild === c.check_name}
+                {@render verificationDetail(c)}
+              {/if}
+            {/each}
+          </div>
+        {:else}
+          {@render verificationDetail(row)}
+        {/if}
+      {/snippet}
+    </DataTable>
+    {#snippet verificationDetail(row)}
         <div class="expand-detail">
           <div class="expand-header">
             <div class="expand-title">
@@ -514,8 +601,7 @@
             {$_('validations.dimensionR18')}: {row.dimension_r18} ({row.dimension_name}) | {$_('validations.affectedRecords')}: {row.affected_records?.toLocaleString('pt-BR')}
           </p>
         </div>
-      {/snippet}
-    </DataTable>
+    {/snippet}
     <Pagination page={currentPage} {totalPages} onchange={(p) => currentPage = p} />
   </div>
   {/if}
@@ -535,6 +621,14 @@
 {/if}
 
 <style>
+  :global(.group-caret) { display: inline-block; width: 1em; color: var(--gray-500); }
+  :global(.verif-count) { margin-left: var(--space-2); font-size: var(--font-size-xs); color: var(--gray-500); background: var(--gray-100); padding: 1px 8px; border-radius: var(--radius-full); white-space: nowrap; }
+  .verif-list { display: flex; flex-direction: column; padding: var(--space-2) var(--space-4); }
+  .verif-hint { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); color: var(--gray-500); }
+  .verif-row { display: grid; grid-template-columns: 1em 1fr 140px 160px; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: none; border: none; border-bottom: 1px solid var(--gray-100); text-align: left; cursor: pointer; font-size: var(--font-size-sm); }
+  .verif-row:hover, .verif-row.open { background: var(--blue-50); }
+  .verif-col { color: var(--gray-700); }
+  .mono { font-family: var(--font-mono); font-size: 0.9em; }
   .validations-page { display: flex; flex-direction: column; gap: var(--space-4); }
   .run-summary {
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);

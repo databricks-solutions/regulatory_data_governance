@@ -241,7 +241,7 @@
     "statusViaTag": "via tag",
     "statusViaTagTitle": "Dimensione derivata dal tag del check (user_metadata) — nessun collegamento esplicito. Crea un collegamento per sovrascrivere.",
     "ruleColId": "ID regola",
-    "ruleColCheck": "Check",
+    "ruleColCheck": "Regola",
     "ruleColFunction": "Funzione",
     "ruleColTable": "Tabella",
     "ruleColDocument": "Documento",
@@ -290,7 +290,6 @@
     "fieldGroup": "Gruppo",
     "fieldGroupHint": "Es.: SCR, COSIF, Prudenziale",
     "tabTables": "Tabelle dei CADOC",
-    "tablesIntro": "Ogni CADOC deve sapere su quali tabelle girano le sue regole. Possono stare in questo catalogo o in un altro — ad esempio, un CADOC già elaborato in un altro catalogo e validato in DQX Studio. Per le tabelle di un altro catalogo, l'app verifica l'accesso e mostra cosa manca, ma non blocca la registrazione.",
     "newTable": "Associa tabella",
     "newTableTitle": "Associa una tabella a un CADOC",
     "fieldTableFqn": "Tabella (catalogo.schema.tabella)",
@@ -344,7 +343,8 @@
           "title": "Esecuzioni in DQX Studio",
           "how": "Nessuna esecuzione pubblicata di questa tabella in {runs_table}. In DQX Studio, pubblica il binding della tabella ed eseguila; verifica anche che il nome digitato sia identico a quello di Studio."
         }
-      }
+      },
+      "recheck": "Verifica di nuovo"
     },
     "modeBrowse": "Sfoglia il catalogo",
     "modeManual": "Scrivi il nome",
@@ -355,7 +355,12 @@
     "browseNoAccess": "Manca USE CATALOG/USE SCHEMA per l'app. Usa \"Scrivi il nome\" per vedere i GRANT necessari.",
     "browseNoTables": "Nessuna tabella visibile all'app in questo schema.",
     "alreadyHere": "Già in questo CADOC",
-    "picked": "Selezionata:"
+    "picked": "Selezionata:",
+    "verificationsCount": "{n} verifiche:",
+    "legacyBadge": "{n} di {total} verifiche con vincolo precedente",
+    "legacyTitle": "Vincolo fatto per verifica, prima del vincolo per regola ({cols}). Vale ancora per quelle verifiche; vincola la regola per unificare.",
+    "ruleGrainHint": "Il vincolo vale per l'intera regola: le {n} verifiche (una per colonna) restano nella stessa dimensione. Perché una colonna abbia un'altra dimensione, separala in un'altra regola in DQX Studio.",
+    "legacyReplace": "I vincoli precedenti per verifica ({cols}) saranno sostituiti da questo."
   },
   "nav": {
     "complianceR18": "Conformità R.18",
@@ -553,7 +558,7 @@
     "passedShort": "{n} sup.",
     "rule": "Regola",
     "targetTable": "Tabella",
-    "rulesCount": "{n} regole",
+    "rulesCount": "{n, plural, =1 {# regola} other {# regole}}",
     "runLabel": "Run",
     "semantic": "Semantica",
     "showAll": "Mostra tutti",
@@ -566,7 +571,11 @@
     "dataBaseLabel": "Data di riferimento",
     "dataBaseUnknown": "non identificata",
     "noRun": "Questo documento non ha ancora esecuzioni di regole in DQX Studio. Associa le sue tabelle e collega le regole in Collegamento Regole, pubblica il collegamento della tabella in DQX Studio ed eseguilo.",
-    "noRunInMonth": "Questo documento non ha esecuzioni di regole con data di riferimento in {month}. Scegli un altro mese di riferimento nell'intestazione, oppure \"Ultima elaborazione\"."
+    "noRunInMonth": "Questo documento non ha esecuzioni di regole con data di riferimento in {month}. Scegli un altro mese di riferimento nell'intestazione, oppure \"Ultima elaborazione\".",
+    "totalRulesVerifs": "Totale: {rules, plural, =1 {# regola} other {# regole}} · {n} verifiche",
+    "verificationsCount": "{n} verifiche",
+    "verificationsFailed": "{n} di {total} non superate",
+    "verificationsHint": "Una verifica per colonna. Il risultato è di ciascuna; la regola non è superata se una qualsiasi verifica fallisce."
   },
   "xml": {
     "clickElement": "Fai clic su un elemento per vedere la validazione",
