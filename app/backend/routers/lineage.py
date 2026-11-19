@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from fastapi import APIRouter, Query
 
 import external_lineage_store as store
-from db import CATALOG, LINEAGE_OBJECT_PREFIX, USE_MOCK
+from db import CATALOG, DQX_CATALOG, DQX_SCHEMA, LINEAGE_OBJECT_PREFIX, USE_MOCK
 from models import (
     ColumnLineageResponse,
     ColumnMapping,
@@ -219,6 +220,9 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
     if isinstance(anchor_tables, Exception):
         logger.warning("CADOC anchors unavailable: %s", anchor_tables)
         anchor_tables = []
+    # Node ids in lower case, like the FQNs the lineage APIs return — otherwise a
+    # vínculo typed in mixed case would split into two nodes.
+    anchor_tables = list(dict.fromkeys(fqn.lower() for fqn in anchor_tables))
     for fqn in anchor_tables:
         _ensure_uc_node(fqn)
 
@@ -226,10 +230,12 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
     # call per anchor returns both directions; all anchors in parallel.
     neighbors = await asyncio.gather(*(_rest_table_lineage(w, fqn) for fqn in anchor_tables))
     seen_uc_edges: set[tuple[str, str]] = set()
+    sides: dict[str, set[str]] = {}
     for fqn, (upstreams, downstreams) in zip(anchor_tables, neighbors):
         for direction, found in (("upstream", upstreams), ("downstream", downstreams)):
             for neighbor in found:
-                if not _is_relevant_uc_table(neighbor, catalog):
+                neighbor = neighbor.lower()
+                if not _is_relevant_uc_table(neighbor, catalog, anchor=fqn):
                     continue
                 if neighbor == fqn:
                     continue  # REST API can list a table as its own neighbor
@@ -237,11 +243,34 @@ async def _fetch_real_lineage(catalog: str) -> LineageGraphResponse:
                 if (src, tgt) in seen_uc_edges:
                     continue
                 seen_uc_edges.add((src, tgt))
+                sides.setdefault(neighbor, set()).add(direction)
                 _ensure_uc_node(src)
                 _ensure_uc_node(tgt)
                 edges.append(LineageEdge(source=src, target=tgt, type="uc_automatic", label="pipeline"))
 
+    _infer_foreign_layers(nodes, anchor_tables, sides, catalog)
     return LineageGraphResponse(nodes=list(nodes.values()), edges=edges)
+
+
+def _infer_foreign_layers(nodes: dict, anchors: list[str], sides: dict[str, set[str]],
+                          catalog: str) -> None:
+    """Layer of an outside-catalog table whose schema names no layer.
+
+    The customer's schemas don't follow bronze/silver/gold, and `unknown` piles
+    every such node into one column. Use the position instead: the anchor is
+    where the rules run (silver), its upstream bronze, its downstream gold.
+    """
+    anchor_set = set(anchors)
+    for fqn, node in nodes.items():
+        if node.type != "table" or node.layer != "unknown" or fqn.split(".")[0] == catalog.lower():
+            continue
+        found = sides.get(fqn, set())
+        if fqn in anchor_set or len(found) > 1:
+            node.layer = "silver"
+        elif found == {"upstream"}:
+            node.layer = "bronze"
+        elif found == {"downstream"}:
+            node.layer = "gold"
 
 
 # ---------------------------------------------------------------------------
@@ -373,16 +402,46 @@ def _add_byol(byol, nodes: dict, edges: list) -> None:
 _NOISE_SCHEMA_MARKERS = ("dqx_studio", "_tmp", "information_schema")
 
 
-def _is_relevant_uc_table(fqn: str | None, catalog: str) -> bool:
-    """Keep only real RC18-catalog medallion tables; drop DQX temp/quarantine
-    and cross-catalog neighbors."""
+def _is_relevant_uc_table(fqn: str | None, catalog: str, anchor: str | None = None) -> bool:
+    """Drop DQX temp/quarantine neighbors and, for an anchor in the RC18 catalog,
+    neighbors outside it. An anchor in ANOTHER catalog (a CADOC linked under
+    "Tabelas dos CADOCs") keeps neighbors from any catalog: the customer's
+    medallion rarely lives in one, and that is the lineage UC shows."""
     if not fqn or "." not in fqn:
         return False
-    parts = fqn.split(".")
-    if len(parts) < 3 or parts[0] != catalog:
+    parts = fqn.lower().split(".")
+    if len(parts) < 3:
         return False
-    schema = parts[1].lower()
-    return not any(marker in schema for marker in _NOISE_SCHEMA_MARKERS)
+    if any(marker in parts[1] for marker in _NOISE_SCHEMA_MARKERS):
+        return False
+    own = catalog.lower()
+    if anchor is None or anchor.lower().split(".")[0] == own:
+        return parts[0] == own
+    # Any catalog is open here, so also drop the DQX Studio's own tables.
+    return (parts[0], parts[1]) != (DQX_CATALOG.lower(), DQX_SCHEMA.lower())
+
+
+_IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+async def _existing_in_catalog(cat: str, fqns: list[str], execute_query) -> set[str] | None:
+    """Which of `fqns` exist in `cat`'s information_schema (lower-cased).
+    None = couldn't verify (invalid name, no USE CATALOG, query error)."""
+    if not _IDENT_RE.fullmatch(cat):
+        return None
+    names = sorted({f.lower().split(".", 1)[1] for f in fqns})
+    keys = [f"t{i}" for i in range(len(names))]
+    try:
+        rows = await execute_query(
+            "SELECT lower(table_catalog || '.' || table_schema || '.' || table_name) AS fqn "
+            f"FROM `{cat}`.information_schema.tables "
+            f"WHERE lower(table_schema || '.' || table_name) IN ({', '.join(':' + k for k in keys)})",
+            dict(zip(keys, names)),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("%s.information_schema unreadable, keeping its declared anchors: %s", cat, e)
+        return None
+    return {r["fqn"] for r in rows if r.get("fqn")}
 
 
 async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
@@ -390,55 +449,52 @@ async def _cadoc_anchor_tables(catalog: str, execute_query) -> list[str]:
 
     `cadoc_tabelas` is seeded with all 12 vínculos, so a declared-but-missing
     table means that document's pipeline never ran here — and its node was
-    indistinguishable from a materialized one. `information_schema.tables` is
-    already privilege-filtered.
+    indistinguishable from a materialized one. Existence is checked in the
+    `information_schema` of EACH table's own catalog (vínculos may point
+    outside the RC18 catalog), which is already privilege-filtered.
 
-    Empty → empty-state. If the filter would wipe a non-empty declared list we
-    keep the declared one: likelier a privilege/metadata issue than every table
-    being gone, and a blank graph is the worse failure.
+    Empty → empty-state. Per catalog, if the check fails or would wipe all its
+    declared tables we keep them: likelier a privilege/metadata issue than every
+    table being gone, and a missing node is the worse failure.
     """
-    # Both queries in parallel — the second doesn't depend on the first's rows.
-    declared_rows, existing_rows = await asyncio.gather(
-        execute_query(
+    try:
+        declared_rows = await execute_query(
             f"SELECT DISTINCT table_fqn FROM {catalog}.governance.cadoc_tabelas "
             "WHERE is_ativo AND table_fqn IS NOT NULL",
             {},
-        ),
-        execute_query(
-            "SELECT lower(table_catalog || '.' || table_schema || '.' || table_name) AS fqn "
-            f"FROM {catalog}.information_schema.tables",
-            {},
-        ),
-        return_exceptions=True,
-    )
-    if isinstance(declared_rows, Exception):
-        logger.warning("Could not read cadoc_tabelas anchors: %s", declared_rows)
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not read cadoc_tabelas anchors: %s", e)
         return []
 
-    declared = [r["table_fqn"] for r in declared_rows if r.get("table_fqn")]
+    declared = [r["table_fqn"] for r in declared_rows if r.get("table_fqn") and r["table_fqn"].count(".") == 2]
     if not declared:
         return []
 
-    if isinstance(existing_rows, Exception):
-        logger.warning("information_schema unreadable, keeping declared anchors: %s", existing_rows)
-        return declared
+    by_catalog: dict[str, list[str]] = {}
+    for fqn in declared:
+        by_catalog.setdefault(fqn.split(".")[0].lower(), []).append(fqn)
+    cats = list(by_catalog)
+    found = await asyncio.gather(*(_existing_in_catalog(c, by_catalog[c], execute_query) for c in cats))
 
-    existing = {r["fqn"] for r in existing_rows if r.get("fqn")}
-    anchors = [fqn for fqn in declared if fqn.lower() in existing]
-    if not anchors:
-        logger.warning(
-            "None of the %d declared CADOC tables found in %s.information_schema — "
-            "keeping the declared list (probable privilege/metadata issue).",
-            len(declared), catalog,
-        )
-        return declared
-
-    if len(anchors) < len(declared):
-        logger.info(
-            "Lineage: %d of %d declared CADOC table(s) not materialized yet — hidden.",
-            len(declared) - len(anchors), len(declared),
-        )
-    return anchors
+    kept: set[str] = set()
+    for cat, existing in zip(cats, found):
+        group = by_catalog[cat]
+        present = [f for f in group if existing is not None and f.lower() in existing]
+        if existing is not None and not present:
+            logger.warning(
+                "None of the %d declared CADOC tables found in %s.information_schema — "
+                "keeping them (probable privilege/metadata issue).", len(group), cat,
+            )
+        if not present:
+            present = group
+        elif len(present) < len(group):
+            logger.info(
+                "Lineage: %d of %d declared CADOC table(s) in %s not materialized yet — hidden.",
+                len(group) - len(present), len(group), cat,
+            )
+        kept.update(present)
+    return [f for f in declared if f in kept]
 
 
 async def _rest_table_lineage(w, table_fqn: str) -> tuple[list[str], list[str]]:
