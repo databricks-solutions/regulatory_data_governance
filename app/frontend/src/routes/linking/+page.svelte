@@ -281,11 +281,10 @@
 
   async function verify(fqn) {
     access = { ...access, [fqn]: { loading: true, report: access[fqn]?.report || null } };
-    try {
-      access = { ...access, [fqn]: { loading: false, report: await getTableAccess(fqn) } };
-    } catch {
-      access = { ...access, [fqn]: { loading: false, report: null } };
-    }
+    // Espalhar `access` só DEPOIS do await: espalhado antes, a verificação que
+    // termina por último regrava as outras tabelas como "Verificando…".
+    const report = await getTableAccess(fqn).catch(() => null);
+    access = { ...access, [fqn]: { loading: false, report } };
   }
 
   async function loadTables() {
