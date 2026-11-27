@@ -14,10 +14,26 @@
   let innerW = $derived(width - padding.left - padding.right);
   let innerH = $derived(height - padding.top - padding.bottom);
 
-  let yMin = $derived(data.length ? Math.min(...data.map(d => d[yKey]), targetValue ?? Infinity) * 0.95 : 0);
-  let yMax = $derived(data.length ? Math.max(...data.map(d => d[yKey]), targetValue ?? -Infinity) * 1.05 : 100);
+  // Escala de percentual: teto em 100% (nada de "104,9%") e ticks redondos.
+  // 5 ticks em passos de 1/2/5/10/20/25 p.p., do teto até abaixo do menor valor/meta.
+  let scale = $derived.by(() => {
+    const values = data.map(d => d[yKey]).filter(v => Number.isFinite(v));
+    if (!values.length) return { min: 0, max: 100, step: 25 };
+    const top = Math.min(100, Math.max(...values, targetValue ?? -Infinity));
+    const low = Math.min(...values, targetValue ?? Infinity);
+    const span = Math.max(top - low, 1);
+    // 3 passos cobrem a amplitude ⇒ o 4º absorve o arredondamento do teto.
+    const step = [1, 2, 5, 10, 20, 25].find(s => s * 3 >= span) ?? 25;
+    const max = Math.min(100, Math.ceil(top / step) * step);
+    return { min: Math.max(0, max - step * 4), max, step };
+  });
+  let yMin = $derived(scale.min);
+  let yMax = $derived(scale.max);
 
-  function scaleX(i) { return padding.left + (i / Math.max(data.length - 1, 1)) * innerW; }
+  function scaleX(i) {
+    if (data.length === 1) return padding.left + innerW / 2;
+    return padding.left + (i / (data.length - 1)) * innerW;
+  }
   function scaleY(v) {
     const range = yMax - yMin;
     if (range === 0) return padding.top + innerH / 2;
@@ -33,9 +49,13 @@
   );
 
   let yTicks = $derived.by(() => {
-    const step = (yMax - yMin) / 4;
-    return Array.from({ length: 5 }, (_, i) => yMin + step * i);
+    const ticks = [];
+    for (let v = yMin; v <= yMax + 1e-9; v += scale.step) ticks.push(v);
+    return ticks;
   });
+
+  // Mesmas 2 casas do card do Índice: 99,92 não pode aparecer como 100.
+  function formatValue(v) { return `${Number(v).toFixed(2)}%`; }
 
   function formatMonth(m) {
     const months = $_('header.months').split(',');
@@ -66,7 +86,7 @@
     {#each yTicks as tick}
       <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="var(--gray-200)" stroke-width="0.75" />
       <text x={padding.left - 8} y={scaleY(tick)} text-anchor="end" dominant-baseline="middle" class="axis-label">
-        {tick.toFixed(1)}%
+        {Number.isInteger(tick) ? tick : tick.toFixed(1)}%
       </text>
     {/each}
 
@@ -127,7 +147,12 @@
       stroke-width={compact ? 1.5 : 2.5}
     />
     {#if !compact}
-      <circle cx={scaleX(i)} cy={scaleY(d[yKey])} r="12" fill="transparent" class="hover-target" />
+      <text x={scaleX(i)} y={scaleY(d[yKey]) - 12} text-anchor="middle" class="value-label">
+        {formatValue(d[yKey])}
+      </text>
+      <circle cx={scaleX(i)} cy={scaleY(d[yKey])} r="12" fill="transparent" class="hover-target">
+        <title>{formatMonth(d[xKey])}: {formatValue(d[yKey])}</title>
+      </circle>
     {/if}
   {/each}
 </svg>
@@ -144,6 +169,12 @@
     fill: var(--gray-500);
     font-family: var(--font-primary);
     font-weight: 500;
+  }
+  .value-label {
+    font-size: 10px;
+    fill: var(--gray-700);
+    font-family: var(--font-primary);
+    font-weight: 600;
   }
   .target-label {
     font-size: 9px;

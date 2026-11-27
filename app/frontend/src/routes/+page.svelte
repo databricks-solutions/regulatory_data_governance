@@ -40,9 +40,8 @@
     const [k, d, t] = await Promise.allSettled([
       getDashboardKpis(appState.dataBase),
       getQualityDimensions(appState.dataBase),
-      // /quality/trend agrega scores de TODAS as runs DQX por mês — fonte
-      // direta da Tendência de Conformidade. Antes derivávamos do trend
-      // embutido em dimensions[i].trend, que nunca foi populado.
+      // /quality/trend: Índice R.18 por mês de data-base, mesma fórmula do
+      // card do índice — o ponto do mês selecionado é o próprio índice.
       getQualityTrend(appState.dataBase)
     ]);
     if (seq !== loadSeq) return;
