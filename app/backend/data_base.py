@@ -202,21 +202,28 @@ async def select_runs(scope_pred: str, scope_params: dict, month: str | None) ->
     documento aparece como "sem execução no mês"). Run de data-base não
     identificada só entra no "último processamento".
     """
+    return (await select_runs_by_month(scope_pred, scope_params, [month]))[month]
+
+
+async def select_runs_by_month(
+    scope_pred: str, scope_params: dict, months: list[str | None]
+) -> dict[str | None, RunSelection]:
+    """`select_runs` para vários meses de uma vez (runs e histórico lidos uma vez só)."""
     by_table = await _published_runs(scope_pred, scope_params)
     ledger = await load_ledger(sorted(by_table))
     periodicidade = await periodicidade_of_table()
-    chosen: list[dict] = []
-    tables: dict[str, TableDataBase] = {}
+    out = {m: RunSelection(runs=[], tables={}, ever=set(by_table)) for m in months}
     for table_fqn, runs in by_table.items():
         rows = ledger.get(table_fqn, [])
         per = periodicidade(table_fqn)
-        for run in runs:
-            info = _table_data_base(run, rows, per)
-            if month is None or (info.data_base or "")[:7] == month:
-                chosen.append(run)
-                tables[table_fqn] = info
-                break
-    return RunSelection(runs=chosen, tables=tables, ever=set(by_table))
+        infos = [(run, _table_data_base(run, rows, per)) for run in runs]
+        for month, selection in out.items():
+            for run, info in infos:
+                if month is None or (info.data_base or "")[:7] == month:
+                    selection.runs.append(run)
+                    selection.tables[table_fqn] = info
+                    break
+    return out
 
 
 async def available_months(scope_pred: str, scope_params: dict) -> list[str]:

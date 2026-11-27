@@ -26,7 +26,8 @@ from models import (
     Violation,
 )
 from rc18_rule_meta import meta_for, resolve_meta
-from data_base import reference_month, select_runs
+from compliance import aggregate, compliance_index, load_check_metrics, load_rule_index
+from data_base import available_months, reference_month, select_runs, select_runs_by_month
 from dqx_rules import PUBLISHED_RUN_FILTER, RuleIndex, build_index, load_executed_rules
 from rc18_links import load_cadoc_tables, load_vinculos, scope_table_clause
 
@@ -581,23 +582,35 @@ async def get_quality_trend(
         overall = round(sum(measured) / len(measured), 1) if measured else 0.0
         return {"data_base": data_base or "", "trend": _mock_trend(overall) if measured else []}
 
-    # Trend baseado em dq_metrics: para cada YYYY-MM, agrupa o score overall
-    # de TODAS as runs do mes (não apenas latest). Limita ao último ano.
-    rows = await execute_query(
-        "WITH per_run AS ("
-        "  SELECT m.run_id,"
-        "         SUBSTRING(date_format(MIN(m.run_time), 'yyyy-MM-dd'), 1, 7) AS month,"
-        "         MAX(CASE WHEN metric_name = 'input_row_count'  THEN CAST(metric_value AS BIGINT) END) AS total_rows,"
-        "         MAX(CASE WHEN metric_name = 'error_row_count'  THEN CAST(metric_value AS BIGINT) END) AS error_rows,"
-        "         MAX(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warn_rows"
-        f"  FROM {DQX_METRICS_TABLE} m"
-        "  WHERE metric_name IN ('input_row_count','error_row_count','warning_row_count')"
-        "  GROUP BY m.run_id"
-        ") SELECT month, "
-        "    ROUND(100.0 * (SUM(total_rows) - SUM(COALESCE(error_rows,0)) - SUM(COALESCE(warn_rows,0))) / NULLIF(SUM(total_rows), 0), 1) AS score "
-        "FROM per_run WHERE month IS NOT NULL "
-        "GROUP BY month ORDER BY month",
-        {},
-        cache_ns="dqx",
+    # Um ponto por mês de DATA-BASE, com a mesma seleção de runs e a mesma
+    # fórmula do Índice R.18 (compliance.py): o ponto do mês selecionado É o
+    # índice. Antes somava linhas de TODOS os runs do mês de execução, sem
+    # escopo de catálogo nem filtro de run publicado — e divergia do índice.
+    scope_pred, scope_params = await scope_table_clause("source_table_fqn")
+    ref = reference_month(data_base)
+    avail = await available_months(scope_pred, scope_params)
+    window = [m for m in avail if ref is None or m <= ref][:months]
+    # Em "Último processamento" o índice usa o último run de cada tabela, de
+    # qualquer data-base: o ponto mais recente da série passa a ser ele.
+    selections = await select_runs_by_month(
+        scope_pred, scope_params, [*window, *([None] if ref is None else [])]
     )
-    return {"data_base": data_base or "", "trend": [{"month": r["month"], "score": float(r["score"] or 0)} for r in rows]}
+    rule_um = await load_rule_index()
+    all_runs = [r for sel in selections.values() for r in sel.runs]
+    metrics_by_run = await load_check_metrics(list({r["run_id"]: r for r in all_runs}.values()))
+
+    points: dict[str, float] = {}
+    for month in window:
+        score = compliance_index(aggregate(selections[month].runs, metrics_by_run, rule_um))
+        if score is not None:
+            points[month] = score
+    if ref is None and selections[None].runs:
+        latest = selections[None]
+        score = compliance_index(aggregate(latest.runs, metrics_by_run, rule_um))
+        label = max(
+            (info.data_base or "")[:7] for info in latest.tables.values()
+        ) or max(str(r.get("created_at") or "")[:7] for r in latest.runs)
+        if score is not None and label:
+            points[label] = score
+    trend = [{"month": m, "score": points[m]} for m in sorted(points)][-months:]
+    return {"data_base": data_base or "", "trend": trend}

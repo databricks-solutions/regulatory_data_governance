@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from datetime import datetime, timezone, date
 
 from fastapi import APIRouter, Depends, Query
 
 import cache
-from db import CATALOG, DQX_METRICS_TABLE, USE_MOCK, genie_space_id
+from db import CATALOG, USE_MOCK, genie_space_id
 from i18n import get_locale
 # Tolerant variant aliased as `execute_query` so handlers degrade to empty
 # results when gold/silver tables haven't been populated yet (pipelines not run).
 from db import execute_query_or_empty as execute_query
-from rc18_rule_meta import meta_for
-from dqx_rules import build_index, load_executed_rules
+from compliance import (
+    R18_DIMENSIONS,
+    ComplianceAgg,
+    aggregate,
+    compliance_index,
+    dimension_score,
+    load_check_metrics,
+    load_rule_index,
+)
 from data_base import available_months, reference_month, select_runs
 from rc18_links import scope_table_clause
 from models import (
@@ -196,88 +202,36 @@ async def _build_kpis_from_dqx_studio(data_base: str) -> DashboardKPIs:
         # Data-base que o último run avaliou, no fim do período do documento dele.
         last_data_base = selection.tables[last_table].data_base or ""
 
-    # 2. check_metrics + active rules → por-dimensão agg + pending counts.
-    by_dim: dict[int, dict] = {}
-    pending = {"3040": 0, "3050": 0}
+    # 2. check_metrics + regras em vigor → agregado por dimensão + pendências.
+    # Mesma agregação da Tendência (compliance.py): o ponto do mês é este índice.
+    agg = ComplianceAgg()
     if runs:
-        quoted = ",".join(f"'{r['run_id']}'" for r in runs)
-        metrics_rows = await execute_query(
-            "SELECT run_id, metric_value AS check_metrics_json "
-            f"FROM {DQX_METRICS_TABLE} "
-            f"WHERE metric_name = 'check_metrics' AND run_id IN ({quoted})",
-            {},
-            cache_ns="dqx",
-        )
-        metrics_by_run = {m["run_id"]: m for m in metrics_rows}
-
-        # `user_metadata` das regras em vigor (fonte da tag dimensao_r18), dos
-        # próprios runs. Escopado ao catálogo e indexado por (tabela, check).
-        rule_um = build_index(await load_executed_rules())
-
-        for r in runs:
-            total = int(r.get("total_rows") or 0)
-            table_fqn = r.get("source_table_fqn") or ""
-            doc = "3040" if "scr3040" in table_fqn.lower() else "3050" if "scr3050" in table_fqn.lower() else ""
-            cm = metrics_by_run.get(r["run_id"])
-            if not cm:
-                continue
-            try:
-                check_metrics = json.loads(cm["check_metrics_json"])
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if not isinstance(check_metrics, list):
-                continue
-            for cmrow in check_metrics:
-                check_name = cmrow.get("check_name")
-                if not check_name:
-                    continue
-                # Filtra check_metrics de regras fora da versão em vigor —
-                # mesma semântica do /validations/*/results
-                # (validation.py:_fetch_studio_results). Sem isso, o dashboard
-                # contava regras já removidas e divergia das Críticas SCR.
-                um = rule_um.get(table_fqn, check_name)
-                if um is None:
-                    continue
-                meta = meta_for(check_name, table_fqn=table_fqn, user_metadata=um)
-                err = int(cmrow.get("error_count") or 0)
-                warn = int(cmrow.get("warning_count") or 0)
-                affected = err + warn
-                dim_id = meta["dimension_r18"]
-                bucket = by_dim.setdefault(dim_id, {"total": 0, "invalid": 0, "rules": 0})
-                bucket["total"] += total
-                bucket["invalid"] += affected
-                bucket["rules"] += 1
-                if affected > 0 and doc in pending:
-                    pending[doc] += 1
+        agg = aggregate(runs, await load_check_metrics(runs), await load_rule_index())
+    pending = agg.pending
 
     # 3. Build DimensionScore list for the radar chart (12 dimensions).
     dims: list[DimensionScore] = []
     target = 95.0
-    measured_scores: list[float] = []
-    for dim_id in range(1, 13):
-        agg = by_dim.get(dim_id, {"total": 0, "invalid": 0, "rules": 0})
-        if agg["rules"] == 0:
+    for dim_id in R18_DIMENSIONS:
+        bucket = agg.by_dim.get(dim_id, {"total": 0, "invalid": 0, "rules": 0})
+        if bucket["rules"] == 0:
             # Sem regras vinculadas → não conta no overall e marca "sem_regras"
             score = 0.0
             status = "sem_regras"
         else:
-            score = round(100 * (agg["total"] - agg["invalid"]) / agg["total"], 2) if agg["total"] else 100.0
+            score = dimension_score(bucket)
             status = (
                 "conforme" if score >= target
                 else "atencao" if score >= target - 10
                 else "nao_conforme"
             )
-            measured_scores.append(score)
         dims.append(DimensionScore(
             id=dim_id,
             name=_R18_DIM_NAMES.get(dim_id, ""),
             score=score,
             status=status,
         ))
-    # 2 casas, não 1: com 10 dimensões em 100 e duas em 99,9/99,7 a média dá
-    # 99,96667, que em 1 casa virava 100,0 — índice cheio com violação aberta é
-    # o pior falso-negativo do painel. Vale para o score por dimensão também.
-    compliance = round(sum(measured_scores) / len(measured_scores), 2) if measured_scores else 0.0
+    compliance = compliance_index(agg) or 0.0
 
     days_left = _days_until_deadline()
     return DashboardKPIs(
